@@ -13,6 +13,7 @@
     settings: m.nav_settings, search: m.nav_search,
     trakt: () => 'Trakt',
     letterboxd: () => 'Letterboxd',
+    library: () => 'Library',
   }
 
   const bottom = $derived($effectiveNav.filter((c) => c.placement === 'bottom'))

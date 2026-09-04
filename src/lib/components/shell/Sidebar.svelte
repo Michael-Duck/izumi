@@ -8,8 +8,7 @@
   import Users from '@lucide/svelte/icons/users'
   import Settings from '@lucide/svelte/icons/settings'
   import VenetianMask from '@lucide/svelte/icons/venetian-mask'
-  import Activity from '@lucide/svelte/icons/activity'
-  import Film from '@lucide/svelte/icons/film'
+  import LibraryBig from '@lucide/svelte/icons/library-big'
   import LogIn from '@lucide/svelte/icons/log-in'
   import { goto } from '$app/navigation'
   import { anilistUserName, malUserName, anilistUserAvatar, malUserAvatar, malUser } from '$lib/trackers/config'
@@ -32,8 +31,7 @@
     { href: '/app/search', icon: Search, label: m.nav_search(), anim: 'group-hover:animate-[wiggle_0.4s_ease]' },
     { href: '/app/downloads', icon: Download, label: m.nav_downloads(), anim: 'group-hover:animate-[bounce-sm_0.4s_ease]' },
     { href: '/app/watch', icon: Users, label: m.nav_watch_together(), anim: 'group-hover:animate-[wiggle_0.4s_ease]' },
-    { href: '/app/trakt', icon: Activity, label: 'Trakt', anim: 'group-hover:animate-[pulse_0.5s_ease]' },
-    { href: '/app/letterboxd', icon: Film, label: 'Letterboxd', anim: 'group-hover:animate-[swing_0.5s_ease]' },
+    { href: '/app/library', icon: LibraryBig, label: 'Library', anim: '' },
   ]
   const accountName = $derived($anilistUserName || $malUserName || $traktUserName || $anilistUser || $malUser)
   const accountAvatar = $derived($anilistUserAvatar || $malUserAvatar || $traktUserAvatar)
@@ -70,7 +68,7 @@
   })
   // No active-item highlight while a video plays — the rail is inert then (you're in the player,
   // not browsing), so highlighting the page you launched from (e.g. Home) reads as "selected".
-  const active = (href: string) => !$playing && page.url.pathname.startsWith(href)
+  const active = (href: string) => !$playing && (page.url.pathname.startsWith(href) || href === '/app/library' && ['/app/trakt', '/app/letterboxd'].includes(page.url.pathname))
   // This component only mounts in the desktop shell. Automatic therefore makes the brand itself
   // the catalog trigger, while an explicit Below choice still gets its own rail row.
   const switcherPlacement = $derived(resolveCatalogSwitcherPlacement($catalogSwitcherPlacement, false))

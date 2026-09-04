@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 const read = (path: string) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8')
 
 describe('navigation destinations', () => {
-  it('uses Schedule as the only watchlist destination', () => {
+  it('shares watchlists with Library without restoring the obsolete mylist route', () => {
     const sidebar = read('./Sidebar.svelte')
     const nav = read('../../settings/nav.ts')
     const myListRoute = fileURLToPath(new URL('../../../routes/app/mylist/+page.svelte', import.meta.url))
@@ -24,15 +24,18 @@ describe('navigation destinations', () => {
   it('makes the native Trakt hub reachable on desktop and configurable on mobile', () => {
     const sidebar = read('./Sidebar.svelte')
     const nav = read('../../settings/nav.ts')
-    expect(sidebar).toContain("href: '/app/trakt'")
+    expect(sidebar).toContain("href: '/app/library'")
+    expect(sidebar).not.toContain("href: '/app/trakt'")
+    expect(read('../library/LibraryNav.svelte')).toContain("href: '/app/trakt'")
     expect(nav).toContain("trakt: { label: 'Trakt', href: '/app/trakt'")
-    expect(nav).toContain("{ id: 'trakt', placement: 'top' }")
+    expect(nav).toContain("{ id: 'trakt', placement: 'hidden' }")
   })
 
   it('makes the Letterboxd import and diary hub reachable without crowding the default mobile bar', () => {
     const sidebar = read('./Sidebar.svelte')
     const nav = read('../../settings/nav.ts')
-    expect(sidebar).toContain("href: '/app/letterboxd'")
+    expect(sidebar).not.toContain("href: '/app/letterboxd'")
+    expect(read('../library/LibraryNav.svelte')).toContain("href: '/app/letterboxd'")
     expect(nav).toContain("letterboxd: { label: 'Letterboxd', href: '/app/letterboxd'")
     expect(nav).toContain("{ id: 'letterboxd', placement: 'hidden' }")
   })

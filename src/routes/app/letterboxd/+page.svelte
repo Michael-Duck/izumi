@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LibraryNav from '$lib/components/library/LibraryNav.svelte'
   import { onDestroy, onMount } from 'svelte'
   import { openUrl } from '@tauri-apps/plugin-opener'
   import RefreshCw from '@lucide/svelte/icons/refresh-cw'
@@ -140,6 +141,8 @@
     return timestamp ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(timestamp) : 'Never'
   }
 </script>
+
+<LibraryNav />
 
 <svelte:head><title>Letterboxd · izumi</title></svelte:head>
 

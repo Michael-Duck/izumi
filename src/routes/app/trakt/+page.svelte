@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LibraryNav from '$lib/components/library/LibraryNav.svelte'
   import { onDestroy, onMount } from 'svelte'
   import { openUrl } from '@tauri-apps/plugin-opener'
   import RefreshCw from '@lucide/svelte/icons/refresh-cw'
@@ -81,6 +82,8 @@
     return data?.errors[section] ?? ''
   }
 </script>
+
+<LibraryNav />
 
 <svelte:head><title>Trakt · izumi</title></svelte:head>
 

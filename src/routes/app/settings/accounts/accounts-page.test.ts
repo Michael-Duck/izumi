@@ -5,6 +5,14 @@ import { describe, expect, it } from 'vitest'
 const source = readFileSync(fileURLToPath(new URL('./+page.svelte', import.meta.url)), 'utf8')
 
 describe('Accounts settings information architecture', () => {
+  it('separates sign-in, imports and automation with explicit sections', () => {
+    expect(source).toContain("let section = $state<AccountSection>('connections')")
+    expect(source).toContain("hidden={section !== 'connections'}")
+    expect(source).toContain("hidden={section !== 'libraries'}")
+    expect(source).toContain("hidden={section !== 'behaviour'}")
+    expect(source).toContain('href="/app/library"')
+    expect(source).toContain('Set up profiles')
+  })
   it('puts connected trackers before optional public profiles and sync behaviour', () => {
     const trackers = source.indexOf('title="Tracker accounts"')
     const stremio = source.indexOf('title="Stremio add-on sync"')

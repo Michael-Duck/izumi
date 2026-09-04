@@ -39,6 +39,15 @@
   import Link2 from '@lucide/svelte/icons/link-2'
   import RefreshCw from '@lucide/svelte/icons/refresh-cw'
   import ShieldCheck from '@lucide/svelte/icons/shield-check'
+  import { page } from '$app/state'
+  import { activeProfile, profilesEnabled } from '$lib/profiles/store'
+  import { profileAvatarUrl } from '$lib/profiles/avatars'
+  type AccountSection = 'connections' | 'libraries' | 'behaviour'
+  let section = $state<AccountSection>('connections')
+  $effect(() => {
+    const requested = page.url.searchParams.get('section')
+    if (requested === 'libraries' || requested === 'behaviour' || requested === 'connections') section = requested
+  })
 
   type PublicProfile = 'anilist' | 'mal'
 
@@ -365,9 +374,18 @@
   <span>{$trackerQueue.length} update{$trackerQueue.length === 1 ? '' : 's'} will retry automatically when the connection returns.</span>
 {/snippet}
 
-<div class="p-4 sm:p-8">
-  <h2 class="mb-1 text-xl font-black">Accounts</h2>
-  <p class="mb-5 max-w-2xl text-sm text-muted-foreground">Connect tracking and list services, choose optional public libraries, and control when progress is sent.</p>
+<div class="mx-auto max-w-4xl p-4 pb-24 sm:p-8">
+  <header class="mb-8 flex max-w-2xl flex-wrap items-center justify-between gap-4">
+    <div><h2 class="text-3xl font-bold tracking-tight">Accounts</h2><p class="mt-2 text-sm text-muted-foreground">{$profilesEnabled ? `Connections for ${$activeProfile.name}` : 'Your connected services, in one place.'}</p></div>
+    <a href="/app/settings/profiles" data-focusable class="flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-semibold text-muted-foreground hover:bg-secondary hover:text-foreground">{#if $profilesEnabled}<img src={profileAvatarUrl($activeProfile.avatar, $activeProfile.color)} alt="" class="size-8 rounded-lg" />Manage profiles{:else}Set up profiles{/if}</a>
+  </header>
+  <nav aria-label="Account settings sections" class="mb-7 flex max-w-2xl gap-5 overflow-x-auto border-b border-border">
+    {#each [{ id: 'connections', label: 'Connections' }, { id: 'libraries', label: 'Lists & imports' }, { id: 'behaviour', label: 'Sync behaviour' }] as item}
+      <button type="button" data-focusable aria-current={section === item.id ? 'page' : undefined} onclick={() => section = item.id as AccountSection} class="min-h-12 shrink-0 border-b-2 px-1 text-sm font-bold transition-colors {section === item.id ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}">{item.label}</button>
+    {/each}
+  </nav>
+  <div hidden={section !== 'connections'}>
+  <p class="mb-6 max-w-2xl text-sm leading-6 text-muted-foreground">Connect once to keep watching activity up to date. Sign-in credentials stay on this device; Cloudflare sync does not copy account tokens between people.</p>
 
   <SettingsGroup
     icon={Link2}
@@ -417,8 +435,6 @@
   </SettingsGroup>
 
   <TraktAccountSettings />
-
-  <LetterboxdAccountSettings />
 
   <SettingsGroup
     icon={Blocks}
@@ -488,6 +504,10 @@
     </SettingsRow>
   </SettingsGroup>
 
+  </div>
+  <div hidden={section !== 'libraries'}>
+  <p class="mb-6 max-w-2xl text-sm leading-6 text-muted-foreground">Bring in lists without adding more sidebar destinations. Browse everything in <a href="/app/library" class="font-bold text-foreground underline underline-offset-4">Library</a>, or choose which feeds appear on Home.</p>
+  <LetterboxdAccountSettings />
   <ListProviderAccounts />
 
   <SettingsGroup icon={Eye} title="Public libraries" desc="Browse a public AniList or MyAnimeList library without signing in. These profiles are never updated.">
@@ -532,6 +552,8 @@
     </SettingsRow>
   </SettingsGroup>
 
+  </div>
+  <div hidden={section !== 'behaviour'}>
   <SettingsGroup icon={RefreshCw} title="List behaviour" desc="Local list state works without an account and is mirrored to connected trackers.">
     <SettingsRow
       settingKey="automatically-add-watched-shows"
@@ -551,4 +573,6 @@
       <SettingsRow title="Pending tracker updates" leading={queueLeading} meta={queueMeta} />
     {/if}
   </SettingsGroup>
+  <p class="mt-6 max-w-2xl text-sm leading-6 text-muted-foreground">Looking for cross-device history and TV pairing? <a href="/app/settings/sync" class="font-bold text-foreground underline underline-offset-4">Open device sync</a>.</p>
+  </div>
 </div>
