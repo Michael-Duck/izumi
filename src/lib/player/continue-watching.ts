@@ -67,10 +67,16 @@ export const reconciledOnce = writable(false)
 // but not finished (resume lands on it), while `progress` is the completed count. Take the larger.
 const localProgress = (h: HistoryEntry) => Math.max(h.progress, h.episode - 1)
 
-function upsert(map: Map<number, CwEntry>, e: CwEntry) {
+function upsert(map: Map<number, CwEntry>, e: CwEntry, preferNewerProgress = false) {
   const cur = map.get(e.media.id)
   if (!cur) { map.set(e.media.id, { ...e }); return }
-  cur.progress = Math.max(cur.progress, e.progress)
+  // A newer local play is direct evidence of what the user intends to resume. Let it replace an
+  // older tracker/cache count even when that count is higher: trackers can contain future or stale
+  // progress (for example 24/24 while only episode 21 has aired), which would otherwise classify
+  // the title as caught up and hide a perfectly valid episode-21 resume. Older local history must
+  // not regress genuinely newer progress watched on another device.
+  const useIncomingProgress = preferNewerProgress && e.updatedAt >= cur.updatedAt
+  cur.progress = useIncomingProgress ? e.progress : Math.max(cur.progress, e.progress)
   cur.updatedAt = Math.max(cur.updatedAt, e.updatedAt)
   if (e.catalogSelection) cur.catalogSelection = e.catalogSelection
   // Keep the media already in the map: snapshot entries are inserted first and carry the
@@ -79,8 +85,9 @@ function upsert(map: Map<number, CwEntry>, e: CwEntry) {
 
 /**
  * PURE. The instant list: merge the persisted snapshot with live local history, dedupe by media id
- * (max progress, prefer the snapshot's reconciled media), fold in this session's freshly-watched
- * counts, hide caught-up shows, and order most-recent first. Runs synchronously — no network.
+ * (a newer local resume wins; otherwise max progress; prefer the snapshot's reconciled media), fold
+ * in this session's freshly-watched counts, hide caught-up shows, and order most-recent first. Runs
+ * synchronously — no network.
  */
 export function mergeInstant(
   snapshot: CwEntry[],
@@ -97,7 +104,7 @@ export function mergeInstant(
       updatedAt: h.updatedAt,
       source: 'local',
       catalogSelection: h.catalogSelection,
-    })
+    }, true)
   }
   for (const e of map.values()) {
     const s = session[e.media.id]

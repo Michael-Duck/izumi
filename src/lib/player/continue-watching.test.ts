@@ -74,6 +74,31 @@ describe('mergeInstant (instant paint)', () => {
     expect(out[0].progress).toBe(4)
   })
 
+  it('lets a newer unfinished local play override impossible future tracker progress', () => {
+    const releasing = media(1, {
+      status: 'RELEASING',
+      episodes: 24,
+      nextAiringEpisode: { episode: 22, airingAt: 2_000_000_000, timeUntilAiring: 1000 },
+    })
+    const snapshot = [{ media: releasing, progress: 24, updatedAt: 100, source: 'tracker' as const }]
+    const history = { 1: hist(1, { media: releasing, episode: 21, progress: 18, updatedAt: 200 }) }
+
+    const out = mergeInstant(snapshot, history, {})
+
+    expect(out).toHaveLength(1)
+    expect(out[0].progress).toBe(20)
+    // Reconcile copies the local edit time into the persisted snapshot. Equality must keep the
+    // local resume authoritative when that rebuilt snapshot flows back through the derived store.
+    expect(mergeInstant([{ ...snapshot[0], updatedAt: 200 }], history, {})[0].progress).toBe(20)
+  })
+
+  it('does not let older local history regress newer tracker progress', () => {
+    const snapshot = [entry(1, 10, 300)]
+    const history = { 1: hist(1, { episode: 5, progress: 4, updatedAt: 100 }) }
+
+    expect(mergeInstant(snapshot, history, {})[0].progress).toBe(10)
+  })
+
   it('does not recommend progress + 1 when a releasing MAL card has no airing data', () => {
     const unknown = media(1, {
       status: 'RELEASING',
