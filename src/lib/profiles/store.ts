@@ -21,6 +21,7 @@ export interface IzumiProfile {
 
 export interface ProfileState {
   profiles: IzumiProfile[]
+  enabled?: boolean
 }
 
 export const PROFILE_COLORS = ['#ef476f', '#2a9d8f', '#457b9d', '#e9a23b', '#8b5cf6', '#d97757'] as const
@@ -71,20 +72,25 @@ function cleanProfile(value: unknown): IzumiProfile | null {
   }
 }
 
-function normalizeState(value: unknown): ProfileState {
+export function normalizeProfileState(value: unknown): ProfileState {
   const raw = value && typeof value === 'object' ? value as Partial<ProfileState> : {}
   const profiles = Array.isArray(raw.profiles)
     ? raw.profiles.map(cleanProfile).filter((profile): profile is IzumiProfile => !!profile)
     : []
   if (!profiles.some((profile) => profile.id === DEFAULT_PROFILE_ID)) profiles.unshift(defaultProfile())
-  return { profiles: profiles.slice(0, 8) }
+  // Preserve households that were already deliberately configured; untouched installs stay simple.
+  const customized = profiles.length > 1 || profiles.some((profile) => profile.name !== 'Main profile' || profile.pin || profile.ratingLimit !== 18 || !profile.allowAdult)
+  return { profiles: profiles.slice(0, 8), enabled: raw.enabled ?? customized }
 }
 
-const storedProfiles = persisted<ProfileState>(PROFILES_KEY, { profiles: [defaultProfile()] })
+const normalizeState = normalizeProfileState
+
+const storedProfiles = persisted<ProfileState>(PROFILES_KEY, { profiles: [defaultProfile()], enabled: false })
 const normalizedInitial = normalizeState(get(storedProfiles))
 if (JSON.stringify(normalizedInitial) !== JSON.stringify(get(storedProfiles))) storedProfiles.set(normalizedInitial)
 
 export const profiles: Readable<IzumiProfile[]> = derived(storedProfiles, ($state) => normalizeState($state).profiles)
+export const profilesEnabled = derived(storedProfiles, ($state) => normalizeState($state).enabled === true)
 export const activeProfileId = persisted<string>(ACTIVE_PROFILE_KEY, storedActiveProfileId())
 export const activeProfile: Readable<IzumiProfile> = derived(
   [profiles, activeProfileId],
@@ -117,7 +123,7 @@ export function createProfile(input: Pick<IzumiProfile, 'name' | 'color' | 'rati
   storedProfiles.update((state) => {
     const current = normalizeState(state)
     if (current.profiles.length >= 8) return current
-    return { profiles: [...current.profiles, {
+    return { ...current, enabled: true, profiles: [...current.profiles, {
       id,
       name: input.name.trim().slice(0, 32) || 'Profile',
       color: /^#[0-9a-f]{6}$/i.test(input.color) ? input.color : PROFILE_COLORS[current.profiles.length % PROFILE_COLORS.length],
@@ -131,6 +137,7 @@ export function createProfile(input: Pick<IzumiProfile, 'name' | 'color' | 'rati
 
 export function updateProfile(id: string, patch: Partial<Pick<IzumiProfile, 'name' | 'color' | 'ratingLimit' | 'allowAdult'>>): void {
   storedProfiles.update((state) => ({
+    ...state, enabled: true,
     profiles: normalizeState(state).profiles.map((profile) => {
       if (profile.id !== id) return profile
       const ratingLimit = patch.ratingLimit ?? profile.ratingLimit
@@ -172,6 +179,7 @@ export async function setProfilePin(id: string, pin: string | null): Promise<voi
     record = { salt, hash: await hashPin(pin, salt) }
   }
   storedProfiles.update((state) => ({
+    ...state,
     profiles: normalizeState(state).profiles.map((profile) => profile.id === id ? { ...profile, pin: record } : profile),
   }))
   if (id === get(activeProfileId)) rememberUnlocked(id)
@@ -210,7 +218,7 @@ export async function deleteProfile(id: string, pin = ''): Promise<boolean> {
   if (id === DEFAULT_PROFILE_ID || id === get(activeProfileId)) return false
   const profile = get(profiles).find((candidate) => candidate.id === id)
   if (!profile || !(await verifyProfilePin(profile, pin))) return false
-  storedProfiles.update((state) => ({ profiles: normalizeState(state).profiles.filter((candidate) => candidate.id !== id) }))
+  storedProfiles.update((state) => ({ ...state, profiles: normalizeState(state).profiles.filter((candidate) => candidate.id !== id) }))
   const storage = safeStorage()
   if (storage) {
     const prefix = `${PROFILE_KEY_PREFIX}:${id}:`
@@ -220,4 +228,12 @@ export async function deleteProfile(id: string, pin = ''): Promise<boolean> {
     }
   }
   return true
+}
+
+/** Disabling never deletes a household or its data, and requires the main profile's PIN. */
+export async function disableProfiles(pin = ''): Promise<boolean> {
+  const main = get(profiles).find((profile) => profile.id === DEFAULT_PROFILE_ID)!
+  if (!(await verifyProfilePin(main, pin))) return false
+  storedProfiles.update((state) => ({ ...state, enabled: false }))
+  return activateProfile(DEFAULT_PROFILE_ID, pin)
 }
