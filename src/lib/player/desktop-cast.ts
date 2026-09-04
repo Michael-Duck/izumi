@@ -23,13 +23,13 @@ export interface DesktopCastDevice {
   manufacturer?: string
   address: string
   port: number
-  protocol: 'googleCast' | 'dlna' | 'tizenReceiver' | 'airplay'
+  protocol: 'googleCast' | 'dlna' | 'roku' | 'tizenReceiver' | 'airplay'
 }
 
 export interface DesktopCastSession {
   deviceId: string
   deviceName: string
-  backend: 'googleCast' | 'dlna' | 'tizenReceiver' | 'airplay'
+  backend: 'googleCast' | 'dlna' | 'roku' | 'tizenReceiver' | 'airplay'
   /** Playback identity prevents a surviving cast from writing its clock into a newly opened item. */
   mediaId?: number | null
   episode?: number | null

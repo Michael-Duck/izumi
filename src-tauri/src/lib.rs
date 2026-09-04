@@ -48,6 +48,8 @@ mod home_theatre;
 #[cfg(not(target_os = "android"))]
 mod player;
 #[cfg(not(target_os = "android"))]
+mod roku_cast;
+#[cfg(not(target_os = "android"))]
 mod subsync;
 // Steam Deck on-screen keyboard via Steamworks (Linux/Game mode); no-op elsewhere.
 #[cfg(target_os = "linux")]

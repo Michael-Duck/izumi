@@ -31,7 +31,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use url::Url;
 
-use crate::dlna_cast::{self, DlnaDevice, DlnaSubtitle};
+use crate::{
+    dlna_cast::{self, DlnaDevice, DlnaSubtitle},
+    roku_cast::{self, RokuDevice, RokuLaunch, RokuSubtitle},
+};
 
 const CAST_SERVICE: &str = "_googlecast._tcp.local.";
 const SENDER_ID: &str = "sender-0";
@@ -57,6 +60,7 @@ type CastManager = Rc<MessageManager<CastIo>>;
 pub enum DesktopCastProtocol {
     GoogleCast,
     Dlna,
+    Roku,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -71,6 +75,8 @@ pub struct DesktopCastDevice {
     protocol: DesktopCastProtocol,
     #[serde(skip)]
     dlna: Option<DlnaDevice>,
+    #[serde(skip)]
+    roku: Option<RokuDevice>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -95,6 +101,9 @@ enum ActiveCastBackend {
         media_session_id: i32,
     },
     Dlna {
+        request: DesktopCastStartRequest,
+    },
+    Roku {
         request: DesktopCastStartRequest,
     },
 }
@@ -190,34 +199,38 @@ pub async fn desktop_cast_discover(
     let wait = Duration::from_millis(request.wait_ms.clamp(100, MAX_DISCOVERY_MS));
     let google = tauri::async_runtime::spawn_blocking(move || discover_google_devices(wait));
     let dlna = dlna_cast::discover(wait);
-    let (google, dlna) = tokio::join!(google, dlna);
+    let roku = roku_cast::discover(wait);
+    let (google, dlna, roku) = tokio::join!(google, dlna, roku);
     let google = google.map_err(|error| format!("Cast discovery stopped unexpectedly: {error}"))?;
-    let mut discovered = match (google, dlna) {
-        (Ok(google), Ok(dlna)) => {
-            let google_addresses = google
-                .iter()
-                .map(|device| device.address)
-                .collect::<Vec<_>>();
-            let mut devices = google;
-            devices.extend(dlna.into_iter().filter_map(|device| {
-                (!google_addresses.contains(&device.address)).then(|| dlna_device(device))
-            }));
-            devices
+    let mut discovered = Vec::new();
+    let mut richer_addresses = Vec::new();
+    let mut failures = Vec::new();
+    match google {
+        Ok(devices) => {
+            richer_addresses.extend(devices.iter().map(|device| device.address));
+            discovered.extend(devices);
         }
-        (Ok(google), Err(error)) => {
-            eprintln!("DLNA discovery unavailable: {error}");
-            google
+        Err(error) => failures.push(format!("Google Cast: {error}")),
+    }
+    match roku {
+        Ok(devices) => {
+            richer_addresses.extend(devices.iter().map(|device| device.address));
+            discovered.extend(devices.into_iter().map(roku_device));
         }
-        (Err(error), Ok(dlna)) => {
-            eprintln!("Google Cast discovery unavailable: {error}");
-            dlna.into_iter().map(dlna_device).collect()
-        }
-        (Err(google), Err(dlna)) => {
-            return Err(format!(
-                "TV discovery failed (Google Cast: {google}; DLNA: {dlna})"
-            ));
-        }
-    };
+        Err(error) => failures.push(format!("Roku: {error}")),
+    }
+    match dlna {
+        Ok(devices) => discovered.extend(devices.into_iter().filter_map(|device| {
+            (!richer_addresses.contains(&device.address)).then(|| dlna_device(device))
+        })),
+        Err(error) => failures.push(format!("DLNA: {error}")),
+    }
+    if failures.len() == 3 {
+        return Err(format!("TV discovery failed ({})", failures.join("; ")));
+    }
+    for failure in failures {
+        eprintln!("TV discovery provider unavailable: {failure}");
+    }
     discovered.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
     let mut cache = state
@@ -420,6 +433,23 @@ pub async fn desktop_cast_start(
             .await?;
             ActiveCastBackend::Dlna { request }
         }
+        DesktopCastProtocol::Roku => {
+            let roku = device.roku.as_ref().ok_or_else(|| {
+                "That Roku receiver is no longer available; scan again".to_string()
+            })?;
+            roku_cast::start(
+                roku,
+                RokuLaunch {
+                    url: &request.url,
+                    title: request.title.as_deref().unwrap_or("Izumi"),
+                    content_type: &request.content_type,
+                    position_seconds: request.position_seconds,
+                    subtitle: selected_roku_subtitle(&request, &request.active_track_ids),
+                },
+            )
+            .await?;
+            ActiveCastBackend::Roku { request }
+        }
     };
 
     let session = ActiveCast {
@@ -460,6 +490,14 @@ pub async fn desktop_cast_status(
             Ok(dlna_status(
                 dlna_cast::status(device, include_rendering.unwrap_or(true)).await?,
             ))
+        }
+        ActiveCastBackend::Roku { .. } => {
+            let device = active
+                .device
+                .roku
+                .as_ref()
+                .ok_or_else(|| "The Roku receiver is no longer available".to_string())?;
+            Ok(roku_status(roku_cast::status(device).await?))
         }
     }
 }
@@ -515,6 +553,27 @@ pub async fn desktop_cast_control(
                 .await?,
             ))
         }
+        ActiveCastBackend::Roku {
+            request: start_request,
+        } => {
+            let device = active
+                .device
+                .roku
+                .as_ref()
+                .ok_or_else(|| "The Roku receiver is no longer available".to_string())?;
+            let subtitle = (request.action == "tracks")
+                .then(|| {
+                    selected_roku_subtitle(
+                        start_request,
+                        request.active_track_ids.as_deref().unwrap_or_default(),
+                    )
+                })
+                .flatten();
+            Ok(roku_status(
+                roku_cast::control(device, &request.action, request.position_seconds, subtitle)
+                    .await?,
+            ))
+        }
     }
 }
 
@@ -556,6 +615,16 @@ pub async fn desktop_cast_stop(state: tauri::State<'_, DesktopCastState>) -> Res
                 eprintln!("DLNA receiver was already stopped or unavailable: {error}");
             }
         }
+        ActiveCastBackend::Roku { .. } => {
+            let device = active
+                .device
+                .roku
+                .as_ref()
+                .ok_or_else(|| "The Roku receiver is no longer available".to_string())?;
+            if let Err(error) = roku_cast::stop(device).await {
+                eprintln!("Roku receiver was already stopped or unavailable: {error}");
+            }
+        }
     }
 
     let mut slot = state
@@ -581,6 +650,16 @@ fn dlna_status(status: dlna_cast::DlnaStatus) -> DesktopCastStatus {
     }
 }
 
+fn roku_status(status: roku_cast::RokuStatus) -> DesktopCastStatus {
+    DesktopCastStatus {
+        state: status.state.to_string(),
+        position_seconds: status.position_seconds,
+        duration_seconds: status.duration_seconds,
+        volume: None,
+        muted: None,
+    }
+}
+
 fn selected_dlna_subtitle<'a>(
     request: &'a DesktopCastStartRequest,
     active_track_ids: &[u32],
@@ -595,6 +674,19 @@ fn selected_dlna_subtitle<'a>(
             track_id,
             url: &subtitle.url,
         })
+}
+
+fn selected_roku_subtitle<'a>(
+    request: &'a DesktopCastStartRequest,
+    active_track_ids: &[u32],
+) -> Option<RokuSubtitle<'a>> {
+    let track_id = *active_track_ids.first()?;
+    let subtitle = request.subtitles.get(track_id.checked_sub(1)? as usize)?;
+    Some(RokuSubtitle {
+        url: &subtitle.url,
+        title: subtitle.title.as_deref(),
+        lang: subtitle.lang.as_deref(),
+    })
 }
 
 fn discover_google_devices(wait: Duration) -> Result<Vec<DesktopCastDevice>, String> {
@@ -636,6 +728,7 @@ fn discover_google_devices(wait: Duration) -> Result<Vec<DesktopCastDevice>, Str
                         port,
                         protocol: DesktopCastProtocol::GoogleCast,
                         dlna: None,
+                        roku: None,
                     },
                 );
             }
@@ -659,6 +752,21 @@ fn dlna_device(device: DlnaDevice) -> DesktopCastDevice {
         port: device.port,
         protocol: DesktopCastProtocol::Dlna,
         dlna: Some(device),
+        roku: None,
+    }
+}
+
+fn roku_device(device: RokuDevice) -> DesktopCastDevice {
+    DesktopCastDevice {
+        id: device.id.clone(),
+        name: device.name.clone(),
+        model: device.model.clone(),
+        manufacturer: Some("Roku".into()),
+        address: device.address,
+        port: device.port,
+        protocol: DesktopCastProtocol::Roku,
+        dlna: None,
+        roku: Some(device),
     }
 }
 

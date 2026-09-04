@@ -126,7 +126,8 @@
       // A discovered Companion may be installed but closed. Its Application connection below
       // launches it, so preserve receiver-only subtitle formats during source preparation.
       const receiverAvailable = device.protocol === 'tizenReceiver' || await hasTizenReceiver(device)
-      const castSource = receiverAvailable ? tvCastSource(source, tracks) : source
+      const dedicatedReceiver = receiverAvailable || device.protocol === 'roku'
+      const castSource = dedicatedReceiver ? tvCastSource(source, tracks) : source
       const target = device.protocol === 'googleCast' ? 'googleCast' : device.protocol === 'airplay' ? 'airplay' : 'tv'
       const decision = castSourceDecision(castSource, tracks, fileFormat, target)
       if (!decision.ok) throw new Error(decision.error)
@@ -157,7 +158,7 @@
         // Give the DLNA fallback a stable LAN HTTP URL. Izumi Companion receives the original
         // source and streams it on the TV; cast_prepare_source still bridges individual resources
         // that are loopback-only or require request headers.
-        forceRelay: device.protocol === 'dlna' && !receiverAvailable,
+        forceRelay: device.protocol === 'roku' || device.protocol === 'dlna' && !receiverAvailable,
         contentType: receiverContentType,
         subtitleDelivery: receiverAvailable ? 'tizenReceiver' : samsungDlnaSubtitles ? 'samsungDlna' : 'web',
       })
@@ -365,6 +366,8 @@
               <span class="block truncate text-xs text-white/40">
                 {device.protocol === 'tizenReceiver'
                   ? `${device.model ?? 'Samsung TV'} · Companion receiver`
+                  : device.protocol === 'roku'
+                    ? `${device.model ?? 'Roku'} · Izumi receiver`
                   : device.protocol === 'dlna'
                   ? `${device.model ?? device.manufacturer ?? 'Smart TV'} · ${/samsung/i.test(`${device.manufacturer ?? ''} ${device.name}`) ? 'Izumi receiver / DLNA' : 'DLNA'}`
                   : device.protocol === 'airplay'
