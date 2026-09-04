@@ -1,171 +1,250 @@
 <script lang="ts">
-  import Check from '@lucide/svelte/icons/check'
-  import LockKeyhole from '@lucide/svelte/icons/lock-keyhole'
+  import { tick } from 'svelte'
+  import { goto } from '$app/navigation'
+  import ArrowLeft from '@lucide/svelte/icons/arrow-left'
   import Pencil from '@lucide/svelte/icons/pencil'
   import Plus from '@lucide/svelte/icons/plus'
-  import Trash2 from '@lucide/svelte/icons/trash-2'
-  import Users from '@lucide/svelte/icons/users'
-  import {
-    PROFILE_COLORS,
-    activeProfileId,
-    createProfile,
-    deleteProfile,
-    profiles,
-    setProfilePin,
-    updateProfile,
-    verifyProfilePin,
-    type IzumiProfile,
-    type ProfileRatingLimit,
-  } from '$lib/profiles/store'
+  import LockKeyhole from '@lucide/svelte/icons/lock-keyhole'
+  import Check from '@lucide/svelte/icons/check'
+  import { PROFILE_AVATARS, profileAvatarUrl, validAvatar, type ProfileAvatarId } from '$lib/profiles/avatars'
+  import { DEFAULT_PROFILE_ID, PROFILE_COLORS, activeProfileId, createProfile, deleteProfile, disableProfiles, profiles, profilesEnabled, setProfilePin, updateProfile, verifyProfilePin, type IzumiProfile, type ProfileRatingLimit } from '$lib/profiles/store'
 
+  type Screen = 'overview' | 'edit' | 'avatars' | 'delete' | 'gate' | 'disable'
+  let screen = $state<Screen>('overview')
   let editing = $state<IzumiProfile | null>(null)
-  let creating = $state(false)
   let name = $state('')
   let color = $state<string>(PROFILE_COLORS[0])
+  let avatar = $state<ProfileAvatarId>('fox')
   let ratingLimit = $state<ProfileRatingLimit>(18)
   let allowAdult = $state(false)
   let currentPin = $state('')
   let newPin = $state('')
   let confirmPin = $state('')
+  let removeLock = $state(false)
   let error = $state('')
   let notice = $state('')
   let busy = $state(false)
+  let managementAuthorized = $state(false)
+  let mainPin = $state('')
+  let panel = $state<HTMLElement>()
+  const main = $derived($profiles.find((profile) => profile.id === DEFAULT_PROFILE_ID)!)
+  const title = $derived(screen === 'avatars' ? 'Choose an avatar' : screen === 'delete' ? 'Delete profile?' : screen === 'disable' ? 'Turn off profiles?' : screen === 'gate' ? 'Manage profiles' : screen === 'edit' ? editing ? 'Edit profile' : 'Add profile' : $profilesEnabled ? 'Manage profiles' : 'Make room for everyone')
 
-  function beginCreate() {
-    editing = null
-    creating = true
-    name = ''
-    color = PROFILE_COLORS[$profiles.length % PROFILE_COLORS.length]
-    ratingLimit = 12
-    allowAdult = false
-    currentPin = newPin = confirmPin = error = notice = ''
+  async function focusScreen() {
+    await tick()
+    panel?.querySelector<HTMLElement>('input, button[data-first]')?.focus()
   }
-
-  function beginEdit(profile: IzumiProfile) {
+  function begin(profile: IzumiProfile | null) {
     editing = profile
-    creating = false
-    name = profile.name
-    color = profile.color
-    ratingLimit = profile.ratingLimit
-    allowAdult = profile.allowAdult
-    currentPin = newPin = confirmPin = error = notice = ''
+    name = profile?.name === 'Main profile' && !$profilesEnabled ? '' : profile?.name ?? ''
+    color = profile?.color ?? PROFILE_COLORS[$profiles.length % PROFILE_COLORS.length]
+    avatar = validAvatar(profile?.avatar ?? PROFILE_AVATARS[$profiles.length % PROFILE_AVATARS.length])
+    ratingLimit = profile?.ratingLimit ?? 12
+    allowAdult = profile?.allowAdult ?? false
+    currentPin = newPin = confirmPin = error = ''
+    removeLock = false
+    screen = main.pin && !managementAuthorized ? 'gate' : 'edit'
+    void focusScreen()
   }
-
-  function cancel() {
-    editing = null
-    creating = false
-    error = notice = ''
-  }
-
-  async function authorized(profile: IzumiProfile): Promise<boolean> {
-    if (!profile.pin || profile.id === $activeProfileId) return true
-    if (await verifyProfilePin(profile, currentPin)) return true
-    error = 'Enter this profile’s current PIN to change it.'
-    return false
-  }
-
-  async function save() {
-    error = ''
-    notice = ''
-    const cleanName = name.trim()
-    if (!cleanName) { error = 'Give the profile a name.'; return }
-    if (newPin && newPin !== confirmPin) { error = 'The new PIN entries do not match.'; return }
-    if (newPin && !/^\d{4,6}$/.test(newPin)) { error = 'Use a 4 to 6 digit PIN.'; return }
+  async function authorizeManagement() {
+    if (busy) return
     busy = true
     try {
-      if (creating) {
-        const id = createProfile({ name: cleanName, color, ratingLimit, allowAdult })
-        if (newPin) await setProfilePin(id, newPin)
-        notice = `${cleanName} was created.`
-      } else if (editing) {
-        if (!(await authorized(editing))) return
-        updateProfile(editing.id, { name: cleanName, color, ratingLimit, allowAdult })
-        if (newPin) await setProfilePin(editing.id, newPin)
-        notice = `${cleanName} was updated.`
-      }
-      editing = null
-      creating = false
-      currentPin = newPin = confirmPin = ''
-    } finally { busy = false }
+      if (!(await verifyProfilePin(main, mainPin))) { error = 'That PIN didn’t match.'; return }
+      managementAuthorized = true
+      if (editing?.id === main.id) currentPin = mainPin
+      mainPin = ''; error = ''; screen = 'edit'; void focusScreen()
+    } catch { error = 'Could not verify your PIN. Please try again.' }
+    finally { busy = false }
   }
-
-  async function removePin() {
-    if (!editing?.pin || !(await authorized(editing))) return
-    busy = true
-    await setProfilePin(editing.id, null)
-    editing = { ...editing, pin: undefined }
-    currentPin = ''
-    notice = 'PIN removed.'
-    busy = false
-  }
-
-  async function remove(profile: IzumiProfile) {
+  function back() {
+    if (busy) return
     error = ''
-    if (profile.id === $activeProfileId) { error = 'Switch profiles before deleting the active one.'; return }
+    if (screen === 'avatars' || screen === 'delete') screen = 'edit'
+    else if (screen !== 'overview') { screen = 'overview'; currentPin = newPin = confirmPin = mainPin = '' }
+    else void goto('/app/settings/accounts')
+  }
+  async function authorizedTarget() {
+    if (!editing?.pin || (editing.id === main.id && managementAuthorized)) return true
+    if (await verifyProfilePin(editing, currentPin)) return true
+    error = 'Enter this profile’s current PIN to make changes.'
+    return false
+  }
+  async function save() {
+    if (busy) return
+    error = ''
+    if (!name.trim()) { error = 'Give this profile a name.'; return }
+    if (newPin && (!/^\d{4,6}$/.test(newPin) || newPin !== confirmPin)) { error = 'Enter the same 4–6 digit PIN in both fields.'; return }
     busy = true
-    const ok = await deleteProfile(profile.id, currentPin)
-    busy = false
-    if (!ok) { error = profile.pin ? 'Enter the profile PIN before deleting it.' : 'This profile cannot be deleted.'; return }
-    editing = null
-    currentPin = ''
-    notice = `${profile.name} and its on-device profile data were deleted.`
+    try {
+      if (!(await authorizedTarget())) return
+      const input = { name, color, avatar, ratingLimit, allowAdult }
+      const id = editing?.id ?? createProfile(input)
+      if (editing) updateProfile(id, input)
+      if (newPin) await setProfilePin(id, newPin)
+      else if (removeLock) await setProfilePin(id, null)
+      notice = editing ? 'Profile saved.' : 'Profile created.'
+      screen = 'overview'; currentPin = newPin = confirmPin = ''
+    } catch (cause) { error = cause instanceof Error ? cause.message : 'Could not save this profile.' }
+    finally { busy = false }
+  }
+  async function remove() {
+    if (!editing || busy) return
+    busy = true; error = ''
+    try {
+      if (!(await deleteProfile(editing.id, currentPin))) { error = 'Check the profile PIN. Switch away from this profile before deleting it.'; return }
+      notice = 'Profile and its on-device data deleted.'
+      screen = 'overview'; editing = null
+    } catch { error = 'Could not delete this profile.' }
+    finally { busy = false }
+  }
+  async function turnOff() {
+    if (busy) return
+    busy = true; error = ''
+    try { if (!(await disableProfiles(mainPin))) error = 'That main profile PIN didn’t match.' }
+    catch { error = 'Could not turn off profiles.' }
+    finally { busy = false }
   }
 </script>
 
-<div class="mx-auto max-w-5xl p-4 pb-24 sm:p-8">
-  <header class="mb-7 flex flex-wrap items-end justify-between gap-4">
-    <div>
-      <p class="text-xs font-bold tracking-[0.16em] text-theme">HOUSEHOLD</p>
-      <h2 class="mt-1 text-3xl font-black tracking-tight">Profiles</h2>
-      <p class="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Each profile has separate history, progress, watchlists, recommendations and account connections. A PIN protects entry; the rating limit filters playback and adult discovery.</p>
-    </div>
-    <button type="button" data-focusable onclick={beginCreate} disabled={$profiles.length >= 8 || busy} class="inline-flex min-h-11 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-black text-primary-foreground transition active:scale-[0.98] disabled:opacity-40"><Plus size={18} /> Add profile</button>
-  </header>
+<svelte:window onkeydown={(event) => { if (event.key === 'Escape') { event.preventDefault(); back() } }} />
+<section bind:this={panel} class="profile-manager fixed inset-0 z-[85] overflow-y-auto bg-background px-6 pb-16 pt-12 sm:px-12" data-nav-trap aria-labelledby="manage-heading">
+  <button type="button" data-focusable onclick={back} aria-label="Back" class="back-button"><ArrowLeft size={24} /></button>
+  <div class:overview={screen === 'overview'} class="profile-content">
+    <header>
+      <p class="wordmark">izumi</p>
+      <h1 id="manage-heading">{title}</h1>
+      {#if screen === 'overview' && !$profilesEnabled}
+        <p class="intro">A space for each person, with their own watchlist, history and account connections. Profiles are optional. Your existing library stays with you.</p>
+      {/if}
+    </header>
+    {#if notice && screen === 'overview'}<p role="status" class="notice">{notice}</p>{/if}
+    {#if error}<p role="alert" class="error">{error}</p>{/if}
 
-  {#if notice}<p role="status" class="mb-4 rounded-xl bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">{notice}</p>{/if}
-  {#if error}<p role="alert" class="mb-4 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</p>{/if}
+    {#if screen === 'overview'}
+      {#if $profilesEnabled}
+        <div class="profile-grid">
+          {#each $profiles as profile (profile.id)}
+            <button type="button" data-focusable data-first onclick={() => begin(profile)} class="portrait-button" aria-label={'Edit ' + profile.name}>
+              <span class="portrait"><img src={profileAvatarUrl(profile.avatar, profile.color)} alt="" /><span class="edit-badge"><Pencil size={18} /></span></span>
+              <span class="profile-name">{profile.name}</span>
+              {#if profile.pin}<LockKeyhole size={15} class="mx-auto mt-2 text-muted-foreground" />{/if}
+            </button>
+          {/each}
+          {#if $profiles.length < 8}<button type="button" data-focusable onclick={() => begin(null)} class="portrait-button"><span class="portrait add"><Plus size={40} /></span><span class="profile-name">Add profile</span></button>{/if}
+        </div>
+        <div class="overview-actions"><button type="button" data-focusable class="primary" onclick={() => goto('/app/home')}>Done</button><button type="button" data-focusable class="quiet" onclick={() => { screen = 'disable'; mainPin = ''; error = ''; void focusScreen() }}>Turn off profiles</button></div>
+      {:else}
+        <div class="welcome-portraits" aria-hidden="true">{#each ['fox', 'bear', 'owl'] as face, index}<img src={profileAvatarUrl(face, PROFILE_COLORS[index])} alt="" />{/each}</div>
+        <button type="button" data-focusable data-first class="primary" onclick={() => begin(main)}>Set up profiles</button>
+        <p class="footnote">Nothing changes until you save your first profile.</p>
+      {/if}
+    {:else if screen === 'gate'}
+      <form onsubmit={(event) => { event.preventDefault(); void authorizeManagement() }} class="pin-form">
+        <img src={profileAvatarUrl(main.avatar, main.color)} alt="" class="pin-avatar" />
+        <label for="management-pin">Enter {main.name}’s PIN to manage this household.</label>
+        <input id="management-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="off" bind:value={mainPin} data-focusable />
+        <button type="submit" disabled={busy || mainPin.length < 4} data-focusable class="primary">{busy ? 'Checking…' : 'Continue'}</button>
+      </form>
+    {:else if screen === 'avatars'}
+      <p class="intro">Choose a character, then make it your own with a colour.</p>
+      <div class="avatar-grid">{#each PROFILE_AVATARS as choice}<button type="button" data-focusable aria-label={choice} aria-pressed={avatar === choice} class:chosen={avatar === choice} onclick={() => { avatar = choice; screen = 'edit' }}><img src={profileAvatarUrl(choice, color)} alt="" /><span>{choice}</span></button>{/each}</div>
+    {:else if screen === 'delete'}
+      <div class="confirmation">
+        <img src={profileAvatarUrl(avatar, color)} alt="" />
+        <p>Delete <strong>{editing?.name}</strong> and their on-device history, watchlist and connections? This can’t be undone. Other profiles won’t be affected.</p>
+      </div>
+      <div class="form-actions"><button type="button" data-focusable data-first class="primary" onclick={back}>Keep profile</button><button type="button" data-focusable class="danger" disabled={busy} onclick={remove}>{busy ? 'Deleting…' : 'Delete profile'}</button></div>
+    {:else if screen === 'disable'}
+      <p class="intro">Return to {main.name} and the normal account button. Your other profiles and their data are kept, ready to use again.</p>
+      <form onsubmit={(event) => { event.preventDefault(); void turnOff() }} class="pin-form">
+        {#if main.pin}<label for="disable-pin">Main profile PIN</label><input id="disable-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="off" bind:value={mainPin} data-focusable />{/if}
+        <button type="submit" data-focusable data-first disabled={busy} class="primary">Turn off profiles</button>
+      </form>
+    {:else}
+      <form onsubmit={(event) => { event.preventDefault(); void save() }} class="edit-form">
+        <div class="identity-row">
+          <button type="button" data-focusable onclick={() => { screen = 'avatars'; void focusScreen() }} class="edit-avatar" aria-label="Choose an avatar"><img src={profileAvatarUrl(avatar, color)} alt="" /><span><Pencil size={16} /> Change</span></button>
+          <div class="identity-fields"><label for="profile-name">Profile name</label><input id="profile-name" bind:value={name} maxlength="32" autocomplete="off" placeholder="Your name" data-focusable />
+            <fieldset><legend>Colour</legend><div class="colours">{#each PROFILE_COLORS as choice}<button type="button" data-focusable aria-label={'Use colour ' + choice} aria-pressed={color === choice} onclick={() => color = choice} style:background={choice}>{#if color === choice}<Check size={18} />{/if}</button>{/each}</div></fieldset>
+          </div>
+        </div>
+        <section class="form-section"><h2>Viewing restrictions</h2><label for="rating-limit">Maximum content age</label><select id="rating-limit" bind:value={ratingLimit} data-focusable><option value={7}>7 and under</option><option value={12}>12 and under</option><option value={16}>16 and under</option><option value={18}>18 and under</option></select>
+          <label class="check-row"><input type="checkbox" bind:checked={allowAdult} disabled={ratingLimit !== 18} data-focusable />Allow explicitly marked adult titles</label>
+          <p class="hint">Titles with recognised ratings above this limit are blocked. Unrated titles can still appear.</p>
+        </section>
+        <section class="form-section"><h2>Profile lock</h2>
+          <p class="hint">{editing?.id === DEFAULT_PROFILE_ID ? 'A PIN on the main profile also protects household management.' : 'Require a PIN before opening this profile.'}</p>
+          {#if editing?.pin && !(editing.id === main.id && managementAuthorized)}<label for="current-pin">Current PIN</label><input id="current-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="off" bind:value={currentPin} data-focusable />{/if}
+          <div class="pin-fields"><label>New PIN (optional)<input type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" bind:value={newPin} data-focusable /></label><label>Confirm PIN<input type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" bind:value={confirmPin} data-focusable /></label></div>
+          {#if editing?.pin}<label class="check-row"><input type="checkbox" bind:checked={removeLock} data-focusable />Remove existing PIN on save</label>{/if}
+          <p class="hint">Use 4–6 digits. This is a household lock, not encryption of this device.</p>
+        </section>
+        <div class="form-actions"><button type="submit" disabled={busy} data-focusable class="primary">{busy ? 'Saving…' : !$profilesEnabled ? 'Enable profiles' : 'Save'}</button><button type="button" data-focusable class="quiet" onclick={back}>Cancel</button>
+          {#if editing && editing.id !== DEFAULT_PROFILE_ID}<button type="button" disabled={editing.id === $activeProfileId || busy} data-focusable class="danger ml-auto" onclick={async () => { if (await authorizedTarget()) { screen = 'delete'; void focusScreen() } }}>Delete profile</button>{/if}
+        </div>
+        {#if editing?.id === $activeProfileId && editing.id !== DEFAULT_PROFILE_ID}<p class="hint">Switch to another profile before deleting this one.</p>{/if}
+      </form>
+    {/if}
+  </div>
+</section>
 
-  <section aria-label="Household profiles" class="grid gap-3 md:grid-cols-2">
-    {#each $profiles as profile (profile.id)}
-      <article class="flex items-center gap-4 rounded-2xl bg-secondary/45 p-4 transition hover:bg-secondary/65">
-        <div class="grid size-16 shrink-0 place-items-center rounded-2xl text-2xl font-black text-white shadow-lg" style={`background:${profile.color}`}>{profile.name.charAt(0).toUpperCase()}</div>
-        <div class="min-w-0 flex-1">
-          <div class="flex items-center gap-2"><h3 class="truncate text-lg font-black">{profile.name}</h3>{#if profile.id === $activeProfileId}<span class="inline-flex items-center gap-1 text-[0.68rem] font-bold text-theme"><Check size={12} /> active</span>{/if}</div>
-          <p class="mt-1 text-xs text-muted-foreground">Up to age {profile.ratingLimit} · {profile.allowAdult ? 'adult discovery allowed' : 'adult discovery blocked'} · {profile.pin ? 'PIN protected' : 'no PIN'}</p>
-        </div>
-        <button type="button" data-focusable onclick={() => beginEdit(profile)} aria-label={`Edit ${profile.name}`} class="grid size-10 shrink-0 place-items-center rounded-xl text-muted-foreground transition hover:bg-accent hover:text-foreground"><Pencil size={17} /></button>
-      </article>
-    {/each}
-  </section>
-
-  {#if creating || editing}
-    <section class="mt-6 overflow-hidden rounded-2xl border border-border bg-card" aria-labelledby="profile-form-title">
-      <div class="border-b border-border px-5 py-4">
-        <h3 id="profile-form-title" class="text-xl font-black">{creating ? 'New profile' : `Edit ${editing?.name}`}</h3>
-        <p class="mt-1 text-xs text-muted-foreground">Unknown content ratings remain visible; explicit adult flags and recognised regional ratings are enforced.</p>
-      </div>
-      <div class="grid gap-5 p-5 lg:grid-cols-[1fr_1fr]">
-        <div class="space-y-5">
-          <label class="block"><span class="mb-1.5 block text-xs font-bold">Profile name</span><input bind:value={name} data-focusable maxlength="32" autocomplete="off" class="h-11 w-full rounded-xl bg-input px-3 text-base outline-none ring-theme focus:ring-2" /></label>
-          <fieldset><legend class="mb-2 text-xs font-bold">Profile colour</legend><div class="flex flex-wrap gap-2">{#each PROFILE_COLORS as choice}<button type="button" data-focusable onclick={() => (color = choice)} aria-label={`Use ${choice}`} aria-pressed={color === choice} class="grid size-10 place-items-center rounded-xl transition active:scale-95" style={`background:${choice}`}>{#if color === choice}<Check size={18} class="text-white" strokeWidth={3} />{/if}</button>{/each}</div></fieldset>
-          <label class="block"><span class="mb-1.5 block text-xs font-bold">Maximum content age</span><select bind:value={ratingLimit} data-focusable class="h-11 w-full rounded-xl bg-input px-3 text-sm font-bold"><option value={7}>Age 7</option><option value={12}>Age 12</option><option value={16}>Age 16</option><option value={18}>Age 18</option></select></label>
-          <button type="button" data-focusable onclick={() => (allowAdult = !allowAdult)} disabled={ratingLimit !== 18} aria-pressed={allowAdult} class="flex min-h-12 w-full items-center justify-between rounded-xl bg-secondary/70 px-3 text-left disabled:opacity-40"><span><strong class="block text-sm">Adult discovery</strong><span class="text-xs text-muted-foreground">Allow explicitly marked 18+ titles.</span></span><span class="relative h-6 w-11 rounded-full {allowAdult ? 'bg-theme' : 'bg-white/20'}"><span class="absolute top-0.5 size-5 rounded-full bg-white transition-transform {allowAdult ? 'translate-x-5' : 'translate-x-0.5'}"></span></span></button>
-        </div>
-        <div class="space-y-4 rounded-2xl bg-secondary/35 p-4">
-          <div class="flex items-center gap-2"><LockKeyhole size={18} class="text-theme" /><h4 class="font-black">Parental PIN</h4></div>
-          {#if editing?.pin && editing.id !== $activeProfileId}<label class="block"><span class="mb-1 block text-xs font-bold">Current PIN</span><input bind:value={currentPin} data-focusable inputmode="numeric" maxlength="6" autocomplete="off" class="h-11 w-full rounded-xl bg-input px-3 font-mono tracking-[0.2em]" /></label>{/if}
-          <label class="block"><span class="mb-1 block text-xs font-bold">{editing?.pin ? 'New PIN (leave blank to keep)' : 'PIN (optional)'}</span><input bind:value={newPin} data-focusable inputmode="numeric" maxlength="6" autocomplete="new-password" class="h-11 w-full rounded-xl bg-input px-3 font-mono tracking-[0.2em]" /></label>
-          <label class="block"><span class="mb-1 block text-xs font-bold">Confirm new PIN</span><input bind:value={confirmPin} data-focusable inputmode="numeric" maxlength="6" autocomplete="new-password" class="h-11 w-full rounded-xl bg-input px-3 font-mono tracking-[0.2em]" /></label>
-          {#if editing?.pin}<button type="button" data-focusable onclick={removePin} disabled={busy} class="text-sm font-bold text-destructive hover:underline">Remove PIN</button>{/if}
-          <p class="text-[0.68rem] leading-5 text-muted-foreground">PINs are stored as salted SHA-256 hashes, never as readable digits. This is an on-device household gate, not disk encryption.</p>
-        </div>
-      </div>
-      <div class="flex flex-wrap items-center justify-between gap-3 border-t border-border px-5 py-4">
-        <div>{#if editing && editing.id !== 'default'}<button type="button" data-focusable onclick={() => remove(editing!)} disabled={busy} class="inline-flex min-h-10 items-center gap-2 rounded-lg px-3 text-sm font-bold text-destructive transition hover:bg-destructive/10"><Trash2 size={16} /> Delete profile</button>{/if}</div>
-        <div class="flex gap-2"><button type="button" data-focusable onclick={cancel} class="min-h-10 rounded-lg px-4 text-sm font-bold hover:bg-secondary">Cancel</button><button type="button" data-focusable onclick={save} disabled={busy} class="min-h-10 rounded-lg bg-primary px-4 text-sm font-black text-primary-foreground disabled:opacity-40">{busy ? 'Saving…' : 'Save profile'}</button></div>
-      </div>
-    </section>
-  {:else}
-    <div class="mt-6 flex items-start gap-3 rounded-2xl bg-secondary/30 p-5 text-sm text-muted-foreground"><Users size={20} class="mt-0.5 shrink-0 text-theme" /><p class="max-w-2xl leading-6">The original Main profile keeps your existing data. New profiles start empty and use isolated local-storage partitions. Switching profiles reloads the shell so background sync, trackers and playback cannot leak state across people.</p></div>
-  {/if}
-</div>
+<style>
+  .profile-manager { color: hsl(var(--foreground)); }
+  .back-button { position: absolute; top: 3rem; left: 2rem; display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%; }
+  .profile-content { width: 100%; max-width: 660px; margin: 4rem auto 0; }
+  .profile-content.overview { max-width: 1100px; margin-top: clamp(5rem, 16vh, 12rem); text-align: center; }
+  .wordmark { color: hsl(var(--muted-foreground)); font-size: 20px; font-weight: 900; margin-bottom: 24px; }
+  h1 { font-size: clamp(30px, 4vw, 48px); line-height: 1.15; font-weight: 700; letter-spacing: -.035em; }
+  .intro { max-width: 530px; color: hsl(var(--muted-foreground)); line-height: 1.7; margin: 24px auto; }
+  .profile-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 36px; margin: 56px auto 48px; max-width: 920px; }
+  .portrait-button { width: 140px; background: none; border: none; }
+  .portrait { display: block; position: relative; width: 100%; aspect-ratio: 1; border-radius: 24px; }
+  .portrait img { width: 100%; border-radius: inherit; }
+  .portrait-button:hover .portrait, .portrait-button:focus-visible .portrait { outline: 3px solid currentColor; outline-offset: 5px; }
+  .profile-name { display: block; margin-top: 20px; font-size: 18px; color: hsl(var(--muted-foreground)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .edit-badge { position: absolute; bottom: -5px; right: -5px; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: hsl(var(--foreground)); color: hsl(var(--background)); border: 3px solid hsl(var(--background)); }
+  .add { display: grid; place-items: center; background: hsl(var(--secondary)); color: hsl(var(--muted-foreground)); }
+  .overview-actions { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+  .welcome-portraits { display: flex; justify-content: center; gap: 22px; margin: 40px 0; }
+  .welcome-portraits img { width: min(24vw, 120px); border-radius: 24px; }
+  .primary, .quiet, .danger { min-height: 48px; border-radius: 8px; padding: 12px 24px; font-size: 15px; font-weight: 700; }
+  .primary { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
+  .quiet { color: hsl(var(--muted-foreground)); }
+  .danger { color: hsl(var(--destructive)); }
+  button:hover { filter: brightness(1.1); }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid hsl(var(--theme)); outline-offset: 4px; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  .footnote, .hint { color: hsl(var(--muted-foreground)); font-size: 13px; line-height: 1.6; margin-top: 14px; }
+  .edit-form { margin-top: 36px; }
+  .identity-row { display: flex; align-items: flex-start; gap: 28px; }
+  .edit-avatar { width: 120px; flex-shrink: 0; }
+  .edit-avatar img { width: 100%; border-radius: 24px; }
+  .edit-avatar span { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 12px; font-size: 13px; }
+  .identity-fields { flex: 1; min-width: 0; }
+  label, legend { display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+  input:not([type=checkbox]), select { display: block; width: 100%; min-height: 48px; border-radius: 8px; padding: 10px 14px; background: hsl(var(--secondary)); font-size: 16px; margin-top: 8px; }
+  fieldset { margin-top: 22px; }
+  .colours { display: flex; flex-wrap: wrap; gap: 10px; }
+  .colours button { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; color: white; }
+  .form-section { border-top: 1px solid hsl(var(--border)); margin-top: 28px; padding-top: 24px; }
+  h2 { font-size: 20px; font-weight: 700; margin-bottom: 18px; }
+  .check-row { display: flex; align-items: center; gap: 10px; margin-top: 20px; line-height: 1.5; }
+  .check-row input { width: 20px; height: 20px; accent-color: hsl(var(--primary)); flex-shrink: 0; }
+  .pin-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 20px; }
+  .form-actions { display: flex; flex-wrap: wrap; gap: 10px; border-top: 1px solid hsl(var(--border)); margin-top: 28px; padding-top: 24px; }
+  .pin-form { max-width: 340px; display: grid; gap: 18px; margin: 32px auto; text-align: center; }
+  .pin-avatar { width: 110px; margin: 0 auto 12px; }
+  .pin-form input { text-align: center; letter-spacing: .5em; font-size: 24px; }
+  .avatar-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; margin-top: 32px; }
+  .avatar-grid button { border-radius: 24px; padding: 5px; }
+  .avatar-grid button.chosen { outline: 3px solid hsl(var(--foreground)); }
+  .avatar-grid img { width: 100%; }
+  .avatar-grid span { display: block; text-transform: capitalize; padding: 12px 0 4px; color: hsl(var(--muted-foreground)); }
+  .confirmation { display: flex; gap: 28px; align-items: center; margin: 36px 0; line-height: 1.7; }
+  .confirmation img { width: 110px; flex-shrink: 0; }
+  .error { color: hsl(var(--destructive)); margin-top: 20px; }
+  .notice { color: hsl(var(--muted-foreground)); margin-top: 20px; }
+  @media(max-width: 600px) { .profile-content { margin-top: 4rem; } .portrait-button { width: 108px; } .profile-grid { gap: 24px; } .identity-row { gap: 18px; } .edit-avatar { width: 88px; } .avatar-grid { grid-template-columns: repeat(3, 1fr); gap: 15px; } .pin-fields { grid-template-columns: 1fr; } }
+  @media(prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>

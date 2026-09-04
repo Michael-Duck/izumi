@@ -19,6 +19,7 @@
   import { playing } from '$lib/player/session'
   import { inputType } from '$lib/nav'
   import { activeProfile, profileSwitcherOpen, profilesEnabled } from '$lib/profiles/store'
+  import { profileAvatarUrl } from '$lib/profiles/avatars'
   import { incognito, toggleIncognito } from '$lib/stores/incognito'
   import { offlineMode } from '$lib/stores/offline'
   import { catalogScreen, catalogSwitcherPlacement, enabledCatalogScreens, resolveCatalogSwitcherPlacement } from '$lib/settings/catalog'
@@ -34,7 +35,6 @@
     { href: '/app/trakt', icon: Activity, label: 'Trakt', anim: 'group-hover:animate-[pulse_0.5s_ease]' },
     { href: '/app/letterboxd', icon: Film, label: 'Letterboxd', anim: 'group-hover:animate-[swing_0.5s_ease]' },
   ]
-  const initial = $derived($activeProfile.name.trim().charAt(0).toUpperCase())
   const accountName = $derived($anilistUserName || $malUserName || $traktUserName || $anilistUser || $malUser)
   const accountAvatar = $derived($anilistUserAvatar || $malUserAvatar || $traktUserAvatar)
   const accountLabel = $derived($profilesEnabled ? $activeProfile.name : accountName || 'Sign in')
@@ -143,7 +143,7 @@
      class="group mt-1 flex h-12 w-full shrink-0 items-center gap-3 rounded-md pl-3 text-left text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
     <span class="grid w-8 shrink-0 place-items-center">
       {#if $profilesEnabled}
-        <span class="grid h-8 w-8 place-items-center rounded-xl text-sm font-black text-white" style={`background:${$activeProfile.color}`}>{initial}</span>
+        <img src={profileAvatarUrl($activeProfile.avatar, $activeProfile.color)} alt="" class="size-8 rounded-lg" />
       {:else if accountAvatar}
         <img src={accountAvatar} alt="" class="size-8 rounded-full object-cover" />
       {:else}<LogIn size={20} />{/if}

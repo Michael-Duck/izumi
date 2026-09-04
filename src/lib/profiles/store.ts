@@ -1,5 +1,6 @@
 import { persisted } from 'svelte-persisted-store'
 import { derived, get, writable, type Readable, type Writable } from 'svelte/store'
+import { validAvatar, type ProfileAvatarId } from './avatars'
 
 export const DEFAULT_PROFILE_ID = 'default'
 const PROFILES_KEY = 'izumi-profiles-v1'
@@ -13,6 +14,7 @@ export interface IzumiProfile {
   id: string
   name: string
   color: string
+  avatar?: ProfileAvatarId
   createdAt: number
   ratingLimit: ProfileRatingLimit
   allowAdult: boolean
@@ -65,6 +67,7 @@ function cleanProfile(value: unknown): IzumiProfile | null {
     id: raw.id,
     name: raw.name.trim().slice(0, 32),
     color: typeof raw.color === 'string' && /^#[0-9a-f]{6}$/i.test(raw.color) ? raw.color : PROFILE_COLORS[0],
+    avatar: validAvatar(raw.avatar),
     createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : Date.now(),
     ratingLimit,
     allowAdult: ratingLimit === 18 && raw.allowAdult === true,
@@ -118,7 +121,7 @@ export function profiledPersisted<T>(key: string, initial: T): Writable<T> {
   return persisted<T>(profileStorageKey(key), initial)
 }
 
-export function createProfile(input: Pick<IzumiProfile, 'name' | 'color' | 'ratingLimit' | 'allowAdult'>): string {
+export function createProfile(input: Pick<IzumiProfile, 'name' | 'color' | 'ratingLimit' | 'allowAdult' | 'avatar'>): string {
   const id = `profile-${crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`}`
   storedProfiles.update((state) => {
     const current = normalizeState(state)
@@ -128,6 +131,7 @@ export function createProfile(input: Pick<IzumiProfile, 'name' | 'color' | 'rati
       name: input.name.trim().slice(0, 32) || 'Profile',
       color: /^#[0-9a-f]{6}$/i.test(input.color) ? input.color : PROFILE_COLORS[current.profiles.length % PROFILE_COLORS.length],
       createdAt: Date.now(),
+      avatar: validAvatar(input.avatar),
       ratingLimit: input.ratingLimit,
       allowAdult: input.ratingLimit === 18 && input.allowAdult,
     }] }
@@ -135,7 +139,7 @@ export function createProfile(input: Pick<IzumiProfile, 'name' | 'color' | 'rati
   return id
 }
 
-export function updateProfile(id: string, patch: Partial<Pick<IzumiProfile, 'name' | 'color' | 'ratingLimit' | 'allowAdult'>>): void {
+export function updateProfile(id: string, patch: Partial<Pick<IzumiProfile, 'name' | 'color' | 'ratingLimit' | 'allowAdult' | 'avatar'>>): void {
   storedProfiles.update((state) => ({
     ...state, enabled: true,
     profiles: normalizeState(state).profiles.map((profile) => {
@@ -143,6 +147,7 @@ export function updateProfile(id: string, patch: Partial<Pick<IzumiProfile, 'nam
       const ratingLimit = patch.ratingLimit ?? profile.ratingLimit
       return {
         ...profile,
+        avatar: validAvatar(patch.avatar ?? profile.avatar),
         name: patch.name == null ? profile.name : patch.name.trim().slice(0, 32) || profile.name,
         color: patch.color && /^#[0-9a-f]{6}$/i.test(patch.color) ? patch.color : profile.color,
         ratingLimit,
