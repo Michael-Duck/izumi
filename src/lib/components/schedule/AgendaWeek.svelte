@@ -69,7 +69,7 @@
           {FULL[i]} · {dayDate(i)}{#if i === todayIdx} · Today{/if}
         </h3>
         <div class="flex flex-col gap-2">
-          {#each d as a (a.media.id + '-' + a.episode)}
+          {#each d as a (a.media.id + '-' + a.episode + '-' + a.airingAt)}
             {@const mine = badgeOf?.(a.media)}
             {@const delay = delayOf(a.media)}
             {@const source = scheduleSourceLabel(a)}

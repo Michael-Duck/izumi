@@ -62,7 +62,7 @@ describe('episode list defaults', () => {
 })
 
 describe('provider-aware schedule default', () => {
-  it('opens the Movies & TV calendar for TMDB and Stremio', () => {
+  it('opens the Release calendar for TMDB and Stremio', () => {
     expect(resolveScheduleDefaultTab('schedule', 'tmdb')).toBe('personal')
     expect(resolveScheduleDefaultTab('watchlist', 'stremio')).toBe('personal')
   })

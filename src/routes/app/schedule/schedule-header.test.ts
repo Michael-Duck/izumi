@@ -97,7 +97,7 @@ describe('schedule page header', () => {
     expect(page).toContain('<PersonalSchedule {start} {end} {headerOffset} />')
   })
 
-  it('opens Movies & TV when TMDB or Stremio becomes the active catalog', () => {
+  it('opens Release calendar when TMDB or Stremio becomes the active catalog', () => {
     expect(page).toContain('resolveScheduleDefaultTab(get(scheduleDefaultTab), get(catalogScreen))')
     expect(page).toContain("if (current === 'tmdb' || current === 'stremio') tab = 'personal'")
   })

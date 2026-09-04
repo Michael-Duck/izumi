@@ -21,7 +21,7 @@
   {/if}
   <div class={big ? 'grid grid-cols-1 gap-2 sm:grid-cols-2' : 'flex flex-col gap-2'}>
     {#if airings.length}
-      {#each airings as a, i (a.media.id + '-' + a.episode)}
+      {#each airings as a, i (a.media.id + '-' + a.episode + '-' + a.airingAt)}
         {@const mine = badgeOf?.(a.media)}
         {@const delay = delayOf(a.media)}
         {@const nav = scheduleCardNav(big ? navFirst : undefined, i, airings.length)}

@@ -112,7 +112,7 @@
       </button>
       <button data-focusable onclick={() => (tab = 'personal')}
         class="rounded-md px-2.5 py-2 transition-colors sm:px-4 {tab === 'personal' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}">
-        Movies & TV
+        Release calendar
       </button>
       <button data-focusable onclick={() => (tab = 'watchlist')}
         class="rounded-md px-2.5 py-2 transition-colors sm:px-4 {tab === 'watchlist' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}">

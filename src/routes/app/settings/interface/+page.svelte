@@ -42,7 +42,7 @@
 
   const scheduleTabs: { value: ScheduleTab; label: string; hint: string }[] = [
     { value: 'schedule', label: 'Schedule', hint: 'The weekly airing calendar.' },
-    { value: 'personal', label: 'Movies & TV', hint: 'Releases based on your TMDB and Stremio watch history.' },
+    { value: 'personal', label: 'Release calendar', hint: 'Personal, streaming, premiere and finale calendars for movies and TV.' },
     { value: 'watchlist', label: 'Watchlist', hint: 'Your watching list, with shows that have new episodes first.' },
   ]
   const themes: { value: ThemePreset; label: string; background: string; surface: string; foreground: string; accent: string }[] = [
@@ -186,7 +186,7 @@
     </div>
 
     <p class="mb-1 text-sm font-bold">{m.settings_schedule_default_tab()}</p>
-    <p class="mb-2 text-xs text-muted-foreground">TMDB and Stremio automatically open Movies & TV. This choice applies to other catalogs.</p>
+    <p class="mb-2 text-xs text-muted-foreground">TMDB and Stremio automatically open Release calendar. This choice applies to other catalogs.</p>
     <div class="mb-4 grid gap-2 sm:grid-cols-3">
       {#each scheduleTabs as opt (opt.value)}
         <button

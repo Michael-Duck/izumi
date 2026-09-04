@@ -7,7 +7,7 @@ import { traktFetch } from './client'
 
 export type TraktMediaKind = 'movie' | 'show'
 
-interface TraktRawMedia {
+export interface TraktRawMedia {
   title?: string
   year?: number | null
   ids?: { trakt?: number; imdb?: string | null; tmdb?: number | null; tvdb?: number | null }
