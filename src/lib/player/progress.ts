@@ -1,6 +1,6 @@
-import { persisted } from 'svelte-persisted-store'
 import { derived, get, writable, type Readable } from 'svelte/store'
 import { incognito, onIncognitoPurge } from '$lib/stores/incognito'
+import { profiledPersisted } from '$lib/profiles/store'
 
 /** Saved playback state for a media + episode: last position + known duration (seconds). */
 export interface Pos {
@@ -14,7 +14,7 @@ export interface Pos {
 
 /** The PERSISTED map of `${mediaId}:${episode}` -> `{ pos, dur }`. Device sync and export read
  *  this store; display/resume paths read the merged `positions` below. */
-export const durablePositions = persisted<Record<string, Pos>>('player-positions', {})
+export const durablePositions = profiledPersisted<Record<string, Pos>>('player-positions', {})
 
 /** In-memory resume points for incognito plays; wiped when incognito ends. Never persisted. */
 export const incognitoPositions = writable<Record<string, Pos>>({})

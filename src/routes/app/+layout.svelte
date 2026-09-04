@@ -67,6 +67,7 @@
   import UpdateToast from '$lib/components/shell/UpdateToast.svelte'
   import FirstRunSetup from '$lib/components/onboarding/FirstRunSetup.svelte'
   import UpNextOverlay from '$lib/components/player/UpNextOverlay.svelte'
+  import ProfileSwitcher from '$lib/components/profiles/ProfileSwitcher.svelte'
   import { get } from 'svelte/store'
   import { initCrashReporting } from '$lib/diagnostics'
   import { initDeveloperLogging } from '$lib/debug/native-logging'
@@ -541,3 +542,4 @@
 <UpdateToast />
 <FirstRunSetup />
 <UpNextOverlay />
+<ProfileSwitcher />

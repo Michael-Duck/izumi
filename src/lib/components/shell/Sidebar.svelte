@@ -8,12 +8,10 @@
   import Users from '@lucide/svelte/icons/users'
   import Settings from '@lucide/svelte/icons/settings'
   import VenetianMask from '@lucide/svelte/icons/venetian-mask'
-  import LogIn from '@lucide/svelte/icons/log-in'
   import { page } from '$app/state'
   import { playing } from '$lib/player/session'
   import { inputType } from '$lib/nav'
-  import { anilistUserName, malUserName, anilistUserAvatar, malUserAvatar, malUser } from '$lib/trackers/config'
-  import { anilistUser } from '$lib/anilist/account'
+  import { activeProfile, profileSwitcherOpen } from '$lib/profiles/store'
   import { incognito, toggleIncognito } from '$lib/stores/incognito'
   import { offlineMode } from '$lib/stores/offline'
   import { catalogScreen, catalogSwitcherPlacement, enabledCatalogScreens, resolveCatalogSwitcherPlacement } from '$lib/settings/catalog'
@@ -27,9 +25,7 @@
     { href: '/app/downloads', icon: Download, label: m.nav_downloads(), anim: 'group-hover:animate-[bounce-sm_0.4s_ease]' },
     { href: '/app/watch', icon: Users, label: m.nav_watch_together(), anim: 'group-hover:animate-[wiggle_0.4s_ease]' },
   ]
-  const name = $derived($anilistUserName || $malUserName || $anilistUser || $malUser)
-  const avatarUrl = $derived($anilistUserAvatar || $malUserAvatar)
-  const initial = $derived((name || '').trim().charAt(0).toUpperCase())
+  const initial = $derived($activeProfile.name.trim().charAt(0).toUpperCase())
   // Expand the rail to a labelled menu while it holds focus, BUT only for keyboard/gamepad
   // navigation — never a mouse. On the Deck (gameMode) any focus expands it; on desktop only
   // when the last input was the keyboard (arrow/tab), so a mouse click/hover leaves the icon
@@ -131,20 +127,11 @@
     <span class="whitespace-nowrap text-sm font-semibold transition-opacity duration-150 {open ? 'opacity-100' : 'opacity-0'}">{m.nav_settings()}</span>
   </a>
 
-  <a href="/app/settings/accounts" title={name ? name : m.nav_sign_in()} data-focusable={df} tabindex={tab}
-     class="group mt-1 flex h-12 shrink-0 items-center gap-3 rounded-md pl-3 text-muted-foreground transition-colors hover:text-foreground">
+  <button type="button" onclick={() => ($profileSwitcherOpen = true)} title={`Switch profile · ${$activeProfile.name}`} data-focusable={df} tabindex={tab}
+     class="group mt-1 flex h-12 w-full shrink-0 items-center gap-3 rounded-md pl-3 text-left text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
     <span class="grid w-8 shrink-0 place-items-center">
-      {#if name}
-        {#if avatarUrl}
-          <img src={avatarUrl} alt={name} referrerpolicy="no-referrer"
-               class="h-8 w-8 rounded-full object-cover ring-2 ring-transparent transition group-hover:ring-theme/40" />
-        {:else}
-          <span class="grid h-8 w-8 place-items-center rounded-full bg-theme text-sm font-black text-white ring-2 ring-transparent transition group-hover:ring-theme/40">{initial}</span>
-        {/if}
-      {:else}
-        <span class="grid h-8 w-8 place-items-center rounded-full bg-secondary transition group-hover:bg-accent"><LogIn size={16} /></span>
-      {/if}
+      <span class="grid h-8 w-8 place-items-center rounded-xl text-sm font-black text-white ring-2 ring-transparent transition group-hover:ring-white/25" style={`background:${$activeProfile.color}`}>{initial}</span>
     </span>
-    <span class="max-w-[140px] truncate whitespace-nowrap text-sm font-semibold transition-opacity duration-150 {open ? 'opacity-100' : 'opacity-0'}">{name || m.nav_sign_in()}</span>
-  </a>
+    <span class="max-w-[140px] truncate whitespace-nowrap text-sm font-semibold transition-opacity duration-150 {open ? 'opacity-100' : 'opacity-0'}">{$activeProfile.name}</span>
+  </button>
 </nav>

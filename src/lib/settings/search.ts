@@ -14,6 +14,7 @@ export const settingKey = (title: string) =>
   title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
 
 export const SETTINGS_SEARCH_INDEX: SettingSearchItem[] = [
+  { title: 'Profiles and parental PINs', category: 'Profiles', href: '/app/settings/profiles', keywords: 'household kids children age rating adult lock switch user' },
   { title: 'Audio processing', category: 'Player', href: '/app/settings/player', keywords: 'night mode dialogue boost volume loudnorm compressor limiter' },
   { title: 'Video quality', category: 'Player', href: '/app/settings/player', keywords: 'mpv scale deband high performance standard anime custom ewa' },
   { title: 'Audio language', category: 'Player', href: '/app/settings/player', keywords: 'Japanese English dub' },

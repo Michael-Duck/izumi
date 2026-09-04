@@ -1,2 +1,2 @@
-import { persisted } from 'svelte-persisted-store'
-export const anilistUser = persisted<string>('anilist-username', '')
+import { profiledPersisted } from '$lib/profiles/store'
+export const anilistUser = profiledPersisted<string>('anilist-username', '')

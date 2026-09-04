@@ -7,6 +7,7 @@
   import LayoutGrid from '@lucide/svelte/icons/layout-grid'
   import Rss from '@lucide/svelte/icons/rss'
   import User from '@lucide/svelte/icons/user'
+  import UsersRound from '@lucide/svelte/icons/users-round'
   import Globe from '@lucide/svelte/icons/globe'
   import Download from '@lucide/svelte/icons/download'
   import Captions from '@lucide/svelte/icons/captions'
@@ -36,6 +37,7 @@
       { title: 'Storage', href: '/app/settings/storage', icon: HardDrive, subtitle: 'Disk caches and space used' },
     ] },
     { label: 'App', items: [
+      { title: 'Profiles', href: '/app/settings/profiles', icon: UsersRound, subtitle: 'Household profiles and parental PINs' },
       { title: 'Interface', href: '/app/settings/interface', icon: LayoutGrid, subtitle: 'Appearance and layout' },
       { title: 'Navigation', href: '/app/settings/navigation', icon: PanelBottom, subtitle: 'Bottom bar and shortcuts' },
       { title: 'History', href: '/app/settings/history', icon: History, subtitle: 'Watch history and progress' },

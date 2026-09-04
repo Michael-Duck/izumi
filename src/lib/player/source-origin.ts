@@ -1,7 +1,7 @@
 import { get } from 'svelte/store'
-import { persisted } from 'svelte-persisted-store'
 import { incognito } from '$lib/stores/incognito'
 import type { StreamOrigin } from '$lib/stremio/parse'
+import { profiledPersisted } from '$lib/profiles/store'
 
 export interface SourceRelease {
   infoHash?: string
@@ -17,10 +17,10 @@ export interface RememberedSource {
 
 export const MAX_REMEMBERED_SOURCES = 100
 export const MAX_REMEMBERED_EPISODE_SOURCES = 500
-export const sourceOrigins = persisted<Record<number, RememberedSource>>('player-source-origins', {})
+export const sourceOrigins = profiledPersisted<Record<number, RememberedSource>>('player-source-origins', {})
 /** Exact per-episode source memory. The title-wide store above remains useful for the optional
  * "always continue this title's last source" mode; the default resume mode reads this store. */
-export const episodeSourceOrigins = persisted<Record<string, RememberedSource>>('player-episode-source-origins', {})
+export const episodeSourceOrigins = profiledPersisted<Record<string, RememberedSource>>('player-episode-source-origins', {})
 
 const cleanString = (value: unknown, max = 256) =>
   typeof value === 'string' && value.length > 0 && value.length <= max ? value : undefined

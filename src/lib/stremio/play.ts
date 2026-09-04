@@ -19,6 +19,8 @@ import type { RankOptions } from './addon'
 import { continuityChoice, scoreInfo } from './score'
 import { directMetadataPrefetchKey, directMetadataPrefetchRequest } from './direct-metadata-prefetch'
 import { developerConsoleEnabled } from '$lib/debug/log-gate'
+import { activeProfile } from '$lib/profiles/store'
+import { profileAllowsMedia } from '$lib/profiles/content'
 
 /** Ranking inputs that live in settings rather than on a stream. The non-interactive paths must
  *  use the same ones the picker does, or "best" means two different things depending on whether a
@@ -1787,6 +1789,10 @@ export async function playEpisode(
   onState: (s: PlayState) => void,
   options: PlayEpisodeOptions = {},
 ) {
+  if (!profileAllowsMedia(media, get(activeProfile))) {
+    onState({ status: 'error', message: 'This title is blocked by the active profile’s parental controls.' })
+    return
+  }
   const pickerStore = options.pickerStore ?? streamPicker
   const resolveSession = options.resolveSession ?? localResolveSession
   markClientPerformance('izumi:play-requested', {

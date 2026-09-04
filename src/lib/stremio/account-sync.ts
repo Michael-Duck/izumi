@@ -1,5 +1,5 @@
 import { get, writable } from 'svelte/store'
-import { persisted } from 'svelte-persisted-store'
+import { profiledPersisted } from '$lib/profiles/store'
 import { addonUrls, disabledSources, normalizeBase } from './sources'
 import { fetchManifest } from './manifest'
 import {
@@ -35,8 +35,8 @@ export interface StremioAddonReconciliation {
 
 // Baselines contain configured add-on URLs, which may contain credentials. The storage key is
 // intentionally classified as a credential so it is omitted from ordinary Izumi backups.
-const syncBaseline = persisted<SyncBaseline | null>('stremio-sync-credential-baseline-v1', null)
-export const stremioAddonLastSyncedAt = persisted<number>('stremio-addon-last-synced-at', 0)
+const syncBaseline = profiledPersisted<SyncBaseline | null>('stremio-sync-credential-baseline-v1', null)
+export const stremioAddonLastSyncedAt = profiledPersisted<number>('stremio-addon-last-synced-at', 0)
 export const stremioAddonSyncState = writable<StremioAddonSyncState>({ state: 'idle' })
 
 function canonicalUrls(values: readonly string[]): string[] {

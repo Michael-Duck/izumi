@@ -1,5 +1,5 @@
 import { derived, get, writable, type Readable } from 'svelte/store'
-import { persisted } from 'svelte-persisted-store'
+import { profiledPersisted } from '$lib/profiles/store'
 import type { Client } from '@urql/svelte'
 import { LIST_QUERY, MEDIA_BY_IDS_QUERY, flattenEntries } from '$lib/anilist/lists'
 import { getMalAnimeListMediaOrThrow, setStatus } from '$lib/trackers'
@@ -43,13 +43,13 @@ export function filterContinueWatching(
 }
 
 /** Persisted view cache of the last merged Continue Watching list. NOT localHistory. */
-export const cwSnapshot = persisted<CwEntry[]>('cw-snapshot', [])
+export const cwSnapshot = profiledPersisted<CwEntry[]>('cw-snapshot', [])
 
 /** Series the user removed from Continue Watching, keyed to the watched-episode count AT removal.
  *  mergeInstant hides an entry whose progress is <= its dismissed floor, so the removal survives a
  *  tracker reconcile — yet the series reappears automatically once a NEWER episode is watched
  *  (progress exceeds the floor). No manual "un-dismiss" needed. */
-export const cwDismissed = persisted<Record<number, number>>('cw-dismissed', {})
+export const cwDismissed = profiledPersisted<Record<number, number>>('cw-dismissed', {})
 
 /** Session-only dismissals made while incognito. Kept out of the persisted `cwDismissed` for two
  *  reasons: the media id itself shouldn't be recorded, and an incognito progress floor would

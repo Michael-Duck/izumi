@@ -1,4 +1,4 @@
-import { persisted } from 'svelte-persisted-store'
+import { profiledPersisted } from '$lib/profiles/store'
 import { get, type Readable } from 'svelte/store'
 import { anilistToken, kitsuToken, malToken, simklToken } from './config'
 import type { AniStatus } from './index'
@@ -54,10 +54,10 @@ interface QueueEntry {
 }
 
 /** Pending tracker writes awaiting a successful replay. */
-export const trackerQueue = persisted<QueueEntry[]>('tracker-queue', [])
+export const trackerQueue = profiledPersisted<QueueEntry[]>('tracker-queue', [])
 /** The highest progress CONFIRMED delivered per `${tracker}:${mediaId}` — the only-increase floor
  *  (a queued lower progress is dropped rather than rewinding the tracker). */
-const confirmedProgress = persisted<Record<string, number>>('tracker-progress-confirmed', {})
+const confirmedProgress = profiledPersisted<Record<string, number>>('tracker-progress-confirmed', {})
 
 const BASE_BACKOFF = 30_000
 const MAX_BACKOFF = 6 * 3_600_000

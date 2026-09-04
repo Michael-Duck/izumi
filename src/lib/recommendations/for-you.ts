@@ -1,12 +1,12 @@
-import { persisted } from 'svelte-persisted-store'
 import type { Media } from '$lib/anilist/types'
 import type { HistoryEntry } from '$lib/player/history'
 import { anilistIdOf } from '$lib/catalog/identity'
+import { profiledPersisted } from '$lib/profiles/store'
 
 const DAY = 24 * 60 * 60 * 1000
 const MAX_DISMISSED = 300
 
-export const dismissedForYouIds = persisted<number[]>('for-you-dismissed-v1', [])
+export const dismissedForYouIds = profiledPersisted<number[]>('for-you-dismissed-v1', [])
 
 export interface ForYouSeed {
   media: Media

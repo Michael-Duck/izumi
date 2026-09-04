@@ -54,6 +54,9 @@
   import TrackerProviderBadge from '$lib/components/settings/TrackerProviderBadge.svelte'
   import { pendingCompanionPlayback, type PendingCompanionPlayback } from '$lib/companion/client'
   import { companionPlaybackTarget } from '$lib/companion/playback'
+  import { activeProfile } from '$lib/profiles/store'
+  import { profileAllowsMedia } from '$lib/profiles/content'
+  import ParentalBlock from '$lib/components/profiles/ParentalBlock.svelte'
 
   // `id` is a prop (the +page keys this component on it), so navigating anime→relation
   // remounts with the new id and the query re-fetches — a same-route param change alone
@@ -394,6 +397,8 @@
   {/if}
 {:else if !$offlineMode && $store.error}
   <div class="p-8 pt-[max(2rem,env(safe-area-inset-top))] text-muted-foreground">Failed to load: {$store.error.message}</div>
+{:else if media && !profileAllowsMedia(media, $activeProfile)}
+  <ParentalBlock />
 {:else if media}
   {@const m = media}
   {#if $isMobile}

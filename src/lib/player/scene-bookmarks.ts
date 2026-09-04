@@ -1,7 +1,7 @@
 import { derived, get } from 'svelte/store'
-import { persisted } from 'svelte-persisted-store'
 import type { Media } from '$lib/anilist/types'
 import { mediaSnapshot } from './history'
+import { profiledPersisted } from '$lib/profiles/store'
 
 export const MAX_SCENE_BOOKMARKS = 500
 const MAX_SCENE_BOOKMARK_RECORDS = 750
@@ -24,7 +24,7 @@ export type SceneBookmarkRecord =
 
 export type SceneBookmarkRecords = Record<string, SceneBookmarkRecord>
 
-export const sceneBookmarkRecords = persisted<SceneBookmarkRecords>('scene-bookmarks-v1', {})
+export const sceneBookmarkRecords = profiledPersisted<SceneBookmarkRecords>('scene-bookmarks-v1', {})
 
 const cleanText = (value: unknown, max: number) =>
   typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, max) : ''

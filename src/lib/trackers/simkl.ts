@@ -2,7 +2,7 @@ import { simklFetch } from './simkl-auth'
 import { classifyStatus, type PushResult, type TrackerOp } from './queue'
 import { getIndex, lookupAnilistByMal } from '$lib/stremio/idmap'
 import { simklToken } from './config'
-import { persisted } from 'svelte-persisted-store'
+import { profiledPersisted } from '$lib/profiles/store'
 import { get } from 'svelte/store'
 
 export function simklStatus(status = 'CURRENT'): string {
@@ -99,7 +99,7 @@ interface SimklAnimeCache {
 // Keep the initial anime-list baseline across launches. SIMKL explicitly asks clients to perform
 // one full pull, then gate later reads through /sync/activities instead of downloading the whole
 // watchlist every time the app starts or a detail page opens.
-const storedListCache = persisted<SimklAnimeCache | null>('simkl-anime-list-cache-v1', null)
+const storedListCache = profiledPersisted<SimklAnimeCache | null>('simkl-anime-list-cache-v1', null)
 let listCache = get(storedListCache)
 let listCheckedAt = 0
 let listPending: Promise<SimklListItem[] | null> | null = null

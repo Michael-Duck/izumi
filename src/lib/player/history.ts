@@ -1,5 +1,5 @@
-import { persisted } from 'svelte-persisted-store'
 import { derived, get, writable, type Readable } from 'svelte/store'
+import { profiledPersisted } from '$lib/profiles/store'
 import { saveLocalHistory } from '$lib/settings/ui'
 import { catalogProvider, type CatalogSelection } from '$lib/settings/catalog'
 import { incognito, onIncognitoPurge } from '$lib/stores/incognito'
@@ -30,7 +30,7 @@ export interface HistoryEntry {
 /** The PERSISTED history (`mediaId -> HistoryEntry`). Everything that must never see an incognito
  *  entry — export/import, device sync, airing notifications, the Continue Watching reconcile that
  *  writes the persisted snapshot — reads THIS store. Display paths read `localHistory` below. */
-export const durableHistory = persisted<Record<number, HistoryEntry>>('local-history', {})
+export const durableHistory = profiledPersisted<Record<number, HistoryEntry>>('local-history', {})
 
 /** In-memory history for incognito plays. Merged into `localHistory` so Continue Watching, episode
  *  lists and resume all work during the session; wiped when incognito ends. Never persisted. */

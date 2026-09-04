@@ -1,5 +1,5 @@
 import { get } from 'svelte/store'
-import { persisted } from 'svelte-persisted-store'
+import { profiledPersisted } from '$lib/profiles/store'
 import { trackerHttpFetch } from '$lib/trackers/tracker-http'
 
 const STREMIO_API = 'https://api.strem.io/api'
@@ -47,9 +47,9 @@ export class StremioApiError extends Error {
 
 // Runtime account state follows the same device-local persistence model as the existing tracker
 // accounts. The token key deliberately contains "token" so normal Izumi backups exclude it.
-export const stremioAuthKey = persisted<string | null>('stremio-account-token', null)
-export const stremioAccountEmail = persisted<string>('stremio-account-email', '')
-export const stremioAccountId = persisted<string>('stremio-account-id', '')
+export const stremioAuthKey = profiledPersisted<string | null>('stremio-account-token', null)
+export const stremioAccountEmail = profiledPersisted<string>('stremio-account-email', '')
+export const stremioAccountId = profiledPersisted<string>('stremio-account-id', '')
 
 function sensitiveValues(body: Record<string, unknown>): string[] {
   return ['authKey', 'password', 'token']

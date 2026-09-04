@@ -1,5 +1,7 @@
 import { persisted } from 'svelte-persisted-store'
-import { derived } from 'svelte/store'
+import { derived, get, type Writable } from 'svelte/store'
+import { activeProfileAllowsAdult } from '$lib/profiles/content'
+import { profiledPersisted } from '$lib/profiles/store'
 import type { StreamSort } from '$lib/stremio/addon'
 import type { SourcePriorityMode } from '$lib/stremio/source-priority'
 import type { P2PStatusVisibility } from '$lib/player/p2p-status'
@@ -288,8 +290,18 @@ export const uiScale = persisted<number>('ui-scale', 1)
  * user-agent identifiers; on/off cover unusual firmware and development testing. */
 export type AndroidTvMode = 'auto' | 'on' | 'off'
 export const androidTvMode = persisted<AndroidTvMode>('android-tv-mode', 'auto')
-/** Include 18+ / adult titles in browse + search (AniList isAdult filter). */
-export const showAdult = persisted<boolean>('show-adult', false)
+/** Include 18+ / adult titles in browse + search. The preference is profile-specific and cannot
+ * be enabled when that profile's parental policy disallows adult content. */
+const showAdultPreference = profiledPersisted<boolean>('show-adult', false)
+const effectiveShowAdult = derived(
+  [showAdultPreference, activeProfileAllowsAdult],
+  ([$preference, $allowed]) => $preference && $allowed,
+)
+export const showAdult: Writable<boolean> = {
+  subscribe: effectiveShowAdult.subscribe,
+  set(value) { showAdultPreference.set(Boolean(value) && get(activeProfileAllowsAdult)) },
+  update(updater) { showAdultPreference.set(Boolean(updater(get(effectiveShowAdult))) && get(activeProfileAllowsAdult)) },
+}
 /** Auto-enter incognito whenever an adult (isAdult) title starts playing, and leave it (purging
  *  the session overlay) when playback closes — unless incognito was already on manually. */
 export const autoIncognitoAdult = persisted<boolean>('auto-incognito-adult', false)

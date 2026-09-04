@@ -26,6 +26,9 @@
   import { openTrailerPopup } from '$lib/stores/trailer'
   import { pendingCompanionPlayback, type PendingCompanionPlayback } from '$lib/companion/client'
   import { companionPlaybackTarget } from '$lib/companion/playback'
+  import { activeProfile } from '$lib/profiles/store'
+  import { profileAllowsMedia } from '$lib/profiles/content'
+  import ParentalBlock from '$lib/components/profiles/ParentalBlock.svelte'
 
   let { provider, type, id }: { provider: CatalogProviderId; type: CatalogContentType; id: string } = $props()
   const ref = $derived({ provider, type, id } as MediaRef)
@@ -138,6 +141,8 @@
       {/if}
     </div>
   </div>
+{:else if !profileAllowsMedia(media, $activeProfile)}
+  <ParentalBlock />
 {:else}
   <div class="pb-20">
     <section class="relative min-h-[52vh] overflow-hidden">

@@ -1,5 +1,5 @@
 import { get } from 'svelte/store'
-import { persisted } from 'svelte-persisted-store'
+import { profiledPersisted } from '$lib/profiles/store'
 
 export type RememberedTrackKind = 'audio' | 'subtitle'
 
@@ -26,7 +26,7 @@ export interface SeriesTrackPreferences {
   subtitle?: RememberedTrack
 }
 
-export const seriesTrackPreferences = persisted<Record<string, SeriesTrackPreferences>>(
+export const seriesTrackPreferences = profiledPersisted<Record<string, SeriesTrackPreferences>>(
   'series-track-preferences-v1',
   {},
 )
