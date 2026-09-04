@@ -185,6 +185,21 @@ describe('play-intent prefetch', () => {
     expect(mocks.phttp).toHaveBeenCalledTimes(1)
   })
 
+  it('keeps standard external and YouTube stream variants', async () => {
+    mocks.phttp.mockResolvedValue(streamResponse([
+      { externalUrl: 'https://watch.test/title', name: 'External' },
+      { ytId: 'abcdefghijk', name: 'YouTube' },
+    ]))
+
+    const promise = fetchAddonStreams('https://plain.example.org', 'tt123')
+    await vi.advanceTimersByTimeAsync(50)
+
+    expect((await promise).streams).toMatchObject([
+      { externalUrl: 'https://watch.test/title' },
+      { ytId: 'abcdefghijk' },
+    ])
+  })
+
   it('expires token-bearing stream results after the short TTL', async () => {
     mocks.phttp.mockResolvedValue(streamResponse([{ url: 'u1', name: 'warmed' }]))
     await prefetchAddonStreams('https://plain.example.org', 'kitsu:1:1')

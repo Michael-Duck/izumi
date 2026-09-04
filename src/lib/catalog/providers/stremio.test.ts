@@ -97,6 +97,25 @@ describe('Stremio catalog identity', () => {
     })
   })
 
+  it('preserves custom resource types, typed TMDB ids, and embedded video streams', () => {
+    const media = mapStremioMeta({
+      id: 'tmdb:tv:24680', type: 'channel', name: 'Example channel',
+      videos: [{
+        id: 'channel:episode:1', season: 1, episode: 1,
+        streams: [{ url: 'https://video.test/episode.m3u8', name: 'Direct' }],
+      }],
+    }, 'https://addon.test')
+
+    expect(media).toMatchObject({
+      catalog: { resourceType: 'channel' },
+      externalIds: { tmdb: 24680 },
+      videos: [{
+        id: 'channel:episode:1',
+        streams: [{ url: 'https://video.test/episode.m3u8', name: 'Direct' }],
+      }],
+    })
+  })
+
   it('applies rich metadata filters with inclusive boundaries', () => {
     const matching = mapStremioMeta({
       id: 'tt0000001', type: 'movie', name: 'Matching title', poster: 'poster.jpg',

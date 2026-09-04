@@ -11,7 +11,7 @@ describe('episode play-intent prefetch', () => {
     expect(play).toContain('export function prefetchEpisodeSources')
     expect(play).toContain('mediaSeasonMap(media)')
     expect(play).toContain('mediaExtensionIds(media, episode)')
-    expect(play).toContain('prefetchAddonStreams(base, ids, streamType(media))')
+    expect(play).toContain('prefetchAddonStreams(base, ids, streamResourceType(media))')
     expect(play).toContain('void prepareEmbeddedPlayer()')
   })
 

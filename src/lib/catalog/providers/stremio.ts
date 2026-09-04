@@ -19,6 +19,7 @@ interface StremioVideo {
   released?: string
   thumbnail?: string
   overview?: string
+  streams?: import('$lib/stremio/parse').Stream[]
 }
 
 export interface StremioMeta {
@@ -75,7 +76,7 @@ function idsOf(value: string): Media['externalIds'] {
   if (/^tt\d+$/i.test(value)) return { imdb: value }
   const kitsu = /^kitsu:(\d+)/i.exec(value)?.[1]
   if (kitsu) return { kitsu: Number(kitsu) }
-  const tmdb = /^tmdb:(\d+)/i.exec(value)?.[1]
+  const tmdb = /^tmdb:(?:(?:movie|tv|series):)?(\d+)/i.exec(value)?.[1]
   if (tmdb) return { tmdb: Number(tmdb) }
   return {}
 }
@@ -120,7 +121,13 @@ export function mapStremioMeta(raw: StremioMeta, base: string, forcedType?: stri
   const addonId = addonOriginId(base)
   const releaseYear = year(raw.releaseInfo ?? raw.released)
   const opaqueId = forcedIdentity ?? encodeStremioIdentity(addonId, stremioType, raw.id)
-  const ref = { provider: 'stremio' as const, type: contentType(stremioType), id: opaqueId, addonId }
+  const ref = {
+    provider: 'stremio' as const,
+    type: contentType(stremioType),
+    id: opaqueId,
+    addonId,
+    resourceType: stremioType,
+  }
   const videos: MediaVideo[] = (raw.videos ?? []).map((video, index) => ({
     id: video.id,
     number: index + 1,
@@ -130,6 +137,7 @@ export function mapStremioMeta(raw: StremioMeta, base: string, forcedType?: stri
     overview: video.overview,
     thumbnail: video.thumbnail,
     released: video.released,
+    streams: video.streams,
   }))
   if (!videos.length && stremioType === 'movie') videos.push({ id: raw.id, number: 1, title: raw.name })
   const rating = Number(raw.imdbRating)

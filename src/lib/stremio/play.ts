@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { openUrl } from '@tauri-apps/plugin-opener'
 import { playerCommand } from '$lib/player/native'
 import { DRM_ENDED_EVENT, DRM_PROGRESS_EVENT } from '$lib/player/drm'
 import { downloadAudioLang, offlineManifestUrl, preferredDrmPresentation, refreshDrmSource } from '$lib/player/preferred-drm'
@@ -7,10 +8,12 @@ import { get } from 'svelte/store'
 import { addonUrls, enabledAddonUrls } from './sources'
 import { getIndex, lookupKitsu } from './idmap'
 import { resolveKitsuMapping } from './kitsu-resolution'
-import { getStreams, fetchAddonStreams, prefetchAddonStreams, pickBest, pickCandidates, preferDirectStartupCandidates, parseSeasonEp, isWrongSeason, isUncached, isCached, describe, type Stream } from './addon'
+import { getStreams, fetchAddonStreams, prefetchAddonStreams, pickBest, pickCandidates, preferDirectStartupCandidates, parseSeasonEp, isWrongSeason, isUncached, isCached, isNotice, describe, type Stream } from './addon'
 import { refineStreams, type Rejection } from './refine'
 import { sourceTitleAliases } from './title-aliases'
 import { buildStreamIds } from './stream-ids'
+import { dedupeStreams } from './dedupe'
+import { normalizeStreamBehavior } from './stream-behavior'
 import { shouldShowCachingScreen } from './caching-screen'
 import type { RankOptions } from './addon'
 import { continuityChoice, scoreInfo } from './score'
@@ -932,12 +935,38 @@ async function resolveKitsu(media: Media): Promise<number | undefined> {
   )
 }
 
-const streamType = (media: Media): 'movie' | 'series' =>
+const streamKind = (media: Media): 'movie' | 'series' =>
   media.catalog?.type === 'movie' || media.format === 'MOVIE' ? 'movie' : 'series'
+
+const streamResourceType = (media: Media): string => {
+  const native = media.catalog?.provider === 'stremio' ? media.catalog.resourceType?.trim() : ''
+  return native && /^[A-Za-z0-9._-]{1,80}$/.test(native) ? native : streamKind(media)
+}
 
 function mediaVideo(media: Media, episode: number | undefined) {
   if (episode == null) return media.videos?.[0]
   return media.videos?.find((video) => video.number === episode) ?? media.videos?.[episode - 1]
+}
+
+export function embeddedVideoStreams(
+  media: Media,
+  episode: number | undefined,
+): { declared: boolean; streams: Stream[] } {
+  const video = mediaVideo(media, episode)
+  if (!video || !Array.isArray(video.streams)) return { declared: false, streams: [] }
+  const originId = media.catalog?.addonId ?? 'embedded-metadata'
+  const originName = media.catalog?.sourceName
+  const streams = video.streams.map((stream) => normalizeStreamBehavior({
+    ...stream,
+    __addonName: stream.__addonName ?? originName,
+    __origin: stream.__origin ?? { kind: 'addon' as const, id: originId, name: originName },
+  }))
+  return {
+    declared: true,
+    streams: dedupeStreams(streams.filter((stream) => (
+      !!stream.url || !!stream.infoHash || !!stream.ytId || !!stream.externalUrl
+    ) && !isNotice(stream))),
+  }
 }
 
 async function mediaSeasonMap(media: Media): Promise<Record<number, { season?: number; abs?: number }>> {
@@ -971,7 +1000,7 @@ function primaryStreamIds(media: Media, episode: number | undefined, kitsu?: num
   const video = mediaVideo(media, episode)
   const direct = media.catalog?.provider === 'stremio' ? video?.id : undefined
   return buildStreamIds({
-    type: streamType(media), direct, kitsu, episode,
+    type: streamKind(media), direct, kitsu, episode,
     imdb: external.imdb, tmdb: external.tmdb,
     season: video?.season, imdbEpisode: video?.episode,
   })
@@ -1031,6 +1060,13 @@ export function prefetchSourceMetadata(
 }
 
 async function resolveStreams(media: Media, episode: number | undefined): Promise<{ streams: Stream[]; cachedCount: number; want?: EpisodeWant; kitsu?: number }> {
+  const embedded = embeddedVideoStreams(media, episode)
+  if (embedded.declared) {
+    const want = episode != null ? await episodeWant(media, episode) : undefined
+    let streams = refineStreams(media, embedded.streams).kept
+    if (want) streams = verifySeason(streams, want)
+    return { streams, cachedCount: streams.filter(isCached).length, want }
+  }
   const bases = get(enabledAddonUrls)
   if (!bases.length) {
     if (await hasConfiguredExtensions()) return { streams: [], cachedCount: 0 }
@@ -1046,7 +1082,7 @@ async function resolveStreams(media: Media, episode: number | undefined): Promis
   // use an absolute internal video index, while filenames use SxxExx; episodeWant translates once
   // so video 85 (after 40 specials) is verified as S5 E1 rather than the nonexistent S5 E85.
   const wantP = episode != null ? episodeWant(media, episode) : Promise.resolve(undefined)
-  const { streams: addonStreams, total, cachedCount } = await getStreams(bases, requestIds, streamType(media))
+  const { streams: addonStreams, total, cachedCount } = await getStreams(bases, requestIds, streamResourceType(media))
 
   const refined = refineStreams(media, addonStreams)
   let streams = refined.kept
@@ -1313,7 +1349,7 @@ export function prefetchEpisodeSources(media: Media, episode: number | undefined
       const ids = primaryStreamIds(media, episode, kitsu)
       if (!ids.length) return
       await Promise.allSettled(
-        get(enabledAddonUrls).map((base) => prefetchAddonStreams(base, ids, streamType(media))),
+        get(enabledAddonUrls).map((base) => prefetchAddonStreams(base, ids, streamResourceType(media))),
       )
     })().catch(() => {})
   }, Math.max(0, delayMs))
@@ -1980,15 +2016,17 @@ export async function playEpisode(
       }
     }
 
+    const embedded = embeddedVideoStreams(media, episode)
     const bases = get(enabledAddonUrls)
+    const addonBases = embedded.declared ? [] : bases
     const extensionCheckStartedAt = performance.now()
-    const hasExt = await hasConfiguredExtensions()
+    const hasExt = embedded.declared ? false : await hasConfiguredExtensions()
     traceResolve(trace, 'source inventory ready', {
       durationMs: Math.round(performance.now() - extensionCheckStartedAt),
       addons: bases.map(addonTraceName),
       extensionsEnabled: hasExt,
     })
-    if (!bases.length && !hasExt) throw new Error(sourceInventoryError(bases))
+    if (!bases.length && !hasExt && !embedded.declared) throw new Error(sourceInventoryError(bases))
     // One provider is not one source: AllAnime and similar providers can expose several hosts,
     // qualities, subtitle sets, or audio variants. A manual episode click therefore keeps the
     // chooser visible regardless of provider count; the normal Auto preference may choose later.
@@ -2002,7 +2040,9 @@ export async function playEpisode(
     // exactly where it hurt most.
     const kitsuStartedAt = performance.now()
     traceResolve(trace, 'Kitsu mapping start')
-    const kitsuP = resolveKitsu(media).catch(() => undefined)
+    const kitsuP = embedded.declared
+      ? Promise.resolve(undefined)
+      : resolveKitsu(media).catch(() => undefined)
     void kitsuP.then((kitsu) => traceResolve(trace, 'Kitsu mapping finish', {
       durationMs: Math.round(performance.now() - kitsuStartedAt),
       found: kitsu != null,
@@ -2011,10 +2051,10 @@ export async function playEpisode(
     const primaryIdsP = kitsuP.then((kitsuId) => primaryStreamIds(media, episode, kitsuId))
     // Without an extension, at least one add-on namespace must be addressable. Anime normally uses
     // Kitsu; TMDB and Stremio metadata titles use their native/IMDb identifiers instead.
-    const primaryIds = hasExt ? undefined : await primaryIdsP
-    if (!hasExt && !primaryIds?.length) throw new Error('No compatible metadata id is available for the configured stream add-ons. Add a community source to find it by title.')
+    const primaryIds = hasExt || embedded.declared ? undefined : await primaryIdsP
+    if (!hasExt && !embedded.declared && !primaryIds?.length) throw new Error('No compatible metadata id is available for the configured stream add-ons. Add a community source to find it by title.')
 
-    const type = streamType(media)
+    const type = streamResourceType(media)
     const seasonStartedAt = performance.now()
     const seasonP = episode != null ? episodeWant(media, episode) : Promise.resolve(undefined)
 
@@ -2022,9 +2062,9 @@ export async function playEpisode(
     // origin loads, the rest stream in, the list re-ranks + animated-sorts live)
     // rather than waiting on the slowest. `want` (season) applies as soon as AniZip
     // answers, concurrent with the addon fetches.
-    let acc: Stream[] = []
+    let acc: Stream[] = embedded.streams
     let want: EpisodeWant | undefined
-    let totalRaw = 0
+    let totalRaw = embedded.streams.length
     // A remembered release may be tried automatically, but a matching source is not proof that
     // playback can actually start (the URL/debrid entry/player can still fail). Keep the picker
     // mounted until playStream reports `playing`; on failure it remains available as the fallback.
@@ -2265,11 +2305,11 @@ export async function playEpisode(
     // +1 slot for the aligned-imdb wave below, which has to be waited on even though it fires
     // late: for a title whose addons are all imdb-only, it is the wave that returns everything,
     // and settling without it would show "no sources found" a moment before they arrive.
-    let pending = (bases.length ? 2 : 0) + (hasExt ? 2 : 0)
+    let pending = (addonBases.length ? 2 : 0) + (hasExt ? 2 : 0)
     traceResolve(trace, 'source fan-out start', {
       pendingWaves: pending,
-      kitsuAddonRequests: bases.length,
-      alignedIdWave: bases.length > 0,
+      kitsuAddonRequests: addonBases.length,
+      alignedIdWave: addonBases.length > 0,
       torrentExtensions: hasExt,
       onlineExtensions: hasExt,
     })
@@ -2280,10 +2320,10 @@ export async function playEpisode(
       signal.addEventListener('abort', () => resolve(), { once: true })
       if (!pending) return resolve()
       const done = () => { if (--pending === 0) resolve() }
-      if (bases.length) {
+      if (addonBases.length) {
         void primaryIdsP.then(async (ids) => {
           if (!ids.length || signal.aborted) return
-          await Promise.all(bases.map(async (base) => {
+          await Promise.all(addonBases.map(async (base) => {
             const provider = addonTraceName(base)
             const addonStartedAt = performance.now()
             traceResolve(trace, 'add-on request start', { provider, namespace: 'primary-metadata' })
@@ -2323,7 +2363,7 @@ export async function playEpisode(
       // asked it. This fires only from a mapping that named both the season and the per-season
       // episode number, so the triple is aligned rather than guessed; refineStreams and
       // verifySeason remain the safety net for whatever it brings back.
-      if (bases.length) {
+      if (addonBases.length) {
         const fold = (r: { streams: Stream[]; total: number }) => {
           if (!stillCurrent() || !r.streams.length) return
           traceResolve(trace, 'aligned-id add-on batch', { rawRows: r.total, ...batchTraceDetails(r.streams) })
@@ -2334,7 +2374,7 @@ export async function playEpisode(
         mediaExtensionIds(media, episode)
           .then(async (ids) => {
             const extra = buildStreamIds({
-              type, imdb: ids.imdbId, tmdb: ids.tmdbId,
+              type: streamKind(media), imdb: ids.imdbId, tmdb: ids.tmdbId,
               season: ids.season, imdbEpisode: ids.episodeNumber, episode,
             })
             traceResolve(trace, 'aligned IMDb/season mapping finish', {
@@ -2342,7 +2382,7 @@ export async function playEpisode(
               requestIds: extra.length,
             })
             if (!extra.length || !stillCurrent()) return
-            await Promise.all(bases.map(async (base) => {
+            await Promise.all(addonBases.map(async (base) => {
               const provider = addonTraceName(base)
               const startedAt = performance.now()
               traceResolve(trace, 'add-on request start', { provider, namespace: 'aligned-imdb' })
@@ -2732,6 +2772,18 @@ export async function playStream(
 ) {
   if (options.companion && hasPendingCompanionPlayback(media, episode)) {
     return playPendingCompanionStream(media, episode, stream, report, options)
+  }
+  const external = stream.externalUrl ?? (stream.ytId
+    ? `https://www.youtube.com/watch?v=${encodeURIComponent(stream.ytId)}`
+    : undefined)
+  if (external) {
+    try {
+      await openUrl(external)
+      report({ status: 'idle' })
+    } catch (error) {
+      report({ status: 'error', message: error instanceof Error ? error.message : String(error) })
+    }
+    return
   }
   upNextPrompt.set(null)
   const trace = currentResolveTrace(media.id, episode) ?? beginResolveTrace({

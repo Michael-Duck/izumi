@@ -18,6 +18,8 @@ export interface MediaCatalogIdentity {
   type: 'anime' | 'manga' | 'movie' | 'series'
   /** Opaque fingerprint of the configured add-on that owns a Stremio meta item. Never a URL. */
   addonId?: string
+  /** Original Stremio resource type. Custom add-ons are not limited to movie/series. */
+  resourceType?: string
   /** Human-readable source attribution for providers that aggregate separately installed sources. */
   sourceName?: string
   /** Source-owned artwork. JVM icons may be an absolute URL or an extracted base64 payload. */
@@ -74,6 +76,8 @@ export interface MediaVideo {
   overview?: string
   thumbnail?: string
   released?: string
+  /** Streams embedded by a Stremio meta response. Presence means the video is self-contained. */
+  streams?: import('$lib/stremio/parse').Stream[]
   /** Source-supplied episode annotations used by Aniyomi catalogs. */
   filler?: boolean
   group?: string

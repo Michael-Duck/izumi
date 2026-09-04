@@ -190,7 +190,9 @@ export async function fetchAddonStreams(
         __origin: { kind: 'addon' as const, id: addonOriginId(b), name: manifest?.name },
         __evidence: { upstreamRank, requestId: ask[requestIndex] },
       })))
-      const usable = dedupeStreams(all.filter((s) => (!!s.url || !!s.infoHash) && !isNotice(s)))
+      const usable = dedupeStreams(all.filter((s) => (
+        !!s.url || !!s.infoHash || !!s.ytId || !!s.externalUrl
+      ) && !isNotice(s)))
       return { streams: usable, total: all.length }
     } catch { return { streams: [], total: 0 } }
   })()

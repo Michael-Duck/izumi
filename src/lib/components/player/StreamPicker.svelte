@@ -149,7 +149,7 @@
         ].filter(Boolean).join(' ').toLowerCase().includes(filter.trim().toLowerCase()))
       : visible,
   )
-  const keyOf = (i: StreamInfo) => i.stream.__candidate?.routeId ?? i.stream.url ?? i.stream.infoHash ?? i.label
+  const keyOf = (i: StreamInfo) => i.stream.__candidate?.routeId ?? i.stream.url ?? i.stream.infoHash ?? i.stream.externalUrl ?? i.stream.ytId ?? i.label
 
   // The auto-pick order. This MUST go through the same ranking the non-interactive paths use
   // (play.ts), or the pill labelled "Auto" ignores the Quality setting entirely and just takes the
@@ -602,7 +602,11 @@
     e.stopPropagation()
     // Prefer the resolved URL; for an uncached torrent copy a real magnet (pasteable into a client),
     // not the bare infoHash. Uses the webview-safe helper (navigator.clipboard is absent on the Deck).
-    const link = info.stream.url ?? info.stream.__magnet ?? (info.stream.infoHash ? `magnet:?xt=urn:btih:${info.stream.infoHash}` : '')
+    const link = info.stream.url
+      ?? info.stream.externalUrl
+      ?? (info.stream.ytId ? `https://www.youtube.com/watch?v=${encodeURIComponent(info.stream.ytId)}` : undefined)
+      ?? info.stream.__magnet
+      ?? (info.stream.infoHash ? `magnet:?xt=urn:btih:${info.stream.infoHash}` : '')
     if (!link || !copyToClipboard(link)) return
     const k = keyOf(info)
     copiedKey = k
