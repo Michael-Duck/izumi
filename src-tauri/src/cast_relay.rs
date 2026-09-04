@@ -78,13 +78,18 @@ enum SubtitleDelivery {
     #[default]
     Web,
     SamsungDlna,
+    Roku,
     TizenReceiver,
 }
 
 impl SubtitleDelivery {
     fn content_type(self, source: SubtitleFormat) -> &'static str {
         match self {
-            Self::SamsungDlna => "text/srt; charset=utf-8",
+            Self::SamsungDlna | Self::Roku => match source {
+                SubtitleFormat::Vtt | SubtitleFormat::Srt => "text/srt; charset=utf-8",
+                SubtitleFormat::Ttml => "application/ttml+xml; charset=utf-8",
+                SubtitleFormat::Ass => "text/x-ssa; charset=utf-8",
+            },
             Self::Web => match source {
                 SubtitleFormat::Vtt | SubtitleFormat::Srt => "text/vtt; charset=utf-8",
                 SubtitleFormat::Ttml => "application/ttml+xml; charset=utf-8",
@@ -101,7 +106,11 @@ impl SubtitleDelivery {
 
     fn extension(self, source: SubtitleFormat) -> &'static str {
         match self {
-            Self::SamsungDlna => "srt",
+            Self::SamsungDlna | Self::Roku => match source {
+                SubtitleFormat::Vtt | SubtitleFormat::Srt => "srt",
+                SubtitleFormat::Ttml => "ttml",
+                SubtitleFormat::Ass => "ass",
+            },
             Self::Web => match source {
                 SubtitleFormat::Vtt | SubtitleFormat::Srt => "vtt",
                 SubtitleFormat::Ttml => "ttml",
@@ -751,6 +760,13 @@ async fn fetch_resource(
                 (SubtitleDelivery::SamsungDlna, SubtitleFormat::Ass) => {
                     return Err("Samsung DLNA captions do not support ASS sidecars".into());
                 }
+                (SubtitleDelivery::Roku, SubtitleFormat::Vtt) => {
+                    webvtt_to_srt(&bytes)?.into_bytes()
+                }
+                (SubtitleDelivery::Roku, SubtitleFormat::Srt | SubtitleFormat::Ttml) => bytes,
+                (SubtitleDelivery::Roku, SubtitleFormat::Ass) => {
+                    return Err("Roku captions do not support ASS sidecars".into());
+                }
                 (SubtitleDelivery::Web, SubtitleFormat::Srt) => srt_to_webvtt(&bytes)?.into_bytes(),
                 (
                     SubtitleDelivery::Web,
@@ -1177,6 +1193,19 @@ mod tests {
         assert_eq!(
             converted,
             "1\n00:00:01,250 --> 00:00:03,500\nHello\nworld\n\n"
+        );
+    }
+
+    #[test]
+    fn advertises_roku_sidecars_in_native_caption_formats() {
+        assert_eq!(
+            SubtitleDelivery::Roku.content_type(SubtitleFormat::Vtt),
+            "text/srt; charset=utf-8"
+        );
+        assert_eq!(SubtitleDelivery::Roku.extension(SubtitleFormat::Vtt), "srt");
+        assert_eq!(
+            SubtitleDelivery::Roku.content_type(SubtitleFormat::Ttml),
+            "application/ttml+xml; charset=utf-8"
         );
     }
 }

@@ -365,8 +365,8 @@ fn parse_media_player(xml: &[u8]) -> Result<RokuStatus, String> {
                 let value = quick_xml::escape::unescape(&decoded)
                     .map_err(|error| format!("Invalid Roku status escape: {error}"))?;
                 match current_tag.as_str() {
-                    "position" => position_ms = value.parse::<f32>().ok(),
-                    "duration" => duration_ms = value.parse::<f32>().ok(),
+                    "position" => position_ms = parse_milliseconds(&value),
+                    "duration" => duration_ms = parse_milliseconds(&value),
                     _ => {}
                 }
             }
@@ -389,6 +389,10 @@ fn parse_media_player(xml: &[u8]) -> Result<RokuStatus, String> {
             .filter(|value| *value > 0.0)
             .map(|value| value / 1_000.0),
     })
+}
+
+fn parse_milliseconds(value: &str) -> Option<f32> {
+    value.split_whitespace().next()?.parse::<f32>().ok()
 }
 
 fn xml_fields(xml: &[u8]) -> Result<HashMap<String, String>, String> {
@@ -488,7 +492,7 @@ mod tests {
 
     #[test]
     fn parses_ecp_player_clock_in_milliseconds() {
-        let xml = br#"<player state="play"><position>63400</position><duration>1505000</duration></player>"#;
+        let xml = br#"<player state="play"><position>63400 ms</position><duration>1505000 ms</duration></player>"#;
         let status = parse_media_player(xml).unwrap();
         assert_eq!(status.state, "playing");
         assert!((status.position_seconds - 63.4).abs() < 0.01);

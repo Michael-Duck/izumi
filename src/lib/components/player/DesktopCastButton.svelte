@@ -160,7 +160,11 @@
         // that are loopback-only or require request headers.
         forceRelay: device.protocol === 'roku' || device.protocol === 'dlna' && !receiverAvailable,
         contentType: receiverContentType,
-        subtitleDelivery: receiverAvailable ? 'tizenReceiver' : samsungDlnaSubtitles ? 'samsungDlna' : 'web',
+        subtitleDelivery: receiverAvailable
+          ? 'tizenReceiver'
+          : device.protocol === 'roku'
+            ? 'roku'
+            : samsungDlnaSubtitles ? 'samsungDlna' : 'web',
       })
       // Discovery and relay preparation can take several seconds while local playback continues.
       // Read mpv's clock at the LOAD boundary so the TV starts where the viewer actually is now,

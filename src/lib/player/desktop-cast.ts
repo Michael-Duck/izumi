@@ -99,7 +99,7 @@ export interface PreparedCastSource {
 export interface DesktopCastPrepareOptions {
   forceRelay?: boolean
   contentType?: string
-  subtitleDelivery?: 'web' | 'samsungDlna' | 'tizenReceiver'
+  subtitleDelivery?: 'web' | 'samsungDlna' | 'roku' | 'tizenReceiver'
 }
 
 export interface DesktopCastStartInput {

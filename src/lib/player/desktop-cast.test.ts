@@ -85,6 +85,18 @@ describe('desktop Cast subtitle selection', () => {
     })
   })
 
+  it('requests Roku-compatible sidecars from the LAN relay', async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({ url: 'http://relay/media', relayed: true, subtitles: [] })
+    await prepareDesktopCast(source, source.subtitles.slice(0, 2), {
+      forceRelay: true,
+      contentType: 'video/mp4',
+      subtitleDelivery: 'roku',
+    })
+    expect(invoke).toHaveBeenCalledWith('cast_prepare_source', {
+      request: expect.objectContaining({ forceRelay: true, subtitleDelivery: 'roku' }),
+    })
+  })
+
   it('keeps a usable remote clock when a legacy renderer omits position fields', () => {
     const previous = {
       state: 'playing' as const,
