@@ -97,6 +97,10 @@
         </button>
       {/each}
     </div>
+    <a href="/app/settings/theme-studio" data-focusable class="mb-5 flex min-h-14 items-center justify-between gap-3 rounded-xl border border-theme/25 bg-theme/10 px-4 transition hover:border-theme/50">
+      <span><span class="block font-black">Open Theme Studio</span><span class="text-xs text-muted-foreground">Build, preview, save, import and export complete themes.</span></span>
+      <span class="text-lg text-theme">→</span>
+    </a>
 
     <div class="mb-5 space-y-3">
       <label class="flex items-center justify-between gap-3 rounded-md border border-border p-3">

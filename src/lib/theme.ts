@@ -18,7 +18,9 @@ function apply() {
   const preset = get(themePreset)
   const preview = get(themeStudioPreview)
   const studio = preview ?? get(activeStudioTheme)
-  const tokens = resolvedThemeTokens(preset, media.matches, preset === 'custom' || preview ? studio.tokens : null)
+  // Studio drafts override the active preset for the duration of the editor, making every colour
+  // control a real whole-app preview before Save & Apply changes the persisted preset.
+  const tokens = preview?.tokens ?? resolvedThemeTokens(preset, media.matches, preset === 'custom' ? studio.tokens : null)
   const root = document.documentElement
   const values: Record<string, string> = {
     background: tokens.background, foreground: tokens.foreground, muted: tokens.muted,
