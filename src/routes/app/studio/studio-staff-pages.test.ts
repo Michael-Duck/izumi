@@ -11,8 +11,9 @@ describe('studio and staff profile navigation', () => {
     const people = read('src/lib/components/detail/RichMetadata.svelte')
     expect(detail).toContain('`/app/studio/${studio.id}`')
     expect(detail).not.toContain('/app/search?studio=')
-    expect(people).toContain('`/app/staff/${actor.id}`')
-    expect(people).toContain('`/app/staff/${credit.node.id}`')
+    expect(people).toContain('`/app/staff/${id}`')
+    expect(people).toContain('`/app/person/tmdb/${id}`')
+    expect(people).toContain('personHref(credit.node.id)')
     expect(people).not.toContain('/app/search?staff=')
   })
 

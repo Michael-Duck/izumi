@@ -59,6 +59,40 @@ interface TmdbPersonCredits {
   crew?: TmdbListItem[]
 }
 
+export interface TmdbPersonRaw {
+  id?: number
+  name?: string
+  also_known_as?: string[]
+  biography?: string
+  birthday?: string | null
+  deathday?: string | null
+  gender?: number
+  homepage?: string | null
+  imdb_id?: string | null
+  known_for_department?: string
+  place_of_birth?: string | null
+  popularity?: number
+  profile_path?: string | null
+  combined_credits?: TmdbPersonCredits
+}
+
+export interface TmdbPersonProfile {
+  id: number
+  name: string
+  aliases: string[]
+  biography?: string
+  birthday?: string
+  deathday?: string
+  gender?: 'Woman' | 'Man' | 'Non-binary'
+  homepage?: string
+  imdbId?: string
+  knownFor?: string
+  birthplace?: string
+  image?: string
+  cast: Media[]
+  crew: Media[]
+}
+
 interface TmdbLanguage {
   iso_639_1?: string
   english_name?: string
@@ -749,6 +783,50 @@ export async function tmdbPersonCredits(
       if (media) unique.set(`${kind}:${media.id}`, media)
     })
   return [...unique.values()].slice(0, 40)
+}
+
+function personCredits(items: TmdbListItem[] | undefined): Media[] {
+  const unique = new Map<string, Media>()
+  ;(items ?? [])
+    .filter((item) => item.media_type === 'movie' || item.media_type === 'tv')
+    .sort((left, right) => (right.popularity ?? 0) - (left.popularity ?? 0))
+    .forEach((item) => {
+      const kind = item.media_type === 'movie' ? 'movie' : 'tv'
+      const media = mapTmdb(item, kind)
+      if (media && (get(showAdult) || !media.isAdult)) unique.set(`${kind}:${item.id}`, media)
+    })
+  return [...unique.values()].slice(0, 60)
+}
+
+export function mapTmdbPersonProfile(raw: TmdbPersonRaw): TmdbPersonProfile | null {
+  if (!raw.id || !raw.name?.trim()) return null
+  const gender = raw.gender === 1 ? 'Woman' : raw.gender === 2 ? 'Man' : raw.gender === 3 ? 'Non-binary' : undefined
+  return {
+    id: raw.id,
+    name: raw.name.trim(),
+    aliases: (raw.also_known_as ?? []).filter(Boolean).slice(0, 8),
+    biography: raw.biography?.trim() || undefined,
+    birthday: raw.birthday ?? undefined,
+    deathday: raw.deathday ?? undefined,
+    gender,
+    homepage: raw.homepage ?? undefined,
+    imdbId: raw.imdb_id ?? undefined,
+    knownFor: raw.known_for_department?.trim() || undefined,
+    birthplace: raw.place_of_birth ?? undefined,
+    image: image(raw.profile_path, 'h632'),
+    cast: personCredits(raw.combined_credits?.cast),
+    crew: personCredits(raw.combined_credits?.crew),
+  }
+}
+
+/** Full profile and provider-native mixed movie/TV filmography for a dedicated person page. */
+export async function tmdbPersonProfile(id: string, signal?: AbortSignal): Promise<TmdbPersonProfile | null> {
+  if (!/^\d+$/.test(id)) return null
+  const raw = await tmdb<TmdbPersonRaw>(`/person/${encodeURIComponent(id)}`, {
+    append_to_response: 'combined_credits',
+    language: TMDB_LANGUAGE,
+  }, signal)
+  return mapTmdbPersonProfile(raw)
 }
 
 async function filterSearchResults(items: TmdbListItem[], request: CatalogSearchRequest, forcedKind?: TmdbKind): Promise<TmdbListItem[]> {

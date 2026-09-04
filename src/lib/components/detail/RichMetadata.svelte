@@ -8,6 +8,8 @@
       .filter((node): node is { rating?: number; mediaRecommendation: Media } => !!node.mediaRecommendation)
       .map((node) => node.mediaRecommendation),
   )
+  const tmdbPeople = $derived(media.catalog?.provider === 'tmdb')
+  const personHref = (id: number) => tmdbPeople ? `/app/person/tmdb/${id}` : `/app/staff/${id}`
 </script>
 
 {#if view === 'people'}
@@ -18,13 +20,22 @@
         <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {#each media.characters.edges as character (character.node.id)}
             {@const actor = character.voiceActors?.[0]}
+            {#if tmdbPeople}
+              <a href={personHref(character.node.id)} data-focusable class="flex min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/30 transition-colors hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring">
+                <img src={character.node.image?.large} alt="" loading="lazy" decoding="async" class="aspect-[2/3] w-20 shrink-0 object-cover" />
+                <span class="min-w-0 flex-1 p-3">
+                  <span class="block truncate font-black">{character.node.name.full}</span>
+                  <span class="block text-xs text-muted-foreground">{character.role.toLowerCase()}</span>
+                </span>
+              </a>
+            {:else}
             <div class="flex min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/30">
               <img src={character.node.image?.large} alt="" loading="lazy" decoding="async" class="aspect-[2/3] w-20 shrink-0 object-cover" />
               <div class="min-w-0 flex-1 p-3">
                 <div class="truncate font-black">{character.node.name.full}</div>
                 <div class="text-xs text-muted-foreground">{character.role.toLowerCase()}</div>
                 {#if actor}
-                  <a href={`/app/staff/${actor.id}`} data-focusable class="mt-3 flex items-center gap-2 rounded-md hover:bg-accent/50">
+                  <a href={personHref(actor.id)} data-focusable class="mt-3 flex items-center gap-2 rounded-md hover:bg-accent/50">
                     <img src={actor.image?.large} alt="" loading="lazy" decoding="async" class="size-9 rounded-full object-cover" />
                     <div class="min-w-0">
                       <div class="truncate text-sm font-bold">{actor.name.full}</div>
@@ -34,6 +45,7 @@
                 {/if}
               </div>
             </div>
+            {/if}
           {/each}
         </div>
       {:else}<p class="text-sm text-muted-foreground">No character credits are available.</p>{/if}
@@ -44,7 +56,7 @@
       {#if media.staff?.edges?.length}
         <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {#each media.staff.edges as credit (`${credit.node.id}-${credit.role}`)}
-            <a href={`/app/staff/${credit.node.id}`} data-focusable class="flex items-center gap-3 rounded-lg border border-border bg-secondary/30 p-2 hover:bg-accent/40">
+            <a href={personHref(credit.node.id)} data-focusable class="flex items-center gap-3 rounded-lg border border-border bg-secondary/30 p-2 hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring">
               <img src={credit.node.image?.large} alt="" loading="lazy" decoding="async" class="size-14 rounded-md object-cover" />
               <div class="min-w-0">
                 <div class="truncate font-bold">{credit.node.name.full}</div>
