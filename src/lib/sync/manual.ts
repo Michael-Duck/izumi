@@ -8,6 +8,7 @@ import {
   extensionUrls,
 } from "$lib/settings/ui";
 import type { ManualSnapshot } from "./types";
+import { activeProfileId, DEFAULT_PROFILE_ID } from '$lib/profiles/store'
 
 // Preferences that have the same meaning on Android, Deck, and desktop. Paths,
 // account tokens, downloads, and external-player configuration stay per-device.
@@ -74,6 +75,7 @@ export function createManualSnapshot(
   return {
     app: "izumi",
     kind: "device-sync",
+    profileId: get(activeProfileId),
     version: 1,
     deviceId,
     deviceName: deviceName.trim() || "Izumi device",
@@ -120,6 +122,9 @@ export function parseManualSnapshot(payload: string): ManualSnapshot | null {
 
 /** Apply a user-selected device snapshot to storage and the live app stores. */
 export function applyManualSnapshot(snapshot: ManualSnapshot): void {
+  if ((snapshot.profileId ?? DEFAULT_PROFILE_ID) !== get(activeProfileId)) {
+    throw new Error('Switch to the matching profile before receiving these settings.')
+  }
   addonUrls.set(
     snapshot.sources.addonUrls.filter(
       (x): x is string => typeof x === "string",

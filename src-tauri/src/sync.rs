@@ -44,7 +44,7 @@ const MAX_PAYLOAD_BYTES: usize = 2 * 1024 * 1024;
 const MAX_PAIR_FRAME_BYTES: usize = 64 * 1024;
 // Watch Together has its own ephemeral transport. Never admit room records into
 // the persistent Device Sync document.
-const VALID_CATEGORIES: [&str; 4] = ["watch", "manual", "presence", "companion"];
+const VALID_CATEGORIES: [&str; 5] = ["watch", "manual", "presence", "companion", "profiles"];
 const PAIR_ALPN: &[u8] = b"/izumi/device-pair/1";
 const PAIR_MDNS_SERVICE: &str = "izumi-sync-v1";
 const PAIRING_WINDOW: Duration = Duration::from_secs(120);
@@ -733,8 +733,12 @@ impl SyncRuntime {
 }
 
 fn validate_category(category: &str) -> Result<()> {
+    let profile_watch = category.strip_prefix("watch-").is_some_and(|id| {
+        !id.is_empty() && id.len() <= 100
+            && id.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+    });
     anyhow::ensure!(
-        VALID_CATEGORIES.contains(&category),
+        VALID_CATEGORIES.contains(&category) || profile_watch,
         "unknown sync category"
     );
     Ok(())

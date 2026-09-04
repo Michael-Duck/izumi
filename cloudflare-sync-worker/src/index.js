@@ -9,9 +9,9 @@ import {
   searchCatalog,
 } from './resolver.js'
 
-const VERSION = '1.6.0'
+const VERSION = '1.7.0'
 const PROTOCOL = 1
-const CATEGORIES = new Set(['watch', 'manual', 'presence', 'companion'])
+const CATEGORIES = new Set(['watch', 'manual', 'presence', 'companion', 'profiles'])
 const MAX_BODY_BYTES = 512 * 1024
 const MAX_DEVICES = 32
 const MAX_INVITES = 16
@@ -206,7 +206,7 @@ async function join(request, env) {
 }
 
 async function records(request, env, category) {
-  if (!CATEGORIES.has(category)) return json({ error: 'Unknown sync category.' }, 404)
+  if (!CATEGORIES.has(category) && !/^watch-[A-Za-z0-9_-]{1,100}$/.test(category)) return json({ error: 'Unknown sync category.' }, 404)
   const deviceId = await authenticate(request, env)
   if (!deviceId) return json({ error: 'Authentication failed.' }, 401)
   if (request.method === 'GET') {
@@ -797,7 +797,7 @@ export default {
           version: VERSION,
           protocol: PROTOCOL,
           claimed: await claimed(env),
-          features: ['companion-wake-v1', 'web-push-v1', 'cloud-resolver-v1', 'cloud-resolver-v2', 'cloud-resolver-debrid-v1', 'companion-details-v2', 'companion-snapshot-v1', 'companion-progress-v1', 'companion-catalog-v1', 'companion-trailer-v1'],
+          features: ['profile-sync-v1', 'companion-wake-v1', 'web-push-v1', 'cloud-resolver-v1', 'cloud-resolver-v2', 'cloud-resolver-debrid-v1', 'companion-details-v2', 'companion-snapshot-v1', 'companion-progress-v1', 'companion-catalog-v1', 'companion-trailer-v1'],
         })
       }
       if (request.method === 'GET' && url.pathname === '/v1/companion/enrol') return companionEnrolmentPage(request)
@@ -874,7 +874,7 @@ export default {
       if (url.pathname === '/v1/resolver/profile' && ['GET', 'PUT', 'DELETE'].includes(request.method)) {
         return await resolverProfile(request, env)
       }
-      const match = url.pathname.match(/^\/v1\/records\/([a-z]+)$/)
+      const match = url.pathname.match(/^\/v1\/records\/([A-Za-z0-9_-]{1,106})$/)
       if (match && (request.method === 'GET' || request.method === 'PUT')) return await records(request, env, match[1])
       return json({ error: 'Not found.' }, 404)
     } catch (error) {

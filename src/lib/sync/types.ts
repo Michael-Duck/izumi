@@ -52,6 +52,7 @@ export interface WatchSnapshot {
 }
 
 export interface ManualSnapshot {
+  profileId?: string;
   app: "izumi";
   kind: "device-sync";
   version: 1;

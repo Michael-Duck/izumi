@@ -6,6 +6,7 @@
   import Plus from '@lucide/svelte/icons/plus'
   import LockKeyhole from '@lucide/svelte/icons/lock-keyhole'
   import Check from '@lucide/svelte/icons/check'
+  import { profileSyncError } from '$lib/sync/client'
   import { PROFILE_AVATARS, profileAvatarUrl, validAvatar, type ProfileAvatarId } from '$lib/profiles/avatars'
   import { DEFAULT_PROFILE_ID, PROFILE_COLORS, activeProfileId, createProfile, deleteProfile, disableProfiles, profiles, profilesEnabled, setProfilePin, updateProfile, verifyProfilePin, type IzumiProfile, type ProfileRatingLimit } from '$lib/profiles/store'
 
@@ -120,6 +121,7 @@
     </header>
     {#if notice && screen === 'overview'}<p role="status" class="notice">{notice}</p>{/if}
     {#if error}<p role="alert" class="error">{error}</p>{/if}
+    {#if $profileSyncError}<p role="status" class="error">{$profileSyncError} <a href="/app/settings/sync" class="underline">Sync settings</a></p>{/if}
 
     {#if screen === 'overview'}
       {#if $profilesEnabled}

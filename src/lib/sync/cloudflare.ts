@@ -3,7 +3,7 @@ import { persisted } from 'svelte-persisted-store'
 import type { CompanionHomeSnapshot, CompanionMedia, CompanionPlaybackMode } from '$lib/companion/protocol'
 import type { SyncRecord, SyncStatus } from './types'
 
-export const CLOUDFLARE_WORKER_VERSION = '1.6.0'
+export const CLOUDFLARE_WORKER_VERSION = '1.7.0'
 export const CLOUDFLARE_WORKER_PROTOCOL = 1
 export const CLOUDFLARE_GIT_DEPLOY_URL =
   'https://deploy.workers.cloudflare.com/?url=https://github.com/nickEatsBread/izumi/tree/main/cloudflare-sync-worker'

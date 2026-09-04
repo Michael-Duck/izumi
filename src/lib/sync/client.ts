@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { get } from "svelte/store";
+import { get, writable } from "svelte/store";
 import { persisted } from "svelte-persisted-store";
 import { anilistToken } from "$lib/anilist/auth";
 import { kitsuToken, malToken, simklToken } from "$lib/trackers/config";
@@ -56,6 +56,13 @@ import {
   writeCloudflareRecord,
 } from './cloudflare'
 import { isCompanionSnapshot, type CompanionHomeSnapshot } from '$lib/companion/protocol'
+import { activeProfileId, profileHousehold, profilesEnabled, mergeRemoteProfiles } from '$lib/profiles/store'
+import { watchCategory, watchPayloadForProfile } from './profile-scope'
+
+// All playback stores bind at module initialization. Keep that identity even in the brief window
+// between selecting another profile and the shell reloading.
+const syncProfileId = get(activeProfileId)
+export const profileSyncError = writable('')
 
 export {
   checkCloudflareWorkerUpdate,
@@ -130,7 +137,7 @@ export async function joinNearbyDevice(endpointId: string): Promise<void> {
   });
 }
 
-type SyncCategory = "watch" | "manual" | "presence" | "companion"
+type SyncCategory = "watch" | "manual" | "presence" | "companion" | "profiles" | `watch-${string}`
 
 async function write(category: SyncCategory, payload: string) {
   if (get(syncProvider) === 'cloudflare') return writeCloudflareRecord(category, payload)
@@ -204,7 +211,18 @@ export async function pushWatchProgress(): Promise<boolean> {
   if (status.state !== "ready" || !status.paired) return false;
   // Connected trackers own anime-level episode counts. Iroh still owns exact
   // per-episode resume positions because trackers cannot represent them.
-  await write("watch", exportJson({ includeHistory: !trackersOwnProgress() }));
+  if (get(activeProfileId) !== syncProfileId) return false
+  try {
+    await write('profiles', JSON.stringify({ app: 'izumi', kind: 'household-profiles', version: 1, household: get(profileHousehold) }))
+    profileSyncError.set('')
+  } catch (cause) {
+    if (get(profilesEnabled)) {
+      profileSyncError.set('Profile sync needs a current Worker and updated Izumi clients. Update your Worker in Sync settings, then retry.')
+      throw cause
+    }
+  }
+  const payload = { ...JSON.parse(exportJson({ includeHistory: !trackersOwnProgress() })), profileId: syncProfileId }
+  await write(watchCategory(syncProfileId) as SyncCategory, JSON.stringify(payload));
   return true;
 }
 
@@ -212,9 +230,25 @@ export async function pullWatchProgress(): Promise<number> {
   const status = await getSyncStatus();
   if (status.state !== "ready" || !status.paired) return 0;
   let imported = 0;
+  try {
+    for (const record of await read('profiles')) {
+      try {
+        const value = JSON.parse(record.payload)
+        if (value?.app === 'izumi' && value.kind === 'household-profiles' && value.version === 1) mergeRemoteProfiles(value.household)
+      } catch { /* ignore malformed peer data */ }
+    }
+    profileSyncError.set('')
+  } catch (cause) {
+    if (get(profilesEnabled)) {
+      profileSyncError.set('Profile sync needs a current Worker and updated Izumi clients. Update your Worker in Sync settings, then retry.')
+      throw cause
+    }
+  }
+  if (get(activeProfileId) !== syncProfileId) return 0
   const includeHistory = !trackersOwnProgress();
-  for (const record of await read("watch")) {
+  for (const record of await read(watchCategory(syncProfileId) as SyncCategory)) {
     try {
+      if (!watchPayloadForProfile(record.payload, syncProfileId)) continue
       const merged = importJson(record.payload, { includeHistory });
       imported += merged.imported + merged.positionsImported + merged.originsImported
         + merged.episodeOriginsImported + merged.sceneBookmarksImported;
@@ -311,6 +345,9 @@ export function initDeviceSync() {
   malToken.subscribe(() => {
     if (primed) scheduleWatchPush();
   });
+  profileHousehold.subscribe(() => {
+    if (primed) scheduleWatchPush()
+  })
   primed = true;
 
   const refresh = async () => {
