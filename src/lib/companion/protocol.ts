@@ -69,6 +69,7 @@ export interface CompanionMedia {
   description?: string
   /** Provider-supplied age classification shown briefly while TV playback prepares. */
   contentRating?: string
+  isAdult?: boolean
   mediaKind?: 'movie' | 'show'
   genres?: string[]
   releaseYear?: number
@@ -161,6 +162,9 @@ export interface CompanionCatalogOption {
 
 /** Provider-neutral payload consumed by the standalone TV project. */
 export interface CompanionHomeSnapshot {
+  /** Omitted by pre-profile clients, which always represent the main profile. */
+  profileId?: string
+  household?: import('$lib/profiles/store').ProfileState
   app: 'izumi'
   kind: 'companion-home'
   version: typeof COMPANION_PROTOCOL
@@ -372,6 +376,7 @@ function companionRelationMedia(media: Media): CompanionMedia {
     subtitle: [media.seasonYear, format(media)].filter(Boolean).join(' · ') || undefined,
     description: stripMarkup(media.description),
     contentRating: media.contentRating || (media.isAdult ? '18' : undefined),
+    isAdult: media.isAdult === true,
     poster: cardCover(media, 220) || undefined,
     backdrop: banner(media) || undefined,
     logoImage: media.logoImage || undefined,
@@ -471,6 +476,7 @@ export function companionMedia(
     subtitle: options.subtitle || format(media) || undefined,
     description: stripMarkup(media.description),
     contentRating: media.contentRating || (media.isAdult ? '18' : undefined),
+    isAdult: media.isAdult === true,
     poster: cardCover(media, 220) || undefined,
     backdrop: banner(media) || undefined,
     logoImage: media.logoImage || undefined,

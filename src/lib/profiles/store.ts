@@ -102,6 +102,7 @@ export const profiles: Readable<IzumiProfile[]> = derived(storedProfiles, ($stat
 export const profilesEnabled = derived(storedProfiles, ($state) => normalizeState($state).enabled === true)
 export const profileHousehold = derived(storedProfiles, normalizeState)
 export const activeProfileId = persisted<string>(ACTIVE_PROFILE_KEY, storedActiveProfileId())
+if (!normalizedInitial.enabled || !normalizedInitial.profiles.some((profile) => profile.id === get(activeProfileId))) activeProfileId.set(DEFAULT_PROFILE_ID)
 export const activeProfile: Readable<IzumiProfile> = derived(
   [profiles, activeProfileId],
   ([$profiles, $active]) => $profiles.find((profile) => profile.id === $active) ?? $profiles[0] ?? defaultProfile(),

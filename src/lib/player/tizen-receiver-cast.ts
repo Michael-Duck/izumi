@@ -7,6 +7,9 @@ import {
 import type { CompanionMedia, CompanionSkipSegment } from '$lib/companion/protocol'
 import type { CastTrackHints, CastTrackPreferences } from './android-cast'
 
+import { get } from 'svelte/store'
+import { activeProfileId } from '$lib/profiles/store'
+
 export interface TizenReceiverDevice {
   id: string
   name: string
@@ -179,7 +182,7 @@ export async function startTizenReceiverCast(
     })
     // Older TV firmware may deliver a channel event without resolving its `from` peer. Carry the
     // authenticated channel identity in the payload so the receiver can still reply to this socket.
-    channel.publish('izumi.load', { ...request, sessionId, senderId: channel.clientId }, 'host')
+    channel.publish('izumi.load', { ...request, profileId: get(activeProfileId), sessionId, senderId: channel.clientId }, 'host')
   }).catch((error) => {
     channel.disconnect()
     throw error

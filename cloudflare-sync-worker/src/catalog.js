@@ -69,6 +69,8 @@ function aniMedia(raw) {
   const title = clean(raw.title?.userPreferred ?? raw.title?.english ?? raw.title?.romaji, 240)
   if (!title) return null
   return {
+    isAdult: raw.isAdult === true,
+    contentRating: raw.isAdult ? '18' : undefined,
     mediaId: Number(raw.id),
     ref: { provider: 'anilist', type, id: String(raw.id) },
     resolver: { streamType: streamType(type) },
@@ -157,6 +159,8 @@ function kitsuMedia(raw) {
   const title = clean(attrs.titles?.en ?? attrs.canonicalTitle ?? attrs.titles?.en_jp, 240)
   if (!title) return null
   return {
+    isAdult: attrs.nsfw === true || attrs.ageRating === 'R18',
+    contentRating: clean(attrs.ageRating, 32),
     ref: { provider: 'kitsu', type, id: String(raw.id) },
     resolver: { streamType: streamType(type) }, title,
     description: clean(attrs.synopsis), mediaKind: mediaKind(type),
@@ -194,6 +198,8 @@ function tmdbMedia(raw, forcedKind) {
   if (!title) return null
   const imdbId = raw.external_ids?.imdb_id ?? raw.imdb_id
   return {
+    isAdult: raw.adult === true,
+    contentRating: clean(raw.release_dates?.results?.find((item) => item.iso_3166_1 === 'US')?.release_dates?.find((item) => item.certification)?.certification ?? raw.content_ratings?.results?.find((item) => item.iso_3166_1 === 'US')?.rating, 32),
     ref: { provider: 'tmdb', type, id: String(raw.id) },
     resolver: {
       streamType: streamType(type),
@@ -251,6 +257,8 @@ function stremioMedia(raw, base, forcedType) {
   const tmdbId = /^tmdb:(?:(?:movie|tv|series):)?(\d+)/i.exec(raw.id)?.[1]
   const videoId = type === 'movie' ? raw.videos?.[0]?.id ?? raw.id : undefined
   return {
+    isAdult: raw.isAdult === true,
+    contentRating: clean(raw.contentRating ?? raw.certification, 32),
     ref: { provider: 'stremio', type, id: stremioIdentity(base, nativeType, raw.id), addonId: fnv(normalizeBase(base)) },
     resolver: {
       streamType: streamType(type), nativeType,

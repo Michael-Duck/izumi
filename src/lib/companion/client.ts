@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { get, writable } from 'svelte/store'
+import { activeProfileId } from '$lib/profiles/store'
 import { persisted } from 'svelte-persisted-store'
 import { SamsungSmartViewChannel } from '$lib/player/samsung-smart-view'
 import { setTizenReceiverRelayForeground, type TizenReceiverDevice } from '$lib/player/tizen-receiver-cast'
@@ -54,6 +55,7 @@ export interface PendingCompanionPlayback {
   device: PairedCompanion
   media: CompanionMedia
   requestId?: string
+  profileId?: string
   pairingId?: string
   expiresAt?: number
   /** Live local-channel requests resolve without navigating or borrowing the on-screen picker. */
@@ -98,6 +100,7 @@ export function acceptCompanionPlayRequest(
   device: PairedCompanion,
   remote: Omit<PendingCompanionPlayback, 'device' | 'media'> = {},
 ): string {
+  if ((remote.profileId ?? get(activeProfileId)) !== get(activeProfileId)) throw new Error('Switch to the TV’s profile in Izumi before opening this request.')
   pendingCompanionPlayback.set({ device, media, ...remote })
   const ref = media.ref
   const base = ref.provider === 'anilist'
@@ -490,6 +493,7 @@ function checkpointMedia(media: CompanionMedia): Media {
 }
 
 interface CompanionProgressRecord {
+  profileId?: string
   recordKey: string
   media: CompanionMedia
   positionSeconds: number
@@ -515,6 +519,7 @@ function companionProgressRecord(value: unknown): CompanionProgressRecord | null
     || record.updatedAt < now - 180 * 24 * 60 * 60 * 1_000 || record.updatedAt > now + 60_000) return null
   return {
     recordKey: record.recordKey,
+    profileId: record.profileId,
     media,
     positionSeconds: record.positionSeconds,
     durationSeconds: record.durationSeconds,
@@ -524,11 +529,13 @@ function companionProgressRecord(value: unknown): CompanionProgressRecord | null
 }
 
 function applyCompanionProgress(device: PairedCompanion, record: CompanionProgressRecord, source: 'cloud' | 'tv'): boolean {
+  if ((record.profileId ?? 'default') !== get(activeProfileId)) return false
   const owner = device.cloudflare?.pairingId ?? device.deviceId
   // Keep the historical Worker key stable so upgrading does not reapply an old cloud checkpoint.
+  const profilePrefix = record.profileId && record.profileId !== 'default' ? `${record.profileId}:` : ''
   const appliedKey = source === 'cloud'
-    ? `${owner}:${record.recordKey}`
-    : `${device.deviceId}:tv:${record.recordKey}`
+    ? `${owner}:${profilePrefix}${record.recordKey}`
+    : `${device.deviceId}:tv:${profilePrefix}${record.recordKey}`
   if ((get(appliedCompanionProgress)[appliedKey] ?? 0) >= record.updatedAt) return false
   const media = checkpointMedia(record.media)
   const episode = Math.max(1, Math.floor(record.media.episode ?? 1))
@@ -621,6 +628,7 @@ function keepConnection(
       if (changed) pulseCompanionActivity()
     }),
     channel.on('izumi.companion.play', (value, from) => {
+      if (((value as { profileId?: unknown } | null)?.profileId ?? 'default') !== get(activeProfileId)) return
       const request = value as Partial<CompanionMedia> & {
         ref?: CompanionMedia['ref']
         pairingId?: unknown
@@ -674,6 +682,7 @@ function keepConnection(
       }
     }),
     channel.on('izumi.companion.source-select', (value) => {
+      if (((value as { profileId?: unknown } | null)?.profileId ?? 'default') !== get(activeProfileId)) return
       const request = value as { pairingId?: unknown; requestId?: unknown; choiceId?: unknown } | null
       const pairingId = device.cloudflare?.pairingId ?? device.credential.slice(0, 16)
       if (!request || request.pairingId !== pairingId
@@ -684,6 +693,7 @@ function keepConnection(
       }
     }),
     channel.on('izumi.companion.catalog', (value, from) => {
+      if (((value as { profileId?: unknown } | null)?.profileId ?? 'default') !== get(activeProfileId)) return
       const request = value as { screen?: unknown; pairingId?: unknown } | null
       if (!request
         || request.pairingId !== device.credential.slice(0, 16)
@@ -693,6 +703,7 @@ function keepConnection(
       const target = request.screen as CatalogScreen
       const replyTarget = from?.id || 'host'
       const reject = (error: string) => channel.publish('izumi.companion.catalog-result', {
+        profileId: get(activeProfileId),
         pairingId: device.credential.slice(0, 16),
         screen: request.screen,
         error,
@@ -713,6 +724,7 @@ function keepConnection(
       })
     }),
     channel.on('izumi.companion.search', (value, from) => {
+      if (((value as { profileId?: unknown } | null)?.profileId ?? 'default') !== get(activeProfileId)) return
       const request = value as { query?: unknown; requestId?: unknown; pairingId?: unknown; person?: unknown; genre?: unknown } | null
       if (!request
         || request.pairingId !== device.credential.slice(0, 16)
@@ -739,6 +751,7 @@ function keepConnection(
         : undefined
       const genre = typeof request.genre === 'string' ? request.genre.trim().slice(0, 80) : undefined
       const reply = (payload: Record<string, unknown>) => channel.publish('izumi.companion.search-results', {
+        profileId: get(activeProfileId),
         credential: device.credential,
         requestId: request.requestId,
         query,
@@ -752,6 +765,7 @@ function keepConnection(
         .catch((error) => reply({ error: error instanceof Error ? error.message : 'Search unavailable' }))
     }),
     channel.on('izumi.companion.details', (value, from) => {
+      if (((value as { profileId?: unknown } | null)?.profileId ?? 'default') !== get(activeProfileId)) return
       const request = value as { media?: unknown; requestId?: unknown; pairingId?: unknown; presentationOnly?: unknown } | null
       const media = request?.media as Partial<CompanionMedia> | undefined
       const ref = media?.ref
@@ -769,6 +783,7 @@ function keepConnection(
         || !onDetails) return
       pulseCompanionActivity()
       const reply = (payload: Record<string, unknown>) => channel.publish('izumi.companion.details-result', {
+        profileId: get(activeProfileId),
         credential: device.credential,
         requestId: request.requestId,
         ...payload,
@@ -778,6 +793,7 @@ function keepConnection(
         .catch((error) => reply({ error: error instanceof Error ? error.message : 'Episode details unavailable' }))
     }),
     channel.on('izumi.companion.trailer', (value, from) => {
+      if (((value as { profileId?: unknown } | null)?.profileId ?? 'default') !== get(activeProfileId)) return
       const request = value as { pairingId?: unknown; requestId?: unknown; videoId?: unknown; title?: unknown; muted?: unknown; captions?: unknown } | null
       if (!request
         || request.pairingId !== device.credential.slice(0, 16)

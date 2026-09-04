@@ -21,6 +21,7 @@
         }
         const request = await readCloudflareCompanionRequest(pairingId, requestId, device.credential)
         const path = acceptCompanionPlayRequest(request.media, device, {
+          profileId: request.profileId ?? 'default',
           pairingId: request.pairingId,
           requestId: request.requestId,
           expiresAt: request.expiresAt,

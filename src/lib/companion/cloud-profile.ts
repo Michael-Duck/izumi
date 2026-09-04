@@ -1,4 +1,5 @@
 import { get, type Readable } from 'svelte/store'
+import { profileHousehold } from '$lib/profiles/store'
 import { catalogScreen, enabledCatalogScreens, tmdbReadToken } from '$lib/settings/catalog'
 import { debridKey, debridProvider, hideSpoilers, preferredAudioLang, preferredQuality, preferredStreamSort, showAdult } from '$lib/settings/ui'
 import { enabledAddonUrls } from '$lib/stremio/sources'
@@ -12,6 +13,7 @@ export function currentCloudflareCompanionProfile(connectedDeviceFallback: boole
   const provider = get(debridProvider)
   return {
     enabled: true,
+    household: get(profileHousehold),
     addons: [...get(enabledAddonUrls)],
     quality: get(preferredQuality),
     sort: get(preferredStreamSort),
@@ -36,6 +38,7 @@ export function watchCloudflareCompanionProfile(onChange: () => void): () => voi
     debridProvider, debridKey, enabledCatalogScreens, catalogScreen, tmdbReadToken,
     showAdult, hideSpoilers,
     cloudflareAllowLanSources,
+    profileHousehold,
   ]
   let primed = 0
   let timer: ReturnType<typeof setTimeout> | undefined

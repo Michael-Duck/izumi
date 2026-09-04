@@ -1,5 +1,7 @@
 import type { Client } from '@urql/core'
 import { get } from 'svelte/store'
+import { activeProfile, profileHousehold } from '$lib/profiles/store'
+import { profileAllowsMedia } from '$lib/profiles/content'
 import { MEDIA_BY_ID, STAFF_MEDIA_QUERY } from '$lib/anilist/detail-queries'
 import { heroQuery, heroVars, homeSections, pageQuery } from '$lib/anilist/queries'
 import { resumeEp } from '$lib/anilist/media'
@@ -545,6 +547,8 @@ export async function createCompanionSnapshot(
   const localHistoryEntries = historyEntries(get(localHistory))
   const playbackPositions = get(positions)
   const cacheKey = JSON.stringify({
+    profile: get(activeProfile),
+    household: get(profileHousehold),
     screen,
     active,
     availableScreens,
@@ -584,6 +588,8 @@ export async function createCompanionSnapshot(
   } : rows[0]?.items[0])
   const revision = `${now.toString(36)}-${rows.reduce((count, row) => count + row.items.length, 0).toString(36)}`
   const snapshot = compactCompanionSnapshot({
+    profileId: get(activeProfile).id,
+    household: get(profileHousehold),
     app: 'izumi',
     kind: 'companion-home',
     version: COMPANION_PROTOCOL,
@@ -603,6 +609,11 @@ export async function createCompanionSnapshot(
     // five more copies of the catalogue into the pairing payload.
   })
   cached = { key: cacheKey, at: now, snapshot }
+  const viewer = get(activeProfile)
+  snapshot.rows = snapshot.rows.map((row) => ({ ...row, items: row.items.filter((media) => profileAllowsMedia(media, viewer)) })).filter((row) => row.items.length)
+  if (snapshot.views) snapshot.views = Object.fromEntries(Object.entries(snapshot.views).map(([key, items]) => [key, items?.filter((media) => profileAllowsMedia(media, viewer))]))
+  snapshot.history = snapshot.history?.filter((media) => profileAllowsMedia(media, viewer))
+  if (snapshot.hero && !profileAllowsMedia(snapshot.hero, viewer)) snapshot.hero = snapshot.rows[0]?.items[0]
   return snapshot
 }
 
@@ -633,7 +644,7 @@ export async function createCompanionSearch(
   } else {
     media = (await searchMergedCatalogs(get(catalogProviders), genre ? '' : normalized, 1, undefined, genre)).media
   }
-  media = media.filter((item) => get(showAdult) || !item.isAdult)
+  media = media.filter((item) => (get(showAdult) || !item.isAdult) && profileAllowsMedia(item, get(activeProfile)))
   return media.slice(0, 40).map((item) => companionMedia(item, {
     placement: { label: person ? `Featuring ${person.name}` : genre ? `${genre} titles` : `Search results for ${normalized}`, kind: 'catalog' },
   }))

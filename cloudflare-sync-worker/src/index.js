@@ -1,4 +1,5 @@
 import webpush from 'web-push'
+import { validSnapshotSelector, viewerForRequest, viewerAllows, scopeSnapshot } from './profiles.js'
 import {
   defaultResolverProfile,
   normalizeResolverProfile,
@@ -354,7 +355,7 @@ async function companionSnapshot(request, env, pairingId) {
   if (request.method === 'PUT') {
     if (!await ownerPairing(request, env, pairingId)) return json({ error: 'Companion pairing not found.' }, 404)
     const value = await body(request)
-    if (!validCatalogScreen(value.screen) || !validEncryptedPayload(value.payload)) {
+    if (!validSnapshotSelector(value.screen) || !validEncryptedPayload(value.payload)) {
       return json({ error: 'The encrypted TV snapshot is invalid.' }, 400)
     }
     const now = Date.now()
@@ -364,7 +365,7 @@ async function companionSnapshot(request, env, pairingId) {
   }
   if (!await authenticateTv(request, env, pairingId)) return json({ error: 'TV authentication failed.' }, 401)
   const screen = new URL(request.url).searchParams.get('screen') || ''
-  if (screen && !validCatalogScreen(screen)) return json({ error: 'Unknown catalogue.' }, 400)
+  if (screen && !validSnapshotSelector(screen)) return json({ error: 'Unknown catalogue.' }, 400)
   const row = screen
     ? await env.DB.prepare('SELECT screen, payload, updated_at AS updatedAt FROM companion_snapshots WHERE pairing_id = ? AND screen = ?').bind(pairingId, screen).first()
     : await env.DB.prepare('SELECT screen, payload, updated_at AS updatedAt FROM companion_snapshots WHERE pairing_id = ? ORDER BY updated_at DESC LIMIT 1').bind(pairingId).first()
@@ -627,7 +628,13 @@ async function resolveForTv(request, env, pairingId) {
     return json({ error: 'The cloud resolver profile is invalid. Open Izumi and save it again.', code: 'RESOLVER_INVALID' }, 409)
   }
   try {
-    const result = await resolveDirectSources(profile, await body(request))
+    const input = await body(request)
+    const viewer = await viewerForRequest(profile, input)
+    if (viewer && (viewer.ratingLimit < 18 || !viewer.allowAdult)) {
+      const metadata = await resolveMediaDetails(input, profile)
+      if (!viewerAllows(metadata, viewer)) throw new Error('This title is above this profile’s viewing limit.')
+    }
+    const result = await resolveDirectSources(profile, input)
     return json({
       ok: true,
       ...result,
@@ -648,16 +655,33 @@ async function detailsForTv(request, env, pairingId) {
   const row = await env.DB.prepare('SELECT profile_json AS profile FROM resolver_profiles WHERE owner_device_id = ?')
     .bind(String(pairing.owner_device_id)).first()
   let profile = defaultResolverProfile()
-  try { if (row) profile = normalizeResolverProfile(JSON.parse(row.profile), new URL(request.url).origin) } catch { /* Public AniList fallback remains available. */ }
+  try { if (row) profile = normalizeResolverProfile(JSON.parse(row.profile), new URL(request.url).origin) } catch {
+    return json({ error: 'The cloud profile is invalid. Save it again in Izumi.', code: 'RESOLVER_INVALID' }, 409)
+  }
   try {
     const input = await body(request)
+    const viewer = await viewerForRequest(profile, input)
     const details = await resolveMediaDetails(input?.media ?? input, profile)
+    if (!viewerAllows(details, viewer)) throw new Error('This title is above this profile’s viewing limit.')
     return details
       ? json({ ok: true, details })
       : json({ error: 'Cloud episode metadata is unavailable for this catalogue title.', code: 'DETAILS_UNAVAILABLE' }, 404)
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : 'Episode metadata lookup failed.', code: 'DETAILS_FAILED' }, 409)
   }
+}
+
+async function householdForTv(request, env, pairingId) {
+  const pairing = await authenticateTv(request, env, pairingId)
+  if (!pairing) return json({ error: 'TV authentication failed.' }, 401)
+  const row = await env.DB.prepare('SELECT profile_json AS profile FROM resolver_profiles WHERE owner_device_id = ?')
+    .bind(String(pairing.owner_device_id)).first()
+  if (!row) return json({ household: null })
+  try {
+    const profile = normalizeResolverProfile(JSON.parse(row.profile), new URL(request.url).origin)
+    // Only household display metadata and salted PIN verifiers; never resolver credentials.
+    return json({ household: profile.household ?? null })
+  } catch { return json({ error: 'Save profiles again in Izumi.' }, 409) }
 }
 
 async function catalogForTv(request, env, pairingId) {
@@ -673,7 +697,8 @@ async function catalogForTv(request, env, pairingId) {
   try {
     const profile = normalizeResolverProfile(JSON.parse(row.profile), new URL(request.url).origin)
     const input = await body(request)
-    const snapshot = await resolveCatalogSnapshot(profile, input?.screen)
+    const viewer = await viewerForRequest(profile, input)
+    const snapshot = scopeSnapshot(await resolveCatalogSnapshot(profile, input?.screen), profile, viewer)
     return snapshot ? json({ ok: true, snapshot }) : json({ error: 'This catalogue is not available in the Worker.', code: 'CATALOG_UNAVAILABLE' }, 404)
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : 'Catalogue lookup failed.', code: 'CATALOG_FAILED' }, 409)
@@ -693,7 +718,8 @@ async function searchForTv(request, env, pairingId) {
   try {
     const profile = normalizeResolverProfile(JSON.parse(row.profile), new URL(request.url).origin)
     const input = await body(request)
-    const items = await searchCatalog(profile, input?.screen, input?.query, input?.person, input?.genre)
+    const viewer = await viewerForRequest(profile, input)
+    const items = (await searchCatalog(profile, input?.screen, input?.query, input?.person, input?.genre)).filter((item) => viewerAllows(item, viewer))
     return json({ ok: true, items })
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : 'Search failed.', code: 'SEARCH_FAILED' }, 409)
@@ -797,7 +823,7 @@ export default {
           version: VERSION,
           protocol: PROTOCOL,
           claimed: await claimed(env),
-          features: ['profile-sync-v1', 'companion-wake-v1', 'web-push-v1', 'cloud-resolver-v1', 'cloud-resolver-v2', 'cloud-resolver-debrid-v1', 'companion-details-v2', 'companion-snapshot-v1', 'companion-progress-v1', 'companion-catalog-v1', 'companion-trailer-v1'],
+          features: ['companion-profiles-v1', 'profile-sync-v1', 'companion-wake-v1', 'web-push-v1', 'cloud-resolver-v1', 'cloud-resolver-v2', 'cloud-resolver-debrid-v1', 'companion-details-v2', 'companion-snapshot-v1', 'companion-progress-v1', 'companion-catalog-v1', 'companion-trailer-v1'],
         })
       }
       if (request.method === 'GET' && url.pathname === '/v1/companion/enrol') return companionEnrolmentPage(request)
@@ -847,6 +873,8 @@ export default {
       if (companionProgressMatch && (request.method === 'GET' || request.method === 'PUT')) {
         return await companionProgress(request, env, companionProgressMatch[1])
       }
+      const householdMatch = url.pathname.match(/^\/v1\/companion\/pairings\/([A-Za-z0-9_-]{16,80})\/household$/)
+      if (householdMatch && request.method === 'GET') return await householdForTv(request, env, householdMatch[1])
       const companionCatalogMatch = url.pathname.match(/^\/v1\/companion\/pairings\/([A-Za-z0-9_-]{16,80})\/catalog$/)
       if (companionCatalogMatch && request.method === 'POST') {
         return await catalogForTv(request, env, companionCatalogMatch[1])

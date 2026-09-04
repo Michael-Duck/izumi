@@ -1,5 +1,6 @@
 // @ts-nocheck -- Wrangler validates this Worker module; the root app checker cannot model its
 // cross-package TypeScript import without changing the browser application's compiler contract.
+import { normalizeHousehold } from './profiles.js'
 import {
   acceptsStreamId,
   buildStreamIds,
@@ -118,6 +119,7 @@ export function normalizeResolverProfile(value, workerOrigin = '') {
   if (tmdbToken.length > 2_048 || /[\u0000-\u001f\u007f]/.test(tmdbToken)) throw new Error('The TMDB catalogue credential is invalid.')
   return {
     enabled: input.enabled === true,
+    ...(input.household ? { household: normalizeHousehold(input.household) } : {}),
     addons,
     quality,
     sort,
@@ -257,6 +259,7 @@ async function kitsuDetails(request) {
   }
   const summary = catalogInternals.kitsuMedia(detail?.data)
   return detailEnvelope(episodes, summary ? {
+    isAdult: summary.isAdult, contentRating: summary.contentRating,
     description: summary.description, poster: summary.poster, backdrop: summary.backdrop,
     runtimeMinutes: summary.runtimeMinutes, ratings: summary.ratings,
   } : {})
@@ -302,6 +305,7 @@ async function tmdbDetails(request, profile) {
     image: entry.profile_path ? `https://image.tmdb.org/t/p/w185${entry.profile_path}` : undefined, credit: 'crew',
   }] : [])
   return detailEnvelope(episodes, {
+    isAdult: summary?.isAdult, contentRating: summary?.contentRating,
     description: summary?.description,
     poster: summary?.poster,
     backdrop: summary?.backdrop,
@@ -340,6 +344,7 @@ async function stremioDetails(request, profile) {
     }] : []
   })
   return detailEnvelope(episodes, summary ? {
+    isAdult: summary.isAdult, contentRating: summary.contentRating,
     description: summary.description, poster: summary.poster, backdrop: summary.backdrop,
     logoImage: summary.logoImage, runtimeMinutes: summary.runtimeMinutes, genres: summary.genres,
     ratings: summary.ratings, trailer: summary.trailer,
@@ -384,6 +389,7 @@ export async function resolveMediaDetails(value, profileOrFetcher = defaultResol
   if (!entries.length && !catalogue) return null
   const summary = catalogue?.summary
   return detailEnvelope(entries.map(({ absolute: _absolute, ...episode }) => episode), summary ? {
+    isAdult: summary.isAdult, contentRating: summary.contentRating,
     description: summary.description,
     poster: summary.poster,
     backdrop: summary.backdrop,

@@ -73,6 +73,7 @@ export interface CloudflareCompanionTransport {
 }
 
 export interface CloudflareCompanionRequest {
+  profileId?: string
   pairingId: string
   requestId: string
   media: CompanionMedia
@@ -81,6 +82,7 @@ export interface CloudflareCompanionRequest {
 }
 
 export interface CloudflareResolverProfile {
+  household?: import('$lib/profiles/store').ProfileState
   enabled: boolean
   addons: string[]
   quality: '2160' | '1440' | '1080' | '720' | '480' | '360' | 'any'
@@ -111,6 +113,7 @@ export interface CloudflareResolverProfileState extends Omit<CloudflareResolverP
 }
 
 export interface CloudflareCompanionProgress {
+  profileId?: string
   recordKey: string
   media: CompanionMedia
   sessionId: string
@@ -422,6 +425,7 @@ export async function readCloudflareCompanionRequest(
     return {
       pairingId,
       requestId,
+      profileId: typeof value.profileId === 'string' ? value.profileId : 'default',
       media: { ref: value.ref, resolver, playback, title: '', episode, season },
       issuedAt,
       expiresAt,
@@ -606,11 +610,12 @@ export async function publishCloudflareCompanionSnapshot(
   transport: CloudflareCompanionTransport,
   snapshot: CompanionHomeSnapshot,
 ): Promise<void> {
-  const payload = await encryptCompanionPayload(transport, `snapshot:${snapshot.catalog.screen}`, snapshot)
+  const screenKey = snapshot.household?.enabled ? `${snapshot.profileId ?? 'default'}~${snapshot.catalog.screen}` : snapshot.catalog.screen
+  const payload = await encryptCompanionPayload(transport, `snapshot:${screenKey}`, snapshot)
   const config = companionConfig()
   if (normalizeCloudflareEndpoint(config.endpoint) !== normalizeCloudflareEndpoint(transport.endpoint)) return
   await workerRequest(transport.endpoint, `/v1/companion/pairings/${encodeURIComponent(transport.pairingId)}/snapshots`, {
-    method: 'PUT', body: JSON.stringify({ screen: snapshot.catalog.screen, payload }),
+    method: 'PUT', body: JSON.stringify({ screen: screenKey, payload }),
   }, config.deviceToken)
 }
 
