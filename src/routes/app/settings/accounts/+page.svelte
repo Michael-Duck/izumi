@@ -5,6 +5,7 @@
   import SettingsSwitch from '$lib/components/settings/SettingsSwitch.svelte'
   import TrackerProviderBadge from '$lib/components/settings/TrackerProviderBadge.svelte'
   import ListProviderAccounts from '$lib/components/settings/ListProviderAccounts.svelte'
+  import TraktAccountSettings from '$lib/components/settings/TraktAccountSettings.svelte'
   import { autoWatchlistEnabled, autoWatchlistEpisodes } from '$lib/settings/ui'
   import {
     anilistToken,
@@ -413,6 +414,8 @@
       {#if simklError}<p role="alert" class="mt-2 text-xs text-destructive">{simklError}</p>{/if}
     </SettingsRow>
   </SettingsGroup>
+
+  <TraktAccountSettings />
 
   <SettingsGroup
     icon={Blocks}

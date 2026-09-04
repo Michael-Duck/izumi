@@ -26,6 +26,8 @@ import {
 } from './queue'
 import type { Media, FuzzyDate } from '$lib/anilist/types'
 import { externalIdsOf } from '$lib/catalog/identity'
+import { traktToken } from '$lib/trakt/config'
+import { addTraktHistory, setTraktRating, setTraktWatchlist } from '$lib/trakt/sync'
 
 export type AniStatus = 'CURRENT' | 'PLANNING' | 'COMPLETED' | 'PAUSED' | 'DROPPED' | 'REPEATING'
 export function malStatus(s: AniStatus): string {
@@ -239,6 +241,7 @@ export function markWatched(media: Media, episode: number): number {
   const localEntry = localTrackingForMedia(get(localLibrary), media)
   const known = Math.max(entry?.progress ?? 0, localEntry?.progress ?? 0, get(localHistory)[media.id]?.progress ?? 0)
   recordProgress(media, episode) // local — always, independent of any linked tracker
+  void addTraktHistory(media, episode).catch(() => {})
   const persistLocal = get(saveLocalHistory)
   const threshold = Math.max(1, Math.floor(get(autoWatchlistEpisodes) || 1))
   if (!get(incognito) && persistLocal && get(autoWatchlistEnabled) && episode >= threshold) {
@@ -279,12 +282,14 @@ export function setStatus(media: Media, status: AniStatus): Promise<string[]> {
     saveLocalTracking(media, { status })
     setMediaInLocalList(media, WATCHLIST_ID, status === 'CURRENT' || status === 'REPEATING')
   }
+  void setTraktWatchlist(media, status === 'PLANNING').catch(() => {})
   return push(media, { kind: 'status', status })
 }
 
 // Set the viewer's rating (canonical 0-100) on every connected tracker. Best-effort. score 0 clears.
 export function setScore(media: Media, score0to100: number): Promise<string[]> {
   if (!get(incognito)) saveLocalTracking(media, { score: clamp(score0to100, 0, 100) })
+  void setTraktRating(media, score0to100).catch(() => {})
   return push(media, { kind: 'score', score: score0to100 })
 }
 
@@ -296,6 +301,7 @@ export function removeFromList(media: Media): Promise<string[]> {
     removeLocalTracking(media)
     setMediaInLocalList(media, WATCHLIST_ID, false)
   }
+  void setTraktWatchlist(media, false).catch(() => {})
   return push(media, { kind: 'remove', listEntryId: media.mediaListEntry?.id })
 }
 
@@ -474,7 +480,7 @@ export async function getMalListProgress(status: string, limit = 20): Promise<Ma
   catch { return [] }
 }
 
-export const anyTrackerConnected = () => !!(get(anilistToken) || get(malToken) || get(kitsuToken) || get(simklToken))
+export const anyTrackerConnected = () => !!(get(anilistToken) || get(malToken) || get(kitsuToken) || get(simklToken) || get(traktToken))
 
 // Re-exported so callers can check the confirmed-progress floor without importing the queue directly.
 export { confirmedFloor }
