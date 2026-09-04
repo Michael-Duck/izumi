@@ -10,6 +10,7 @@ import {
   traktUserAvatar,
   traktUserName,
   traktUserSlug,
+  TRAKT_DEVICE_REDIRECT_URI,
 } from './config'
 import type { TraktTokenReply } from './types'
 
@@ -23,7 +24,7 @@ export function traktCredentials() {
   return {
     clientId: get(traktClientId).trim(),
     clientSecret: get(traktClientSecret).trim(),
-    redirectUri: get(traktRedirectUri).trim(),
+    redirectUri: get(traktRedirectUri).trim() || TRAKT_DEVICE_REDIRECT_URI,
   }
 }
 

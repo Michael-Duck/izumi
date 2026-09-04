@@ -5,7 +5,8 @@ import type { TraktQueuedAction } from './types'
  * These credentials stay in the active Izumi profile's local storage and are never synced. */
 export const traktClientId = profiledPersisted('trakt-client-id', '')
 export const traktClientSecret = profiledPersisted('trakt-client-secret', '')
-export const traktRedirectUri = profiledPersisted('trakt-redirect-uri', '')
+export const TRAKT_DEVICE_REDIRECT_URI = 'urn:ietf:wg:oauth:2.0:oob'
+export const traktRedirectUri = profiledPersisted('trakt-redirect-uri', TRAKT_DEVICE_REDIRECT_URI)
 
 export const traktToken = profiledPersisted<string | null>('trakt-token', null)
 export const traktRefreshToken = profiledPersisted<string | null>('trakt-refresh-token', null)

@@ -12,13 +12,14 @@
     traktToken,
     traktUserName,
     traktUserSlug,
+    TRAKT_DEVICE_REDIRECT_URI,
   } from '$lib/trakt/config'
   import type { TraktDeviceCode } from '$lib/trakt/types'
 
   let formOpen = $state(false)
   let clientIdInput = $state($traktClientId)
   let clientSecretInput = $state($traktClientSecret)
-  let redirectUriInput = $state($traktRedirectUri)
+  let redirectUriInput = $state($traktRedirectUri || TRAKT_DEVICE_REDIRECT_URI)
   let busy = $state(false)
   let error = $state('')
   let deviceCode = $state<TraktDeviceCode | null>(null)
@@ -124,6 +125,7 @@
         </div>
       </div>
     {:else}
+      <p class="mb-4 text-sm leading-6 text-muted-foreground">Register an application named <strong class="text-foreground">Izumi</strong> in Trakt, with redirect URI <code class="break-all text-foreground">{TRAKT_DEVICE_REDIRECT_URI}</code>. Leave JavaScript origins blank. Then paste the two credentials below. You’ll approve the connection in your browser.</p>
       <div class="grid gap-2 sm:grid-cols-2">
         <label class="grid gap-1 text-[11px] font-bold text-muted-foreground">
           Client ID
@@ -133,10 +135,13 @@
           Client secret
           <input bind:value={clientSecretInput} autocomplete="off" type="password" data-focusable placeholder="Stored only in this profile" class="h-10 min-w-0 rounded-md bg-input px-3 text-base text-foreground sm:text-sm" />
         </label>
-        <label class="grid gap-1 text-[11px] font-bold text-muted-foreground sm:col-span-2">
-          Redirect URI
+        <details class="sm:col-span-2 text-sm text-muted-foreground">
+          <summary class="cursor-pointer py-2" data-focusable>Advanced: registered redirect URI</summary>
+        <label class="grid gap-1 text-xs font-bold">
+          Redirect URI (must match Trakt)
           <input bind:value={redirectUriInput} autocomplete="url" inputmode="url" data-focusable placeholder="Exactly as registered with Trakt" class="h-10 min-w-0 rounded-md bg-input px-3 text-base text-foreground sm:text-sm" />
         </label>
+        </details>
       </div>
 
       {#if deviceCode}
