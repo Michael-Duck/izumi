@@ -170,7 +170,7 @@ export function castSourceDecision(
   source: CastSource | null | undefined,
   tracks: CastTrack[] = [],
   fileFormat?: string | null,
-  target: 'googleCast' | 'tv' = 'googleCast',
+  target: 'googleCast' | 'tv' | 'airplay' = 'googleCast',
 ): CastSourceDecision {
   const rawUrl = source?.url?.trim()
   if (!rawUrl) return { ok: false, error: 'Cast needs a playable stream.' }
@@ -196,6 +196,15 @@ export function castSourceDecision(
   const contentType = contentTypeFor(activeSource, url, fileFormat)
   if (!contentType) {
     return { ok: false, error: 'Cast could not identify a supported stream container.' }
+  }
+  if (target === 'airplay' && ![
+    'video/mp4',
+    'application/vnd.apple.mpegurl',
+    'application/x-mpegurl',
+    'audio/mp4',
+    'audio/mpeg',
+  ].includes(contentType)) {
+    return { ok: false, error: 'AirPlay direct playback needs an HLS, MP4, M4A or MP3 source.' }
   }
   if (contentType === 'application/dash+xml'
     && (Object.keys(activeSource.headers ?? {}).length > 0 || ['localhost', '127.0.0.1', '::1'].includes(url.hostname))) {

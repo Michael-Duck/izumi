@@ -9,6 +9,7 @@ import {
   desktopCastStatus,
   desktopCastContentType,
   desktopCastSupportsDlnaSubtitles,
+  airPlayAvailable,
   prepareDesktopCast,
   reconcileDesktopCastStatus,
   seekActiveDesktopCast,
@@ -66,6 +67,10 @@ describe('desktop Cast subtitle selection', () => {
     expect(desktopCastContentType(samsung, 'video/x-matroska')).toBe('video/x-mkv')
     expect(desktopCastContentType(samsung, 'audio/flac')).toBe('audio/x-flac')
     expect(desktopCastSupportsDlnaSubtitles(samsung)).toBe(true)
+  })
+
+  it('does not advertise AirPlay when the host lacks WebKit system routing', () => {
+    expect(airPlayAvailable()).toBe(false)
   })
 
   it('requests Samsung SRT delivery from the LAN relay', async () => {

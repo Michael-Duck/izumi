@@ -19,6 +19,8 @@
     controlDesktopCast,
     desktopCastContentType,
     desktopCastSupportsDlnaSubtitles,
+    beginAirPlaySelection,
+    cancelAirPlaySelection,
     discoverDesktopCast,
     refreshDesktopCastStatus,
     hasTizenReceiver,
@@ -112,6 +114,7 @@
     connectingId = device.id
     try {
       const source = $nowPlayingStream
+      if (device.protocol === 'airplay') beginAirPlaySelection(source?.url ?? '', pos)
       const [rawTracks, fileFormat] = await Promise.all([
         playerTracks(),
         playerGetProperty('file-format').catch(() => ''),
@@ -124,12 +127,14 @@
       // launches it, so preserve receiver-only subtitle formats during source preparation.
       const receiverAvailable = device.protocol === 'tizenReceiver' || await hasTizenReceiver(device)
       const castSource = receiverAvailable ? tvCastSource(source, tracks) : source
-      const decision = castSourceDecision(castSource, tracks, fileFormat, device.protocol === 'googleCast' ? 'googleCast' : 'tv')
+      const target = device.protocol === 'googleCast' ? 'googleCast' : device.protocol === 'airplay' ? 'airplay' : 'tv'
+      const decision = castSourceDecision(castSource, tracks, fileFormat, target)
       if (!decision.ok) throw new Error(decision.error)
       const compatible = (source.subtitles ?? []).filter((candidate) => {
         const format = castSubtitleFormat(candidate.url)
         if (!format) return false
         if (format === 'ass') return receiverAvailable
+        if (device.protocol === 'airplay') return format === 'vtt'
         return receiverAvailable || !samsungDlnaSubtitles || format === 'srt' || format === 'vtt'
       })
       const selectedSubtitle = subtitle && compatible.some((candidate) => candidate.url === subtitle.url)
@@ -224,6 +229,7 @@
       playerNotice.set(`Casting to ${session.deviceName}${detail ? `. ${detail}` : ''}`)
       close()
     } catch (error) {
+      if (device.protocol === 'airplay') cancelAirPlaySelection()
       playerNotice.set(message(error))
     } finally {
       connectingId = null
@@ -361,7 +367,9 @@
                   ? `${device.model ?? 'Samsung TV'} · Companion receiver`
                   : device.protocol === 'dlna'
                   ? `${device.model ?? device.manufacturer ?? 'Smart TV'} · ${/samsung/i.test(`${device.manufacturer ?? ''} ${device.name}`) ? 'Izumi receiver / DLNA' : 'DLNA'}`
-                  : device.model ?? 'Google Cast device'}
+                  : device.protocol === 'airplay'
+                    ? 'System AirPlay picker'
+                    : device.model ?? 'Google Cast device'}
               </span>
             </span>
           </button>

@@ -23,13 +23,13 @@ export interface DesktopCastDevice {
   manufacturer?: string
   address: string
   port: number
-  protocol: 'googleCast' | 'dlna' | 'tizenReceiver'
+  protocol: 'googleCast' | 'dlna' | 'tizenReceiver' | 'airplay'
 }
 
 export interface DesktopCastSession {
   deviceId: string
   deviceName: string
-  backend: 'googleCast' | 'dlna' | 'tizenReceiver'
+  backend: 'googleCast' | 'dlna' | 'tizenReceiver' | 'airplay'
   /** Playback identity prevents a surviving cast from writing its clock into a newly opened item. */
   mediaId?: number | null
   episode?: number | null
@@ -120,6 +120,131 @@ export interface DesktopCastStartInput {
   receiverPreferred?: boolean
 }
 
+type AirPlayVideo = HTMLVideoElement & {
+  webkitShowPlaybackTargetPicker?: () => void
+  webkitCurrentPlaybackTargetIsWireless?: boolean
+}
+
+interface AirPlayRuntime {
+  video: AirPlayVideo
+  started: boolean
+}
+
+let pendingAirPlay: AirPlayRuntime | null = null
+let activeAirPlay: AirPlayRuntime | null = null
+
+function createAirPlayVideo(): AirPlayVideo | null {
+  if (typeof document === 'undefined') return null
+  const video = document.createElement('video') as AirPlayVideo
+  if (typeof video.webkitShowPlaybackTargetPicker !== 'function') return null
+  video.setAttribute('x-webkit-airplay', 'allow')
+  video.setAttribute('playsinline', '')
+  video.preload = 'metadata'
+  video.style.display = 'none'
+  return video
+}
+
+export function airPlayAvailable(): boolean {
+  return createAirPlayVideo() !== null
+}
+
+function destroyAirPlay(runtime: AirPlayRuntime | null) {
+  if (!runtime) return
+  runtime.video.pause()
+  runtime.video.removeAttribute('src')
+  runtime.video.load()
+  runtime.video.remove()
+}
+
+/** Must run directly inside the device-button click so WebKit retains user activation. */
+export function beginAirPlaySelection(url: string, positionSeconds = 0): void {
+  const video = createAirPlayVideo()
+  if (!video) throw new Error('AirPlay is not available on this device.')
+  destroyAirPlay(pendingAirPlay)
+  pendingAirPlay = { video, started: false }
+  document.body.appendChild(video)
+  video.src = url
+  video.muted = true
+  const seek = () => {
+    if (Number.isFinite(positionSeconds) && positionSeconds > 0) {
+      try { video.currentTime = positionSeconds } catch { /* metadata is not ready yet */ }
+    }
+  }
+  video.addEventListener('loadedmetadata', seek, { once: true })
+  // A muted warm-up keeps the media element eligible for routing without duplicating local audio.
+  void video.play().catch(() => {})
+  video.webkitShowPlaybackTargetPicker?.()
+}
+
+export function cancelAirPlaySelection(): void {
+  destroyAirPlay(pendingAirPlay)
+  pendingAirPlay = null
+}
+
+async function waitForAirPlayRoute(video: AirPlayVideo): Promise<void> {
+  if (video.webkitCurrentPlaybackTargetIsWireless) return
+  await new Promise<void>((resolve, reject) => {
+    const finish = () => {
+      if (!video.webkitCurrentPlaybackTargetIsWireless) return
+      clearTimeout(timeout)
+      video.removeEventListener('webkitcurrentplaybacktargetiswirelesschanged', finish)
+      resolve()
+    }
+    const timeout = setTimeout(() => {
+      video.removeEventListener('webkitcurrentplaybacktargetiswirelesschanged', finish)
+      reject(new Error('No AirPlay receiver was selected.'))
+    }, 15_000)
+    video.addEventListener('webkitcurrentplaybacktargetiswirelesschanged', finish)
+  })
+}
+
+function airPlayStatus(runtime: AirPlayRuntime): DesktopCastStatus {
+  const video = runtime.video
+  const activeTrackIds = Array.from(video.textTracks).flatMap((track, index) => track.mode === 'showing' ? [index + 1] : [])
+  return {
+    state: video.ended ? 'idle' : video.paused ? 'paused' : video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA ? 'buffering' : 'playing',
+    positionSeconds: Number.isFinite(video.currentTime) ? video.currentTime : 0,
+    durationSeconds: Number.isFinite(video.duration) && video.duration > 0 ? video.duration : undefined,
+    volume: video.volume,
+    muted: video.muted,
+    activeTrackIds,
+  }
+}
+
+async function startAirPlay(request: DesktopCastStartInput): Promise<Omit<DesktopCastSession, 'subtitles' | 'activeTrackIds'>> {
+  const runtime = pendingAirPlay
+  if (!runtime) throw new Error('Open the AirPlay picker again and choose a receiver.')
+  try {
+    await waitForAirPlayRoute(runtime.video)
+    if (runtime.video.src !== request.url) runtime.video.src = request.url
+    runtime.video.muted = false
+    for (const [index, subtitle] of request.subtitles.entries()) {
+      if (!subtitle.contentType.includes('vtt')) continue
+      const track = document.createElement('track')
+      track.kind = 'subtitles'
+      track.src = subtitle.url
+      track.label = subtitle.title || subtitle.lang || `Subtitle ${index + 1}`
+      if (subtitle.lang) track.srclang = subtitle.lang
+      track.default = request.activeTrackIds.includes(index + 1)
+      runtime.video.appendChild(track)
+    }
+    const seek = () => {
+      if (request.positionSeconds > 0) runtime.video.currentTime = request.positionSeconds
+    }
+    if (runtime.video.readyState >= HTMLMediaElement.HAVE_METADATA) seek()
+    else runtime.video.addEventListener('loadedmetadata', seek, { once: true })
+    await runtime.video.play()
+    runtime.started = true
+    pendingAirPlay = null
+    destroyAirPlay(activeAirPlay)
+    activeAirPlay = runtime
+    return { deviceId: request.device.id, deviceName: 'AirPlay', backend: 'airplay' }
+  } catch (error) {
+    cancelAirPlaySelection()
+    throw error
+  }
+}
+
 /** Match mpv's selected external track back to the source sidecar that the LAN relay can fetch. */
 export function selectedCastSubtitle(
   source: CastSourceWithSubtitles,
@@ -153,8 +278,18 @@ export function selectedCastSubtitle(
     : null
 }
 
-export function discoverDesktopCast(waitMs = 1_800): Promise<DesktopCastDevice[]> {
-  return invoke('desktop_cast_discover', { request: { waitMs } })
+export async function discoverDesktopCast(waitMs = 1_800): Promise<DesktopCastDevice[]> {
+  const devices = await invoke<DesktopCastDevice[]>('desktop_cast_discover', { request: { waitMs } })
+  if (!airPlayAvailable()) return devices
+  return [{
+    id: 'airplay-system-picker',
+    name: 'AirPlay…',
+    model: 'Apple system picker',
+    manufacturer: 'Apple',
+    address: 'system',
+    port: 0,
+    protocol: 'airplay',
+  }, ...devices]
 }
 
 export function prepareDesktopCast(
@@ -211,6 +346,7 @@ export function desktopCastContentType(device: DesktopCastDevice, contentType: s
 export async function startDesktopCast(
   request: DesktopCastStartInput,
 ): Promise<Omit<DesktopCastSession, 'subtitles' | 'activeTrackIds'>> {
+  if (request.device.protocol === 'airplay') return startAirPlay(request)
   const { device, receiverPreferred, contentRating, media, skipSegments, trackPreferences, trackHints, ...nativeRequest } = request
   const receiverRequest = { ...nativeRequest, contentRating, media, skipSegments, trackPreferences, trackHints }
   if (device.protocol === 'tizenReceiver') {
@@ -229,6 +365,7 @@ export async function startDesktopCast(
 }
 
 export async function getDesktopCastStatus(includeRendering = true): Promise<DesktopCastStatus> {
+  if (activeAirPlay) return airPlayStatus(activeAirPlay)
   if (hasActiveTizenReceiverCast()) return getTizenReceiverStatus()
   return invoke('desktop_cast_status', { includeRendering })
 }
@@ -344,7 +481,21 @@ export async function controlDesktopCast(request: {
     desktopCastStatus.update((status) => status && ({ ...status, positionSeconds: seekTarget }))
   }
   try {
-    const next = hasActiveTizenReceiverCast()
+    let next: DesktopCastStatus
+    if (activeAirPlay) {
+      const video = activeAirPlay.video
+      if (request.action === 'play') await video.play()
+      else if (request.action === 'pause') video.pause()
+      else if (request.action === 'seek' && request.positionSeconds != null) video.currentTime = Math.max(0, request.positionSeconds)
+      else if (request.action === 'volume') {
+        if (request.volume != null) video.volume = Math.min(1, Math.max(0, request.volume))
+        if (request.muted != null) video.muted = request.muted
+      } else if (request.action === 'tracks') {
+        const ids = request.activeTrackIds ?? []
+        Array.from(video.textTracks).forEach((track, index) => { track.mode = ids.includes(index + 1) ? 'showing' : 'disabled' })
+      }
+      next = airPlayStatus(activeAirPlay)
+    } else next = hasActiveTizenReceiverCast()
       ? await controlTizenReceiver(request)
       : await invoke<DesktopCastStatus>('desktop_cast_control', { request })
     // Many DLNA renderers return the pre-seek clock for a short window after accepting Seek.
@@ -375,6 +526,12 @@ export async function seekActiveDesktopCast(
 
 export async function stopDesktopCast(): Promise<void> {
   try {
+    if (activeAirPlay) {
+      destroyAirPlay(activeAirPlay)
+      activeAirPlay = null
+      return
+    }
+    cancelAirPlaySelection()
     if (hasActiveTizenReceiverCast()) {
       await stopTizenReceiverCast()
       return

@@ -71,6 +71,13 @@ describe('Android Cast direct-play policy', () => {
     }, [], null, 'tv')).toMatchObject({ ok: true, contentType: 'video/x-matroska' })
   })
 
+  it('keeps AirPlay on Apple-supported streaming containers', () => {
+    expect(castSourceDecision({ url: 'https://cdn.example/episode.m3u8', manifest: 'hls' }, [], null, 'airplay'))
+      .toMatchObject({ ok: true, contentType: 'application/vnd.apple.mpegurl' })
+    expect(castSourceDecision({ url: 'https://cdn.example/episode.mkv' }, [], null, 'airplay'))
+      .toMatchObject({ ok: false, error: expect.stringContaining('AirPlay') })
+  })
+
   it('rejects 10-bit H.264 and DTS', () => {
     expect(castSourceDecision({ url: 'https://cdn.example/e.mp4' }, [
       { type: 'video', selected: true, codec: 'h264', codecProfile: 'High 10' },
