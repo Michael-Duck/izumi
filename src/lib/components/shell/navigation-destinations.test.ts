@@ -20,4 +20,12 @@ describe('navigation destinations', () => {
     expect(card).not.toContain('sourceLabel')
     expect(card).not.toContain('View on ${sourceLabel}')
   })
+
+  it('makes the native Trakt hub reachable on desktop and configurable on mobile', () => {
+    const sidebar = read('./Sidebar.svelte')
+    const nav = read('../../settings/nav.ts')
+    expect(sidebar).toContain("href: '/app/trakt'")
+    expect(nav).toContain("trakt: { label: 'Trakt', href: '/app/trakt'")
+    expect(nav).toContain("{ id: 'trakt', placement: 'top' }")
+  })
 })

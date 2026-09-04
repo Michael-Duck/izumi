@@ -8,6 +8,7 @@
   import Users from '@lucide/svelte/icons/users'
   import Settings from '@lucide/svelte/icons/settings'
   import VenetianMask from '@lucide/svelte/icons/venetian-mask'
+  import Activity from '@lucide/svelte/icons/activity'
   import { page } from '$app/state'
   import { playing } from '$lib/player/session'
   import { inputType } from '$lib/nav'
@@ -24,6 +25,7 @@
     { href: '/app/search', icon: Search, label: m.nav_search(), anim: 'group-hover:animate-[wiggle_0.4s_ease]' },
     { href: '/app/downloads', icon: Download, label: m.nav_downloads(), anim: 'group-hover:animate-[bounce-sm_0.4s_ease]' },
     { href: '/app/watch', icon: Users, label: m.nav_watch_together(), anim: 'group-hover:animate-[wiggle_0.4s_ease]' },
+    { href: '/app/trakt', icon: Activity, label: 'Trakt', anim: 'group-hover:animate-[pulse_0.5s_ease]' },
   ]
   const initial = $derived($activeProfile.name.trim().charAt(0).toUpperCase())
   // Expand the rail to a labelled menu while it holds focus, BUT only for keyboard/gamepad

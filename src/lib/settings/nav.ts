@@ -9,6 +9,7 @@ import Download from '@lucide/svelte/icons/download'
 import Settings from '@lucide/svelte/icons/settings'
 import Search from '@lucide/svelte/icons/search'
 import Users from '@lucide/svelte/icons/users'
+import Activity from '@lucide/svelte/icons/activity'
 
 // Lucide icons are Svelte 5 function components. Taken off an icon we already import rather than
 // from `@lucide/svelte`'s `LucideIcon`, because that root export is a barrel over every icon and
@@ -16,7 +17,7 @@ import Users from '@lucide/svelte/icons/users'
 type LucideIcon = typeof Home
 
 export type NavPlacement = 'bottom' | 'top' | 'hidden'
-export type NavItemId = 'schedule' | 'downloads' | 'watch' | 'settings' | 'search'
+export type NavItemId = 'schedule' | 'downloads' | 'watch' | 'settings' | 'search' | 'trakt'
 
 export interface NavMeta { label: string; href: string; icon: LucideIcon }
 
@@ -27,6 +28,7 @@ export const NAV_META: Record<NavItemId, NavMeta> = {
   watch: { label: 'Together', href: '/app/watch', icon: Users },
   search: { label: 'Search', href: '/app/search', icon: Search },
   settings: { label: 'Settings', href: '/app/settings', icon: Settings },
+  trakt: { label: 'Trakt', href: '/app/trakt', icon: Activity },
 }
 
 /** Home — the fixed anchor. Always the first bottom tab; not part of the movable set. */
@@ -42,6 +44,7 @@ export const DEFAULT_NAV: NavItemConfig[] = [
   { id: 'settings', placement: 'bottom' },
   { id: 'search', placement: 'top' },
   { id: 'watch', placement: 'top' },
+  { id: 'trakt', placement: 'top' },
 ]
 
 /** Raw persisted config — the Settings → Navigation page reads and writes this directly. */

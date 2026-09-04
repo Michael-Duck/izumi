@@ -11,6 +11,7 @@
   const labels = {
     schedule: m.nav_schedule, downloads: m.nav_downloads, watch: m.nav_watch_together,
     settings: m.nav_settings, search: m.nav_search,
+    trakt: () => 'Trakt',
   }
 
   const bottom = $derived($effectiveNav.filter((c) => c.placement === 'bottom'))

@@ -104,7 +104,7 @@
 <SettingsGroup
   icon={KeyRound}
   title="Trakt account"
-  desc="Native history, watchlist, and rating sync for this Izumi profile. The recommendation and library hub is added in the next checkpoint."
+  desc="Native history, Watchlist, rating sync, and a dedicated recommendation hub for this Izumi profile."
 >
   <SettingsRow
     settingKey="trakt-account"
@@ -119,6 +119,7 @@
         <p class="text-[11px] leading-5 text-muted-foreground">Watches, Watchlist changes, and 1–10 ratings are mirrored automatically. Pending writes retry when Trakt is reachable again.</p>
         <div class="flex shrink-0 justify-end gap-2">
           {#if $traktUserSlug}<button type="button" data-focusable onclick={openProfile} class="min-h-9 rounded-md bg-secondary px-3 text-xs font-bold hover:bg-accent">Open profile</button>{/if}
+          <a href="/app/trakt" data-focusable class="inline-flex min-h-9 items-center rounded-md bg-secondary px-3 text-xs font-bold hover:bg-accent">Open Trakt hub</a>
           <button type="button" data-focusable onclick={disconnect} disabled={busy} class="min-h-9 rounded-md px-3 text-xs font-bold text-destructive hover:bg-destructive/10 disabled:opacity-40">Disconnect</button>
         </div>
       </div>
