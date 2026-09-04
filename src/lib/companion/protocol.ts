@@ -1,6 +1,6 @@
 import type { Media } from '$lib/anilist/types'
 import { banner, cardCover, format, resumeEp, title } from '$lib/anilist/media'
-import { mediaRef, type MediaRef } from '$lib/catalog/identity'
+import { externalIdsOf, mediaRef, type MediaRef } from '$lib/catalog/identity'
 import { namedProviderAward } from '$lib/catalog/awards'
 
 export const COMPANION_PROTOCOL = 1 as const
@@ -16,6 +16,12 @@ export interface CompanionPlacement {
 export interface CompanionResolverHint {
   /** Stremio resource type; AniList's provider-neutral `anime` type cannot express movies. */
   streamType: 'movie' | 'series'
+  /** Original Stremio resource type when the source defines a custom namespace. */
+  nativeType?: string
+  imdbId?: string
+  tmdbId?: string
+  /** Exact provider video id for single-video items such as movies. */
+  videoId?: string
 }
 
 export interface CompanionPlaybackHint {
@@ -112,6 +118,8 @@ export interface CompanionPersonFilter extends Pick<CompanionPerson, 'id' | 'pro
 export interface CompanionEpisode {
   season: number
   episode: number
+  /** Exact provider video id used by Stremio stream resources. */
+  videoId?: string
   title?: string
   description?: string
   image?: string
@@ -239,9 +247,18 @@ function stripMarkup(value: string | undefined): string | undefined {
   return text ? text.slice(0, 900) : undefined
 }
 
-function resolverHint(media: Pick<Media, 'format' | 'catalog'>): CompanionResolverHint {
+function resolverHint(media: Pick<Media, 'id' | 'idMal' | 'format' | 'catalog' | 'externalIds' | 'videos'>): CompanionResolverHint {
+  const streamType = media.format === 'MOVIE' || media.catalog?.type === 'movie' ? 'movie' : 'series'
+  const ids = externalIdsOf(media)
+  const nativeType = media.catalog?.provider === 'stremio' && /^[A-Za-z0-9._-]{1,80}$/.test(media.catalog.resourceType ?? '')
+    ? media.catalog.resourceType
+    : undefined
   return {
-    streamType: media.format === 'MOVIE' || media.catalog?.type === 'movie' ? 'movie' : 'series',
+    streamType,
+    nativeType,
+    imdbId: /^tt\d+$/i.test(ids.imdb ?? '') ? ids.imdb : undefined,
+    tmdbId: Number.isInteger(ids.tmdb) && (ids.tmdb ?? 0) > 0 ? String(ids.tmdb) : undefined,
+    videoId: streamType === 'movie' ? media.videos?.[0]?.id : undefined,
   }
 }
 

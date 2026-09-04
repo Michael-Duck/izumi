@@ -97,8 +97,14 @@ describe('Cloudflare-first companion catalogue', () => {
 
   it('routes a Worker-created Stremio identity back to its originating add-on', async () => {
     const base = 'https://catalog.example/configured'
-    const media = catalogInternals.stremioMedia({ id: 'tt1234567', name: 'Example film' }, base, 'movie')
+    const media = catalogInternals.stremioMedia({
+      id: 'tt1234567', name: 'Example film', videos: [{ id: 'native-movie-id' }],
+    }, base, 'movie')
     if (!media) throw new Error('Expected a valid Stremio catalogue item.')
+    expect(media.resolver).toEqual({
+      streamType: 'movie', nativeType: 'movie', imdbId: 'tt1234567', tmdbId: undefined,
+      videoId: 'native-movie-id',
+    })
     const requested: string[] = []
     const fetcher = vi.fn(async (raw: RequestInfo | URL) => {
       const url = String(raw)

@@ -59,8 +59,8 @@ describe('companion episode details', () => {
         episodes: 2,
         duration: 24,
         videos: [
-          { number: 1, episode: 1, title: 'Arrival', overview: 'The journey begins.', thumbnail: 'https://img.example/k1.jpg' },
-          { number: 2, episode: 2, title: 'Departure', overview: 'The group sets out.', thumbnail: 'https://img.example/k2.jpg' },
+          { id: 'episode-one', number: 1, episode: 1, title: 'Arrival', overview: 'The journey begins.', thumbnail: 'https://img.example/k1.jpg' },
+          { id: 'episode-two', number: 2, episode: 2, title: 'Departure', overview: 'The group sets out.', thumbnail: 'https://img.example/k2.jpg' },
         ],
       }),
     })
@@ -74,8 +74,8 @@ describe('companion episode details', () => {
     expect(catalog.loadCatalogProvider).toHaveBeenCalledWith('kitsu')
     expect(details.seasonEpisodeCounts).toEqual([2])
     expect(details.episodes).toEqual([
-      expect.objectContaining({ episode: 1, title: 'Arrival', description: 'The journey begins.', image: 'https://img.example/k1.jpg', watched: true }),
-      expect.objectContaining({ episode: 2, title: 'Departure', description: 'The group sets out.', image: 'https://img.example/k2.jpg', progress: .25 }),
+      expect.objectContaining({ episode: 1, videoId: 'episode-one', title: 'Arrival', description: 'The journey begins.', image: 'https://img.example/k1.jpg', watched: true }),
+      expect.objectContaining({ episode: 2, videoId: 'episode-two', title: 'Departure', description: 'The group sets out.', image: 'https://img.example/k2.jpg', progress: .25 }),
     ])
   })
 

@@ -137,6 +137,7 @@ function episodeLibrary(media: Media, source: CompanionMedia, spoilersHidden: bo
     return [{
       season,
       episode,
+      videoId: video.id,
       title: video.title,
       description: video.overview,
       image: video.thumbnail,
@@ -385,6 +386,7 @@ export async function createCompanionDetails(
       return {
         season,
         episode,
+        videoId: existing?.videoId,
         title: existing?.title ?? meta?.title,
         description: existing?.description ?? meta?.overview,
         image: existing?.image ?? meta?.image,

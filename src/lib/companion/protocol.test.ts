@@ -162,6 +162,23 @@ describe('companion home snapshot', () => {
     expect(item).not.toHaveProperty('episode')
   })
 
+  it('carries safe cross-provider aliases and native playback identities', () => {
+    const item = companionMedia({
+      id: -44,
+      catalog: {
+        provider: 'stremio', type: 'movie', id: 'opaque', addonId: 'source', resourceType: 'channel',
+      },
+      externalIds: { imdb: 'tt1234567', tmdb: 7654 },
+      title: { english: 'Example' },
+      videos: [{ id: 'native-video-id', number: 1 }],
+    })
+
+    expect(item.resolver).toEqual({
+      streamType: 'movie', nativeType: 'channel', imdbId: 'tt1234567', tmdbId: '7654',
+      videoId: 'native-video-id',
+    })
+  })
+
   it('projects AniList rankings as factual, varied achievements', () => {
     const item = companionMedia({
       id: 11757,

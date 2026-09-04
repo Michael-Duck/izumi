@@ -108,6 +108,55 @@ describe('self-hosted Cloudflare source resolver', () => {
     expect(plan.want).toEqual({ episode: 7, season: 2, abs: 31 })
   })
 
+  it('maps TMDB identities to IMDb before asking prefix-limited add-ons', async () => {
+    const fetcher = vi.fn(async (raw: RequestInfo | URL) => {
+      const url = String(raw)
+      if (url.includes('/movie/550/external_ids')) return json({ imdb_id: 'tt0137523' })
+      if (url.endsWith('/manifest.json')) return json({
+        id: 'imdb', name: 'IMDb source', version: '1',
+        resources: [{ name: 'stream', types: ['movie'], idPrefixes: ['tt'] }],
+      })
+      if (url.includes('/stream/movie/tt0137523.json')) return json({
+        streams: [{ url: 'https://media.example/movie.mp4', title: 'Movie 1080p' }],
+      })
+      return json({}, 404)
+    })
+
+    const result = await resolveDirectSources({
+      enabled: true, addons: ['https://addon.example'], quality: 'any', sort: 'quality',
+      audioLang: '', connectedDeviceFallback: false, debrid: null,
+      catalog: { screens: ['tmdb'], defaultScreen: 'tmdb', tmdbToken: 'token' },
+    }, { ref: { provider: 'tmdb', type: 'movie', id: '550' } }, fetcher)
+
+    expect(result.queriedIds).toEqual(['tt0137523', 'tmdb:550'])
+    expect(result.candidates[0]?.url).toBe('https://media.example/movie.mp4')
+  })
+
+  it('uses an exact supplied video id on a custom Stremio resource route', async () => {
+    const fetcher = vi.fn(async (raw: RequestInfo | URL) => {
+      const url = String(raw)
+      if (url.endsWith('/manifest.json')) return json({
+        id: 'custom', name: 'Custom source', version: '1',
+        resources: [{ name: 'stream', types: ['channel'], idPrefixes: ['native'] }],
+      })
+      if (url.includes('/stream/channel/native%3A5%3A1.json')) return json({
+        streams: [{ url: 'https://media.example/custom.mp4' }],
+      })
+      return json({}, 404)
+    })
+
+    const result = await resolveDirectSources({
+      enabled: true, addons: ['https://addon.example'], quality: 'any', sort: 'quality',
+      audioLang: '', connectedDeviceFallback: false, debrid: null,
+    }, {
+      ref: { provider: 'stremio', type: 'series', id: 'opaque' },
+      episode: 1, season: 5, nativeType: 'channel', streamIds: ['native:5:1'],
+    }, fetcher)
+
+    expect(result.queriedIds).toEqual(['native:5:1'])
+    expect(result.candidates[0]?.url).toBe('https://media.example/custom.mp4')
+  })
+
   it('returns ranked direct sources while excluding header-bound and torrent-only rows', async () => {
     const fetcher = vi.fn(async (raw: RequestInfo | URL) => {
       const url = String(raw)
@@ -288,5 +337,52 @@ describe('self-hosted Cloudflare source resolver', () => {
       delivery: 'debrid',
     })
     expect(JSON.stringify(result)).not.toContain('RRRR')
+  })
+
+  it('tries the next ranked torrent when the first debrid candidate fails', async () => {
+    const failedHash = 'a'.repeat(40)
+    const workingHash = 'b'.repeat(40)
+    let addCalls = 0
+    const fetcher = vi.fn(async (raw: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(raw)
+      if (url.endsWith('/manifest.json')) return json({
+        id: 'torrent', name: 'Torrent add-on', version: '1', resources: ['stream'],
+      })
+      if (url.includes('/stream/series/')) return json({ streams: [
+        { infoHash: failedHash, title: 'Show S01E02 1080p FIRST' },
+        { infoHash: workingHash, title: 'Show S01E02 1080p SECOND' },
+      ] })
+      if (url.includes('/torrents?limit=1000&page=1')) return json([])
+      if (url.endsWith('/torrents/addMagnet')) {
+        addCalls += 1
+        return String(init?.body).includes(failedHash)
+          ? json({ error: 'unavailable' }, 503)
+          : json({ id: 'working-torrent' }, 201)
+      }
+      if (url.endsWith('/torrents/selectFiles/working-torrent')) return new Response(null, { status: 204 })
+      if (url.endsWith('/torrents/info/working-torrent')) return json({
+        id: 'working-torrent', status: 'downloaded',
+        files: [{ id: 2, path: '/Show.S01E02.mkv', bytes: 900, selected: 1 }],
+        links: ['https://real-debrid.example/restricted'],
+      })
+      if (url.endsWith('/unrestrict/link')) return json({
+        id: 'download-id', download: 'https://cdn.real-debrid.example/Show.S01E02.mkv',
+        filename: 'Show.S01E02.mkv',
+      })
+      return json({}, 404)
+    })
+    vi.stubGlobal('fetch', fetcher)
+
+    const result = await resolveDirectSources({
+      enabled: true, addons: ['https://addon.example'], quality: '1080', sort: 'quality',
+      audioLang: '', connectedDeviceFallback: false,
+      debrid: { provider: 'realdebrid', credential: 'R'.repeat(32) },
+    }, {
+      ref: { provider: 'kitsu', type: 'anime', id: '42' }, episode: 2, season: 1,
+    }, fetcher)
+
+    expect(addCalls).toBe(2)
+    expect(result.candidates[0]?.url).toBe('https://cdn.real-debrid.example/Show.S01E02.mkv')
+    expect(result.failures).toHaveLength(1)
   })
 })

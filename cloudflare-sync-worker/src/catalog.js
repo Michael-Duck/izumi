@@ -192,8 +192,15 @@ function tmdbMedia(raw, forcedKind) {
   const type = kind === 'movie' ? 'movie' : 'series'
   const title = clean(raw.title ?? raw.name ?? raw.original_title ?? raw.original_name, 240)
   if (!title) return null
+  const imdbId = raw.external_ids?.imdb_id ?? raw.imdb_id
   return {
-    ref: { provider: 'tmdb', type, id: String(raw.id) }, resolver: { streamType: streamType(type) }, title,
+    ref: { provider: 'tmdb', type, id: String(raw.id) },
+    resolver: {
+      streamType: streamType(type),
+      tmdbId: String(raw.id),
+      imdbId: typeof imdbId === 'string' && /^tt\d+$/i.test(imdbId) ? imdbId : undefined,
+    },
+    title,
     description: clean(raw.overview), mediaKind: mediaKind(type),
     releaseYear: year(String(raw.release_date ?? raw.first_air_date ?? '').slice(0, 4)),
     poster: image(raw.poster_path, 'w500'), backdrop: image(raw.backdrop_path, 'w1280'),
@@ -201,12 +208,12 @@ function tmdbMedia(raw, forcedKind) {
   }
 }
 
-async function tmdbRequest(token, path, params = {}) {
+async function tmdbRequest(token, path, params = {}, fetcher = fetch) {
   if (!token) throw new Error('TMDB is enabled but its Read Access Token is not available to the Worker.')
   const url = new URL(`${TMDB}${path}`)
   url.searchParams.set('language', 'en-US')
   for (const [key, value] of Object.entries(params)) if (value != null && value !== '') url.searchParams.set(key, String(value))
-  return fetchJson(url.toString(), { headers: { Authorization: `Bearer ${token}` } })
+  return fetchJson(url.toString(), { headers: { Authorization: `Bearer ${token}` } }, 9_000, fetcher)
 }
 
 async function tmdbHome(profile) {
@@ -240,9 +247,16 @@ function stremioMedia(raw, base, forcedType) {
   if (!raw?.id || !raw?.name) return null
   const type = nativeType === 'movie' ? 'movie' : nativeType === 'anime' ? 'anime' : 'series'
   const rating = Number(raw.imdbRating)
+  const imdbId = /^tt\d+$/i.test(raw.id) ? raw.id : undefined
+  const tmdbId = /^tmdb:(?:(?:movie|tv|series):)?(\d+)/i.exec(raw.id)?.[1]
+  const videoId = type === 'movie' ? raw.videos?.[0]?.id ?? raw.id : undefined
   return {
     ref: { provider: 'stremio', type, id: stremioIdentity(base, nativeType, raw.id), addonId: fnv(normalizeBase(base)) },
-    resolver: { streamType: streamType(type) }, title: clean(raw.name, 240), description: clean(raw.description),
+    resolver: {
+      streamType: streamType(type), nativeType,
+      imdbId, tmdbId, videoId: clean(videoId, 512),
+    },
+    title: clean(raw.name, 240), description: clean(raw.description),
     mediaKind: mediaKind(type), genres: Array.isArray(raw.genres ?? raw.genre) ? (raw.genres ?? raw.genre).slice(0, 12) : [],
     releaseYear: year(String(raw.releaseInfo ?? raw.released ?? '').match(/\b(?:18|19|20|21)\d{2}\b/)?.[0]),
     runtimeMinutes: Number(String(raw.runtime || '').match(/\d+/)?.[0]) || undefined,

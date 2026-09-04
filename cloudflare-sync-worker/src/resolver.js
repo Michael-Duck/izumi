@@ -178,7 +178,12 @@ export function normalizeResolveRequest(value) {
     const clean = entry.trim()
     return clean && clean.length <= 512 && !/[\u0000-\u001f]/.test(clean) ? [clean] : []
   }))]
-  return { ref: { provider, type, id }, episode, season, streamType, streamIds }
+  const nativeType = provider === 'stremio'
+    && typeof input.nativeType === 'string'
+    && /^[A-Za-z0-9._-]{1,80}$/.test(input.nativeType)
+    ? input.nativeType
+    : undefined
+  return { ref: { provider, type, id }, episode, season, streamType, nativeType, streamIds }
 }
 
 function addonEndpoint(base, suffix) {
@@ -261,7 +266,7 @@ async function tmdbDetails(request, profile) {
   if (!/^\d{1,12}$/.test(request.ref.id) || !profile.catalog.tmdbToken) return null
   const kind = request.ref.type === 'movie' ? 'movie' : 'tv'
   const detail = await catalogInternals.tmdbRequest(profile.catalog.tmdbToken, `/${kind}/${encodeURIComponent(request.ref.id)}`, {
-    append_to_response: 'videos,images,release_dates,content_ratings,recommendations,credits,aggregate_credits',
+    append_to_response: 'videos,images,release_dates,content_ratings,recommendations,credits,aggregate_credits,external_ids',
     include_image_language: 'en,null',
   })
   const summary = catalogInternals.tmdbMedia({ ...detail, media_type: kind })
@@ -329,6 +334,7 @@ async function stremioDetails(request, profile) {
     const season = Number(entry?.season ?? 1)
     return Number.isInteger(episode) && episode > 0 && Number.isInteger(season) && season >= 0 ? [{
       season, episode,
+      videoId: cleanText(entry.id, 512),
       title: cleanText(entry.title, 300), description: cleanText(entry.overview, 1_500),
       image: cleanUrl(entry.thumbnail), releasedAt: cleanText(entry.released, 40),
     }] : []
@@ -392,9 +398,14 @@ export async function resolveMediaDetails(value, profileOrFetcher = defaultResol
   } : {})
 }
 
-export async function streamRequestPlan(request, fetcher = fetch) {
+export async function streamRequestPlan(request, fetcher = fetch, profile = defaultResolverProfile()) {
   if (request.streamIds.length) {
-    return { ids: request.streamIds, want: request.episode ? { episode: request.episode, season: request.season } : undefined }
+    const identity = request.ref.provider === 'stremio' ? decodeStremioRef(request.ref.id) : null
+    return {
+      ids: request.streamIds,
+      want: request.episode ? { episode: request.episode, season: request.season } : undefined,
+      addonId: identity?.addonId,
+    }
   }
   if (request.ref.provider === 'stremio') {
     const identity = decodeStremioRef(request.ref.id)
@@ -409,9 +420,19 @@ export async function streamRequestPlan(request, fetcher = fetch) {
       : { ids: [], want: undefined }
   }
   if (request.ref.provider === 'tmdb') {
+    const kind = request.ref.type === 'movie' ? 'movie' : 'tv'
+    const external = profile.catalog?.tmdbToken
+      ? await catalogInternals.tmdbRequest(
+        profile.catalog.tmdbToken,
+        `/${kind}/${encodeURIComponent(request.ref.id)}/external_ids`,
+        {},
+        fetcher,
+      ).catch(() => null)
+      : null
     return {
       ids: buildStreamIds({
         type: request.streamType,
+        imdb: typeof external?.imdb_id === 'string' ? external.imdb_id : undefined,
         tmdb: request.ref.id,
         episode: request.episode,
         season: request.season,
@@ -673,13 +694,14 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
   const request = normalizeResolveRequest(requestValue)
   if (!profile.enabled) throw new Error('Cloud source resolving is disabled for this TV.')
   if (!profile.addons.length) throw new Error('No cloud resolver add-ons are configured.')
-  const plan = await streamRequestPlan(request, fetcher)
+  const plan = await streamRequestPlan(request, fetcher, profile)
   if (!plan.ids.length) return { candidates: [], selectedId: null, queriedIds: [], rejected: 0 }
   const skipSegmentsPromise = resolveSkipSegments(plan, request, fetcher).catch(() => [])
   const resolverAddons = plan.addonId
     ? profile.addons.filter((base) => catalogInternals.fnv(catalogInternals.normalizeBase(base)) === plan.addonId)
     : profile.addons
-  const batches = await mapLimit(resolverAddons, 2, (base) => resolveAddon(base, plan.ids, request.streamType, fetcher, profile.allowPrivateNetworkSources))
+  const resourceType = request.ref.provider === 'stremio' ? request.nativeType ?? request.streamType : request.streamType
+  const batches = await mapLimit(resolverAddons, 2, (base) => resolveAddon(base, plan.ids, resourceType, fetcher, profile.allowPrivateNetworkSources))
   const normalized = dedupeStreams(batches.flat().filter((stream) => !isNotice(stream)))
   const ordered = pickCandidates(normalized, profile.quality, plan.want, undefined, {
     audioLang: profile.audioLang || undefined,
@@ -689,15 +711,22 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
   const candidates = []
   const failures = []
   let rejected = 0
-  let debridAttempted = false
+  const attemptedDebridHashes = new Set()
+  let debridAttempts = 0
+  let debridResolved = false
   for (const stream of ordered) {
     const candidate = directCandidate(stream, profile)
     if (candidate) candidates.push({ ...candidate, delivery: 'direct' })
-    else if (!debridAttempted && profile.debrid && stream.infoHash) {
-      debridAttempted = true
+    else if (!debridResolved && debridAttempts < 3 && profile.debrid && stream.infoHash
+      && !attemptedDebridHashes.has(stream.infoHash)) {
+      attemptedDebridHashes.add(stream.infoHash)
+      debridAttempts += 1
       try {
         const resolved = await resolveConfiguredDebrid(stream, profile, plan.want)
-        if (resolved) candidates.push(resolved)
+        if (resolved) {
+          candidates.push(resolved)
+          debridResolved = true
+        }
       } catch (error) {
         rejected += 1
         const message = cleanText(error instanceof Error ? error.message : String(error), 240)
