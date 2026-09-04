@@ -122,4 +122,35 @@ describe('Cloudflare-first companion catalogue', () => {
     expect(result.candidates[0]?.url).toBe('https://media.example/movie.mp4')
     expect(requested.some((url) => url.includes('unrelated.example'))).toBe(false)
   })
+
+  it('uses video streams embedded in Stremio metadata without calling a stream resource', async () => {
+    const base = 'https://catalog.example/configured'
+    const media = catalogInternals.stremioMedia({ id: 'tt7654321', name: 'Embedded show' }, base, 'series')
+    if (!media) throw new Error('Expected a valid Stremio catalogue item.')
+    const requested: string[] = []
+    const fetcher = vi.fn(async (raw: RequestInfo | URL) => {
+      const url = String(raw)
+      requested.push(url)
+      if (url.includes('/meta/series/tt7654321.json')) return json({ meta: {
+        id: 'tt7654321', name: 'Embedded show',
+        videos: [{
+          id: 'tt7654321:5:1', season: 5, episode: 1,
+          streams: [{ url: 'https://media.example/embedded.m3u8', name: 'Embedded 1080p' }],
+        }],
+      } })
+      return json({}, 404)
+    })
+
+    const result = await resolveDirectSources({
+      ...profile,
+      addons: [base],
+    }, {
+      ref: media.ref, nativeType: 'series', episode: 1, season: 5,
+      streamIds: ['tt7654321:5:1'],
+    }, fetcher)
+
+    expect(result.candidates[0]?.url).toBe('https://media.example/embedded.m3u8')
+    expect(requested.some((url) => url.includes('/stream/'))).toBe(false)
+    expect(requested.some((url) => url.endsWith('/manifest.json'))).toBe(false)
+  })
 })

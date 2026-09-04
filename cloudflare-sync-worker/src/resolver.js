@@ -689,6 +689,39 @@ async function resolveAddon(base, ids, type, fetcher, allowPrivate = false) {
   }))
 }
 
+async function embeddedStremioStreams(request, bases, plan, fetcher, allowPrivate = false) {
+  if (request.ref.provider !== 'stremio' || !plan.addonId || !bases.length) {
+    return { declared: false, streams: [] }
+  }
+  const identity = decodeStremioRef(request.ref.id)
+  const base = identity ? bases.find((candidate) => (
+    catalogInternals.fnv(catalogInternals.normalizeBase(candidate)) === identity.addonId
+  )) : undefined
+  if (!identity || !base) return { declared: false, streams: [] }
+  const value = await fetchJson(
+    fetcher,
+    addonEndpoint(base, `/meta/${encodeURIComponent(identity.type)}/${encodeURIComponent(identity.id)}.json`),
+    METADATA_TIMEOUT_MS,
+  )
+  const videos = Array.isArray(value?.meta?.videos) ? value.meta.videos : []
+  const selected = videos.find((entry) => typeof entry?.id === 'string' && plan.ids.includes(entry.id))
+    ?? videos.find((entry) => request.episode != null
+      && Number(entry?.episode) === request.episode
+      && (request.season == null || Number(entry?.season) === request.season))
+  if (!selected || !Array.isArray(selected.streams)) return { declared: false, streams: [] }
+  const streams = selected.streams.slice(0, MAX_STREAMS_PER_ADDON).flatMap((raw, upstreamRank) => {
+    const clean = sanitizeStream(raw, allowPrivate)
+    if (!clean) return []
+    return [normalizeStreamBehavior({
+      ...clean,
+      __addonName: 'Embedded source',
+      __origin: { kind: 'addon', id: `cloud-addon-${new URL(base).hostname}`, name: 'Embedded source' },
+      __evidence: { upstreamRank, requestId: selected.id },
+    })]
+  })
+  return { declared: true, streams }
+}
+
 export async function resolveDirectSources(profileValue, requestValue, fetcher = fetch) {
   const profile = normalizeResolverProfile(profileValue)
   const request = normalizeResolveRequest(requestValue)
@@ -700,8 +733,13 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
   const resolverAddons = plan.addonId
     ? profile.addons.filter((base) => catalogInternals.fnv(catalogInternals.normalizeBase(base)) === plan.addonId)
     : profile.addons
+  const embedded = await embeddedStremioStreams(
+    request, resolverAddons, plan, fetcher, profile.allowPrivateNetworkSources,
+  )
   const resourceType = request.ref.provider === 'stremio' ? request.nativeType ?? request.streamType : request.streamType
-  const batches = await mapLimit(resolverAddons, 2, (base) => resolveAddon(base, plan.ids, resourceType, fetcher, profile.allowPrivateNetworkSources))
+  const batches = embedded.declared
+    ? [embedded.streams]
+    : await mapLimit(resolverAddons, 2, (base) => resolveAddon(base, plan.ids, resourceType, fetcher, profile.allowPrivateNetworkSources))
   const normalized = dedupeStreams(batches.flat().filter((stream) => !isNotice(stream)))
   const ordered = pickCandidates(normalized, profile.quality, plan.want, undefined, {
     audioLang: profile.audioLang || undefined,
