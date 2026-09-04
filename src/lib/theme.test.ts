@@ -20,6 +20,12 @@ describe('theme presets', () => {
     expect(resolvedThemeTokens('system', true).scheme).toBe('dark')
   })
 
+  it('uses validated custom tokens without changing preset fallback behavior', () => {
+    const custom = { ...resolvedThemeTokens('izumi'), theme: '120 80% 40%' }
+    expect(resolvedThemeTokens('custom', true, custom)).toBe(custom)
+    expect(resolvedThemeTokens('custom').scheme).toBe('dark')
+  })
+
   it('keeps every named dark preset dark', () => {
     for (const preset of ['izumi', 'midnight', 'sakura', 'ocean'] as const)
       expect(resolvedThemeTokens(preset).scheme).toBe('dark')

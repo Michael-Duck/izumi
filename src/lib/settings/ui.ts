@@ -472,7 +472,7 @@ export const airingNotifications = persisted<boolean>('airing-notifications', fa
 export const airingNotificationLeadMinutes = persisted<number>('airing-notification-lead-minutes', 0)
 export const scheduledAiringNotificationIds = persisted<number[]>('scheduled-airing-notification-ids', [])
 
-export type ThemePreset = 'izumi' | 'midnight' | 'sakura' | 'ocean' | 'light' | 'system'
+export type ThemePreset = 'izumi' | 'midnight' | 'sakura' | 'ocean' | 'light' | 'system' | 'custom'
 export type MotionPreference = 'system' | 'reduce' | 'full'
 export const themePreset = persisted<ThemePreset>('theme-preset', 'izumi')
 export const motionPreference = persisted<MotionPreference>('motion-preference', 'system')

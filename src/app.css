@@ -13,9 +13,25 @@
   --border: 240 3.7% 15.9%;     --input: 240 3.7% 15.9%;  --ring: 240 4.9% 83.9%;
   --card: 240 10% 3.9%;         --card-foreground: 0 0% 98%;
   --radius: 0.5rem;
+  --ui-font: 'Nunito Variable', sans-serif;
+  --theme-font-scale: 1;
+  --theme-backdrop-strength: 0;
+  --theme-glass-blur: 0px;
 }
 * { border-color: hsl(var(--border)); }
-html, body { background: hsl(var(--background)); color: hsl(var(--foreground)); font-family: 'Nunito Variable', sans-serif; scroll-behavior: smooth; }
+html { font-size: calc(16px * var(--theme-font-scale)); }
+html, body { background: hsl(var(--background)); color: hsl(var(--foreground)); font-family: var(--ui-font); scroll-behavior: smooth; }
+.theme-studio-backdrop { opacity: var(--theme-backdrop-strength); transition: opacity 240ms ease; }
+html[data-theme-backdrop='aurora'] .theme-studio-backdrop {
+  background: radial-gradient(55% 75% at 10% 0%, hsl(var(--theme) / .55), transparent 70%), radial-gradient(45% 55% at 90% 20%, hsl(var(--ring) / .35), transparent 72%);
+}
+html[data-theme-backdrop='spotlight'] .theme-studio-backdrop {
+  background: radial-gradient(60% 65% at 50% -10%, hsl(var(--theme) / .65), transparent 74%);
+}
+html[data-theme-backdrop='mesh'] .theme-studio-backdrop {
+  background: radial-gradient(circle at 12% 18%, hsl(var(--theme) / .48), transparent 25%), radial-gradient(circle at 82% 8%, hsl(var(--ring) / .4), transparent 28%), radial-gradient(circle at 58% 85%, hsl(var(--accent) / .5), transparent 30%);
+  filter: blur(var(--theme-glass-blur)); transform: scale(1.08);
+}
 /* Compositor screenshots hide in-webview OSD so the file is video + subs, not controls. */
 html.izumi-capturing .izumi-hud { visibility: hidden !important; }
 /* Protected captures are composed from the main WebView, while a separate input-transparent
@@ -58,7 +74,7 @@ body { overflow-x: clip; }
    made type/spacing ~1/6 too large on a ~390px phone viewport. Tighten the rem base on phones
    only — desktop and Steam Deck are unaffected (Deck scales via `zoom`, a different lever, and
    never matches this query). Fixed-px tiles are handled separately (they don't follow rem). */
-@media (max-width: 640px) { :root { font-size: 14.5px; } }
+@media (max-width: 640px) { :root { font-size: calc(14.5px * var(--theme-font-scale)); } }
 /* Mobile settings sub-pages: the back-header shows the category title, so hide each child page's
    own redundant leading heading (its :first-child h2) — content starts right under the bar, native
    app feel. Deeper section headings are never their parent's :first-child, so they still show. */
