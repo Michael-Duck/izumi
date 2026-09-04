@@ -116,6 +116,7 @@
   let subtitleBorderSize = $state(3)
   let subtitleShadow = $state(1)
   let subtitlePosition = $state(92)
+  let subtitlePositionOverride = $state(false)
   let activeReleaseUrl = ''
   const released = new Set<string>()
   const releaseJobs = new Map<string, Promise<void>>()
@@ -1251,7 +1252,11 @@
         return
       }
       if (name === 'set' && args[0] === 'sub-pos') {
-        const value = Number(args[1]); if (Number.isFinite(value)) subtitlePosition = Math.min(100, Math.max(0, value))
+        const value = Number(args[1])
+        if (Number.isFinite(value)) {
+          subtitlePosition = Math.min(100, Math.max(0, value))
+          subtitlePositionOverride = subtitlePosition !== 100
+        }
         return
       }
       if (name === 'seek') {
@@ -1271,6 +1276,7 @@
       if (name === 'sid') return selectedSid < 0 ? 'no' : String(selectedSid)
       if (name === 'ccid') return selectedCcid < 0 ? 'no' : String(selectedCcid)
       if (name === 'sub-scale') return String(subtitleScale)
+      if (name === 'sub-pos') return String(subtitlePositionOverride ? subtitlePosition : 100)
       if (name === 'video-quality-options') return JSON.stringify(qualityInfo())
       if (!videoEl) return ''
       return playerProperty(videoEl, name)
@@ -1591,7 +1597,7 @@
   style:font-weight={subtitleOverride && subtitleBold ? '700' : undefined}
   style:font-size={subtitleOverride ? `${subtitleFontSize / 13.125 * subtitleScale}vmin` : `${3.2 * subtitleScale}vmin`}
   style:color={subtitleOverride ? subtitleColor : undefined}
-  style:padding-bottom={subtitleOverride ? `${100 - subtitlePosition}%` : undefined}
+  style:padding-bottom={subtitleOverride || subtitlePositionOverride ? `${100 - subtitlePosition}%` : undefined}
   style:--drm-sub-border={subtitleOverride ? `${subtitleBorderSize / 2}px ${subtitleBorderColor}` : undefined}
   style:--drm-sub-shadow={subtitleOverride ? `${subtitleShadow}px ${subtitleShadow}px ${Math.max(1, subtitleShadow * 2)}px #000000cc` : undefined}
 ></div>

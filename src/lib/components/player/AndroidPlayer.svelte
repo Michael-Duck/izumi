@@ -2188,7 +2188,7 @@
           <button onclick={() => void castToDevice()} class="settings-choice"><span>Google Cast device</span><Cast size={18} /></button>
         {:else if settingsPage === 'subtitles'}
           <button onclick={openSubtitleEditor} class="mb-3 flex w-full items-center gap-3 rounded-2xl bg-theme/20 px-4 py-3.5 text-left text-theme">
-            <Captions size={20} /><span class="min-w-0 flex-1"><span class="block font-bold">Edit position &amp; size</span><span class="block text-xs opacity-70">Pause on this frame and drag a subtitle preview into place.</span></span><ChevronRight size={18} />
+            <Captions size={20} /><span class="min-w-0 flex-1"><span class="block font-bold">Move subtitles</span><span class="block text-xs opacity-70">Pause on this frame and adjust position without changing the subtitle style.</span></span><ChevronRight size={18} />
           </button>
           <button onclick={() => pickSub('no')} class="settings-choice {subOff ? 'settings-choice-selected' : ''}"><span>Off</span>{#if subOff}<Check size={18} />{/if}</button>
           {#each subTracks as track (track.id)}
@@ -2253,6 +2253,7 @@
     <SubtitleEditor
       {paused}
       command={(name, args = []) => mpvCommand([name, ...args])}
+      getPosition={() => mpvGet('sub-pos')}
       capture={grabCurrentFrame}
       frameTop={subtitleEditorFrame.top}
       frameHeight={subtitleEditorFrame.height}

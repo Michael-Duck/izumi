@@ -131,13 +131,14 @@ function exactAssOverrides(snapshot: SubtitleAssStyleSnapshot): string[] {
  * `set <property> <value>` pairs for the current appearance settings.
  *
  * With the override off the custom ASS override list is cleared and `sub-ass-override=no` hands
- * styling back to the subtitle file. The normal text properties are deliberately left alone;
- * they are ignored by ASS in this mode and a fresh player core restores plain-text defaults.
+ * styling back to the subtitle file. Reset `sub-pos` as well because Windows and macOS reuse their
+ * mpv core between player sessions; a position-only edit must not leak into the next video.
  */
 export function subtitleStyleProps(style: SubtitleStyle): [string, string][] {
   if (!style.enabled) return [
     ['sub-ass-style-overrides', ''],
     ['sub-ass-override', 'no'],
+    ['sub-pos', '100'],
   ]
 
   const font = safeAssFont(style.font)

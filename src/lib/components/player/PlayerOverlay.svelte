@@ -430,6 +430,8 @@
   // in the track menu takes precedence over the settings until the player closes.
   $effect(() => {
     if (!$playing) return
+    // Reapply/reset the session-local position when the live core loads another video.
+    void $playerLoadId
     for (const [property, value] of subtitleStyleProps(effectiveSubtitleStyle($sessionSubtitleStyle, {
       enabled: $subtitleStyleEnabled,
       scope: $subtitleOverrideScope,
@@ -1643,6 +1645,7 @@
     <SubtitleEditor
       {paused}
       command={cmd}
+      getPosition={() => playerGetProperty('sub-pos')}
       capture={() => playerEditorSnapshot(pos)}
       onpaint={gmBitmapMode ? bumpPlayerOverlay : undefined}
       onclose={() => { subtitleEditorOpen = false; poke() }}

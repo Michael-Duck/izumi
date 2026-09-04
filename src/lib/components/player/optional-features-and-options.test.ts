@@ -28,7 +28,7 @@ describe('desktop playback options menu', () => {
     expect(controls).toContain('data-options-menu')
     expect(controls).toContain("type DesktopOptionsPage = 'root' | 'speed' | 'quality' | 'fit' | 'tools' | 'timing'")
     expect(controls).toContain("style=\"transform:translateX({optionsPage === 'root' ? '0' : '-50%'})\"")
-    expect(controls).toContain('Subtitle appearance')
+    expect(controls).toContain('Subtitle position')
     expect(controls).toContain('Sleep, loops &amp; capture')
   })
 })

@@ -44,6 +44,7 @@ describe('subtitleStyleProps', () => {
     expect(subtitleStyleProps(style({ enabled: false }))).toEqual([
       ['sub-ass-style-overrides', ''],
       ['sub-ass-override', 'no'],
+      ['sub-pos', '100'],
     ])
   })
 

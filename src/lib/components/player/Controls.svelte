@@ -946,8 +946,8 @@
                     <button data-focusable class="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left transition hover:bg-white/10" onclick={openSubtitleEditor}>
                       <span class="grid min-w-0 flex-1 grid-cols-[1rem_minmax(0,1fr)] items-center gap-x-2">
                         <Captions size={16} class="row-span-2 shrink-0 text-white/55" />
-                        <span class="text-xs uppercase tracking-wide text-white/45">Subtitle appearance</span>
-                        <span class="truncate">Position &amp; size</span>
+                        <span class="text-xs uppercase tracking-wide text-white/45">Subtitle position</span>
+                        <span class="truncate">Move up or down</span>
                       </span>
                       <ChevronRight size={18} class="shrink-0 text-white/40" />
                     </button>
@@ -1402,7 +1402,7 @@
           </button>
         {/if}
         <button data-focusable class="gm-set-row" class:bg-white={gmSetIdx === gmRootKeys.indexOf('fit')} class:text-black={gmSetIdx === gmRootKeys.indexOf('fit')} onclick={() => gmOpenPage('fit')}><span>Video fit</span><span class="opacity-50">{$videoFit === 'fill' ? 'Fill' : 'Best fit'} ›</span></button>
-        <button data-focusable class="gm-set-row" class:bg-white={gmSetIdx === gmRootKeys.indexOf('subtitles')} class:text-black={gmSetIdx === gmRootKeys.indexOf('subtitles')} onclick={openSubtitleEditor}><span>Edit subtitles</span><span class="opacity-50">Position &amp; size ›</span></button>
+        <button data-focusable class="gm-set-row" class:bg-white={gmSetIdx === gmRootKeys.indexOf('subtitles')} class:text-black={gmSetIdx === gmRootKeys.indexOf('subtitles')} onclick={openSubtitleEditor}><span>Move subtitles</span><span class="opacity-50">Position ›</span></button>
         <button data-focusable class="gm-set-row" class:bg-white={gmSetIdx === gmRootKeys.indexOf('tools')} class:text-black={gmSetIdx === gmRootKeys.indexOf('tools')} onclick={() => gmOpenPage('tools')}><span>Tools</span><span class="opacity-50">›</span></button>
       {:else}
         <button data-focusable class="gm-set-row mb-1 font-bold" class:bg-white={gmSetIdx === 0} class:text-black={gmSetIdx === 0} onclick={gmBack}>

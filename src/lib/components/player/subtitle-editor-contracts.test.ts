@@ -17,14 +17,18 @@ const kotlin = read('../../../../src-tauri/tauri-plugin-mpv/android/src/main/jav
 describe('subtitle editor cross-platform contract', () => {
   it('freezes playback, captures a private frame, and preserves the prior pause state', () => {
     expect(editor).toContain("await safeCommand('set', ['pause', 'yes'])")
-    expect(editor).toContain('const frame = await capture()')
+    expect(editor).toContain('capture().catch(() => null)')
+    expect(editor).toContain('getPosition().catch(() => null)')
     expect(editor).toContain('if (resumeAfter) await safeCommand')
-    expect(editor).toContain('subtitleStyleEnabled.set(true)')
+    expect(editor).toContain("await safeCommand('set', ['sub-pos'")
+    expect(editor).not.toContain('subtitleStyleEnabled.set(true)')
+    expect(editor).not.toContain('subtitleFont.set(')
+    expect(editor).not.toContain('subtitleFontSize.set(')
   })
   it('is reachable from desktop and Game Mode player settings', () => {
-    expect(controls).toContain('Subtitle appearance')
-    expect(controls).toContain('Position &amp; size')
-    expect(controls).toContain('<span>Edit subtitles</span>')
+    expect(controls).toContain('Subtitle position')
+    expect(controls).toContain('Move up or down')
+    expect(controls).toContain('<span>Move subtitles</span>')
     expect(desktop).toContain('playerEditorSnapshot(pos)')
     expect(desktop).toContain('<SubtitleEditor')
     expect(desktop).toContain('subtitleEditorOpen,')
@@ -36,14 +40,15 @@ describe('subtitle editor cross-platform contract', () => {
     expect(desktop).toContain("active.stepUp()")
     expect(desktop).toContain("active.dispatchEvent(new Event('input', { bubbles: true }))")
   })
-  it('waits for live desktop style commands and keeps editor actions clear of window controls', () => {
+  it('waits for the live desktop position command and keeps editor actions clear of window controls', () => {
     expect(desktop).toContain('return playerCommand(name, args).catch')
-    expect(editor).toContain('Reset to the original subtitle style')
+    expect(editor).toContain('Reset to the original subtitle position')
     expect(editor).toContain("<span class=\"hidden sm:inline\">Position</span><span>{Math.round(position)}%</span>")
     expect(editor).toContain('w-[8.25rem] shrink-0')
   })
   it('is reachable from Android player settings and uses the live-core snapshot', () => {
-    expect(android).toContain('Edit position &amp; size')
+    expect(android).toContain('Move subtitles')
+    expect(android).toContain("getPosition={() => mpvGet('sub-pos')}")
     expect(android).toContain('capture={grabCurrentFrame}')
     expect(androidBridge).toContain("invoke('plugin:mpv|mpv_snapshot')")
   })
