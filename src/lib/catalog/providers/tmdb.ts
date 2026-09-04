@@ -394,6 +394,60 @@ interface TmdbHomeRequest {
   more?: CatalogHomeSection['more']
   limit?: number
   presentation?: CatalogHomeSection['presentation']
+  title?: string
+  dailyPick?: boolean
+}
+
+interface TmdbEditorialChoice {
+  title: string
+  params: Record<string, string | number>
+  more?: CatalogHomeSection['more']
+}
+
+const MOOD_CHOICES: TmdbEditorialChoice[] = [
+  { title: 'Comfort Watch', params: { with_genres: '35|10751|16', 'vote_average.gte': 7.2, 'vote_count.gte': 1_000, sort_by: 'popularity.desc' } },
+  { title: 'Mind Benders', params: { with_genres: '878,9648', 'vote_average.gte': 7.2, 'vote_count.gte': 800, sort_by: 'vote_average.desc' } },
+  { title: 'After Dark', params: { with_genres: '27|53', 'vote_average.gte': 6.8, 'vote_count.gte': 700, sort_by: 'popularity.desc' } },
+  { title: 'Date Night', params: { with_genres: '10749,35', 'vote_average.gte': 7, 'vote_count.gte': 600, sort_by: 'vote_average.desc' } },
+  { title: 'Heists & Cons', params: { with_genres: '80,53', 'vote_average.gte': 7, 'vote_count.gte': 600, sort_by: 'vote_average.desc' } },
+  { title: 'Epic Adventures', params: { with_genres: '12,28', 'vote_average.gte': 7, 'vote_count.gte': 1_000, sort_by: 'popularity.desc' } },
+]
+
+const WORLD_CHOICES: TmdbEditorialChoice[] = [
+  { title: 'Korean Cinema', params: { with_original_language: 'ko', 'vote_average.gte': 7, 'vote_count.gte': 150, sort_by: 'vote_average.desc' }, more: { type: 'movie', language: 'ko', sort: 'rating', minVotes: 150 } },
+  { title: 'Japanese Cinema', params: { with_original_language: 'ja', 'vote_average.gte': 7, 'vote_count.gte': 200, sort_by: 'vote_average.desc' }, more: { type: 'movie', language: 'ja', sort: 'rating', minVotes: 200 } },
+  { title: 'French Cinema', params: { with_original_language: 'fr', 'vote_average.gte': 7, 'vote_count.gte': 150, sort_by: 'vote_average.desc' }, more: { type: 'movie', language: 'fr', sort: 'rating', minVotes: 150 } },
+  { title: 'Hindi Cinema', params: { with_original_language: 'hi', 'vote_average.gte': 7, 'vote_count.gte': 150, sort_by: 'vote_average.desc' }, more: { type: 'movie', language: 'hi', sort: 'rating', minVotes: 150 } },
+  { title: 'Spanish-Language Cinema', params: { with_original_language: 'es', 'vote_average.gte': 7, 'vote_count.gte': 150, sort_by: 'vote_average.desc' }, more: { type: 'movie', language: 'es', sort: 'rating', minVotes: 150 } },
+]
+
+const NETWORK_CHOICES: TmdbEditorialChoice[] = [
+  { title: 'HBO Spotlight', params: { with_networks: 49, 'vote_average.gte': 7.2, 'vote_count.gte': 150, sort_by: 'popularity.desc' } },
+  { title: 'Apple TV+ Spotlight', params: { with_networks: 2552, 'vote_average.gte': 7, 'vote_count.gte': 80, sort_by: 'popularity.desc' } },
+  { title: 'FX Spotlight', params: { with_networks: 88, 'vote_average.gte': 7.2, 'vote_count.gte': 100, sort_by: 'popularity.desc' } },
+  { title: 'AMC Spotlight', params: { with_networks: 174, 'vote_average.gte': 7.2, 'vote_count.gte': 100, sort_by: 'popularity.desc' } },
+  { title: 'BBC One Spotlight', params: { with_networks: 4, 'vote_average.gte': 7, 'vote_count.gte': 80, sort_by: 'popularity.desc' } },
+]
+
+function dayOfYear(now: Date): number {
+  return Math.floor((Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) - Date.UTC(now.getUTCFullYear(), 0, 0)) / 86_400_000)
+}
+
+/** Stable daily editorial selections: deterministic for a date and varied across row families. */
+export function tmdbEditorialRows(now = new Date()): TmdbHomeRequest[] {
+  const day = dayOfYear(now)
+  const timeOffset = now.getHours() < 11 ? 0 : now.getHours() < 17 ? 2 : now.getHours() < 22 ? 3 : 4
+  const mood = MOOD_CHOICES[(day + timeOffset) % MOOD_CHOICES.length]
+  const world = WORLD_CHOICES[(day + 1) % WORLD_CHOICES.length]
+  const network = NETWORK_CHOICES[(day + 3) % NETWORK_CHOICES.length]
+  return [
+    { id: 'critics-pick', title: 'Critics’ Pick', path: '/discover/movie', kind: 'movie', dailyPick: true, presentation: 'editorial', params: {
+      sort_by: 'vote_average.desc', 'vote_average.gte': 8, 'vote_count.gte': 5_000,
+    } },
+    { id: 'mood-now', title: mood.title, path: '/discover/movie', kind: 'movie', params: mood.params, more: mood.more },
+    { id: 'world-cinema', title: world.title, path: '/discover/movie', kind: 'movie', params: world.params, more: world.more },
+    { id: 'network-spotlight', title: network.title, path: '/discover/tv', kind: 'tv', params: network.params },
+  ]
 }
 
 const movieGenre = (id: string, genre: number, name: string): TmdbHomeRequest => ({
@@ -453,6 +507,15 @@ const TMDB_HOME_REQUESTS: TmdbHomeRequest[] = [
   { id: 'anime-movies', path: '/discover/movie', kind: 'movie', params: { sort_by: 'popularity.desc', with_genres: 16, with_original_language: 'ja' }, more: { sort: 'popular', type: 'anime' } },
   { id: 'rated-anime-series', path: '/discover/tv', kind: 'tv', params: { sort_by: 'vote_average.desc', with_genres: 16, with_origin_country: 'JP', 'vote_count.gte': 100 }, more: { sort: 'rating', type: 'anime' } },
   { id: 'rated-anime-movies', path: '/discover/movie', kind: 'movie', params: { sort_by: 'vote_average.desc', with_genres: 16, with_original_language: 'ja', 'vote_count.gte': 100 }, more: { sort: 'rating', type: 'anime' } },
+  { id: 'mood-comfort', path: '/discover/movie', kind: 'movie', params: MOOD_CHOICES[0].params },
+  { id: 'mood-mind-benders', path: '/discover/movie', kind: 'movie', params: MOOD_CHOICES[1].params },
+  { id: 'mood-after-dark', path: '/discover/movie', kind: 'movie', params: MOOD_CHOICES[2].params },
+  { id: 'world-korean', path: '/discover/movie', kind: 'movie', params: WORLD_CHOICES[0].params, more: WORLD_CHOICES[0].more },
+  { id: 'world-japanese', path: '/discover/movie', kind: 'movie', params: WORLD_CHOICES[1].params, more: WORLD_CHOICES[1].more },
+  { id: 'world-french', path: '/discover/movie', kind: 'movie', params: WORLD_CHOICES[2].params, more: WORLD_CHOICES[2].more },
+  { id: 'network-hbo', path: '/discover/tv', kind: 'tv', params: NETWORK_CHOICES[0].params },
+  { id: 'network-apple', path: '/discover/tv', kind: 'tv', params: NETWORK_CHOICES[1].params },
+  { id: 'network-fx', path: '/discover/tv', kind: 'tv', params: NETWORK_CHOICES[2].params },
 ]
 
 export function tmdbRegionName(region: string): string {
@@ -495,6 +558,7 @@ async function home(signal?: AbortSignal, rowIds?: string[]): Promise<CatalogHom
   const region = tmdbRegion()
   const requests = new Map<string, TmdbHomeRequest>(([
     ...TMDB_HOME_REQUESTS,
+    ...tmdbEditorialRows(),
     ...customRows.map((row) => tmdbCustomHomeRequest(row, region)),
   ] as TmdbHomeRequest[]).map((request) => [request.id, request]))
   // The daily movie and series lists supply an explainable featured mix. Keep the weekly all-media
@@ -512,7 +576,10 @@ async function home(signal?: AbortSignal, rowIds?: string[]): Promise<CatalogHom
         if (error instanceof CatalogConfigurationError || signal?.aborted) throw error
         return []
       })
-      return { request, media: request.limit ? media.slice(0, request.limit) : media }
+      const selectedMedia = request.dailyPick && media.length
+        ? [media[dayOfYear(new Date()) % media.length]]
+        : request.limit ? media.slice(0, request.limit) : media
+      return { request, media: selectedMedia }
     }),
     selected.some((row) => row.id === 'streaming-providers')
       ? streamingProviderFeatures(region, signal).catch(() => []) : [],
@@ -533,7 +600,7 @@ async function home(signal?: AbortSignal, rowIds?: string[]): Promise<CatalogHom
       const request = requests.get(row.id)
       const media = mediaById.get(row.id) ?? []
       const title = row.id === 'top10-movies'
-        ? `Top 10 Movies Streaming in ${tmdbRegionName(region)}` : row.title
+        ? `Top 10 Movies Streaming in ${tmdbRegionName(region)}` : request?.title ?? row.title
       return request && media.length ? [{
         id: row.id, title, media, more: request.more, presentation: request.presentation,
       } satisfies CatalogHomeSection] : []

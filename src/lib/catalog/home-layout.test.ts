@@ -6,6 +6,7 @@ describe('catalog Home layouts', () => {
   it('keeps a focused TMDB Home with the featured discovery rows enabled', () => {
     expect(resolveCatalogHomeRows('tmdb', TMDB_HOME_ROWS, {}).filter((row) => row.enabled).map((row) => row.id)).toEqual([
       'continue', 'trending', 'top10-movies', 'streaming-providers',
+      'critics-pick', 'mood-now', 'world-cinema', 'network-spotlight',
       'anime-series', 'anime-movies', 'movies', 'series',
       'rated-movies', 'rated-series', 'upcoming',
     ])
@@ -17,6 +18,7 @@ describe('catalog Home layouts', () => {
     for (const id of [
       'trending-today', 'trending-movies', 'now-playing', 'airing-today',
       'action-movies', 'horror-movies', 'sci-fi-fantasy-series', 'rated-anime-series',
+      'mood-comfort', 'world-korean', 'network-hbo',
     ]) expect(ids.has(id)).toBe(true)
     expect(TMDB_HOME_ROWS.filter((row) => row.defaultEnabled === false).length).toBeGreaterThan(20)
   })

@@ -3,6 +3,7 @@
   import Carousel from '$lib/components/cards/Carousel.svelte'
   import SmallCard from '$lib/components/cards/SmallCard.svelte'
   import StreamingProviderRow from './StreamingProviderRow.svelte'
+  import CriticsPickCard from './CriticsPickCard.svelte'
 
   let {
     section,
@@ -19,6 +20,8 @@
 
 {#if section.presentation === 'providers'}
   <StreamingProviderRow {section} {title} />
+{:else if section.presentation === 'editorial' && section.media[0]}
+  <CriticsPickCard media={section.media[0]} />
 {:else}
 <Carousel {title} {viewMoreHref} attribution={section.attribution}>
   {#if section.presentation === 'ranked'}

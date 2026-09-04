@@ -95,6 +95,11 @@
     if (more.genre) params.set('genre', more.genre)
     if (more.year) params.set('year', String(more.year))
     if (more.sort) params.set('sort', more.sort)
+    if (more.minScore) params.set('minScore', String(more.minScore))
+    if (more.maxScore != null) params.set('maxScore', String(more.maxScore))
+    if (more.minVotes) params.set('votes', String(more.minVotes))
+    if (more.language) params.set('language', more.language)
+    if (more.country) params.set('country', more.country)
     if (more.sourceId) params.set('source', more.sourceId)
     return `/app/search?${params}`
   }
