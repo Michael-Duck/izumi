@@ -28,6 +28,7 @@
     type CatalogSelection,
   } from '$lib/settings/catalog'
   import { anilistUserName, malToken, malUser } from '$lib/trackers/config'
+  import DiscoveryQueueCta from './DiscoveryQueueCta.svelte'
 
   type ExternalCatalogSelection = Exclude<CatalogSelection, 'auto' | 'anilist'>
 
@@ -144,6 +145,7 @@
   {/if}
 
   <div class="space-y-5">
+    {#if hero.length || !optionsLoading}<DiscoveryQueueCta />{/if}
     {#each rows as row (row.id)}
       <HomeRowFrame rowId={row.id} title={editorTitle(row)} target="merged" visibleIds={visibleRowIds}>
         {#if row.id === 'continue'}

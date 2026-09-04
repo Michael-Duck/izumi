@@ -39,6 +39,7 @@
   import HomeRowFrame from '$lib/components/catalog/HomeRowFrame.svelte'
   import { mediaHref } from '$lib/anilist/media'
   import { rankFeaturedMedia } from '$lib/catalog/featured-context'
+  import DiscoveryQueueCta from '$lib/components/catalog/DiscoveryQueueCta.svelte'
 
   const client = getContextClient()
   const legacyCatalog = $derived(isLegacyAniListCatalog($catalogProvider))
@@ -208,6 +209,8 @@
         </div>
       {/if}
     {/if}
+
+    {#if !catalogUnavailable}<div class="mb-5"><DiscoveryQueueCta /></div>{/if}
 
     {#each orderedRows as row (row)}
       {@const rowOption = anilistRows.find((option) => option.id === row)}

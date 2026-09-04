@@ -386,6 +386,26 @@ async function list(path: string, kind: TmdbKind | undefined, signal?: AbortSign
   return mapList(page, kind)
 }
 
+/** A deliberately broad deck for the local Discovery Queue ranker. TMDB supplies facts and
+ * candidates here; profile-local affinity and explicit feedback decide their order elsewhere. */
+export async function loadTmdbDiscoveryQueue(page = 1, signal?: AbortSignal): Promise<Media[]> {
+  const common = { include_adult: get(showAdult), language: TMDB_LANGUAGE, page }
+  const [trending, movies, television] = await Promise.all([
+    tmdb<TmdbPage>('/trending/all/week', common, signal),
+    tmdb<TmdbPage>('/discover/movie', {
+      ...common, sort_by: 'popularity.desc', 'vote_count.gte': 250,
+    }, signal),
+    tmdb<TmdbPage>('/discover/tv', {
+      ...common, sort_by: 'popularity.desc', 'vote_count.gte': 100,
+    }, signal),
+  ])
+  const unique = new Map<string, Media>()
+  for (const media of [...mapList(trending), ...mapList(movies, 'movie'), ...mapList(television, 'tv')]) {
+    unique.set(media.catalog ? `${media.catalog.type}:${media.catalog.id}` : String(media.id), media)
+  }
+  return [...unique.values()]
+}
+
 interface TmdbHomeRequest {
   id: string
   path: string
