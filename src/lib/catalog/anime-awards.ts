@@ -6,7 +6,7 @@ export interface AnimeAwardWin {
 
 // A compact winner index is deliberately kept local: award recognition must remain instant and
 // must not scrape an editorial page while Home is rendering. New ceremonies can be appended here.
-const WINNERS: AnimeAwardWin[] = [
+export const ANIME_AWARD_WINNERS: AnimeAwardWin[] = [
   { year: 2017, category: 'Anime of the Year', title: 'Yuri on Ice' },
   { year: 2018, category: 'Anime of the Year', title: 'Made in Abyss' },
   { year: 2019, category: 'Anime of the Year', title: 'Devilman Crybaby' },
@@ -68,7 +68,7 @@ export function normalizeAwardTitle(value: string): string {
     .replace(/\bdan da dan\b/g, 'dandadan')
 }
 
-const INDEX = WINNERS.reduce((map, win) => {
+const INDEX = ANIME_AWARD_WINNERS.reduce((map, win) => {
   const key = normalizeAwardTitle(win.title)
   map.set(key, [...(map.get(key) ?? []), win])
   return map
@@ -83,7 +83,7 @@ export function findAnimeAwardWins(name: string): AnimeAwardWin[] {
   // TMDB commonly models a long-running anime as one series while an award names its season or
   // film. A one-way title prefix is a conservative franchise bridge; arbitrary fuzzy matching is
   // intentionally avoided so unrelated titles never acquire an award badge.
-  const matches = direct ?? WINNERS.filter((win) => {
+  const matches = direct ?? ANIME_AWARD_WINNERS.filter((win) => {
     const winnerKey = normalizeAwardTitle(win.title)
     return winnerKey.startsWith(`${key} `) || key.startsWith(`${winnerKey} `)
   })
@@ -95,4 +95,18 @@ export function findAnimeAwardWins(name: string): AnimeAwardWin[] {
 
 export function findTopAnimeAward(name: string): AnimeAwardWin | null {
   return findAnimeAwardWins(name)[0] ?? null
+}
+
+export function animeAwardYears(): number[] {
+  return [...new Set(ANIME_AWARD_WINNERS.map((winner) => winner.year))].sort((left, right) => right - left)
+}
+
+export function animeAwardCategories(year: number): string[] {
+  return [...new Set(ANIME_AWARD_WINNERS.filter((winner) => winner.year === year).map((winner) => winner.category))]
+    .sort((left, right) => categoryRank(left) - categoryRank(right) || left.localeCompare(right))
+}
+
+export function animeAwardHref(winner: AnimeAwardWin): string {
+  const params = new URLSearchParams({ year: String(winner.year), category: winner.category })
+  return `/app/awards/crunchyroll?${params}`
 }

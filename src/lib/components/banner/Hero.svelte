@@ -19,7 +19,7 @@
   import { airingCountdown, airingCountdownAccessible } from '$lib/anime/airing-labels'
   import { dragCarousels, wheelScrollAcross } from '$lib/settings/ui'
   import { untrack } from 'svelte'
-  import { findTopAnimeAward } from '$lib/catalog/anime-awards'
+  import { animeAwardHref, findTopAnimeAward } from '$lib/catalog/anime-awards'
 
   // Bottom-left content column + clean linear scrims. Discovery facts stay deliberately compact:
   // format/runtime/production/score, then one context line for next-airing + genres. Detail pages
@@ -288,9 +288,9 @@
       <div class="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col gap-2 p-4">
         {#if featuredAward}
           <div class="flex flex-wrap gap-1.5">
-            <span class="inline-flex items-center gap-1.5 rounded-full border border-orange-300/20 bg-black/65 px-2.5 py-1 text-[0.68rem] font-black text-white shadow-lg backdrop-blur">
+            <a href={animeAwardHref(featuredAward)} data-focusable class="pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-orange-300/20 bg-black/65 px-2.5 py-1 text-[0.68rem] font-black text-white shadow-lg backdrop-blur transition-colors hover:border-orange-300/50 hover:bg-black/80">
               <Award size={12} class="text-orange-300" aria-hidden="true" />Crunchyroll · {featuredAward.year} {featuredAward.category}
-            </span>
+            </a>
           </div>
         {/if}
         {#if currentLogo}
@@ -430,9 +430,9 @@
         <div class="hero-copy max-w-2xl" style="--hero-enter-x:{navDirection * 1.5}%">
           {#if featuredAward}
             <div class="mb-4 flex flex-wrap gap-2">
-              <span class="inline-flex items-center gap-2 rounded-lg border border-orange-300/20 bg-black/55 px-3 py-1.5 text-sm font-black text-white shadow-lg backdrop-blur">
+              <a href={animeAwardHref(featuredAward)} data-focusable class="pointer-events-auto inline-flex items-center gap-2 rounded-lg border border-orange-300/20 bg-black/55 px-3 py-1.5 text-sm font-black text-white shadow-lg backdrop-blur transition-colors hover:border-orange-300/50 hover:bg-black/75">
                 <Award size={15} class="text-orange-300" aria-hidden="true" />Crunchyroll · {featuredAward.year} {featuredAward.category} winner
-              </span>
+              </a>
             </div>
           {/if}
           {#if currentLogo}
