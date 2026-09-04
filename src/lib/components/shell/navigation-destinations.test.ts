@@ -28,4 +28,12 @@ describe('navigation destinations', () => {
     expect(nav).toContain("trakt: { label: 'Trakt', href: '/app/trakt'")
     expect(nav).toContain("{ id: 'trakt', placement: 'top' }")
   })
+
+  it('makes the Letterboxd import and diary hub reachable without crowding the default mobile bar', () => {
+    const sidebar = read('./Sidebar.svelte')
+    const nav = read('../../settings/nav.ts')
+    expect(sidebar).toContain("href: '/app/letterboxd'")
+    expect(nav).toContain("letterboxd: { label: 'Letterboxd', href: '/app/letterboxd'")
+    expect(nav).toContain("{ id: 'letterboxd', placement: 'hidden' }")
+  })
 })

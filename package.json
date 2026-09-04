@@ -47,6 +47,7 @@
     "bottleneck": "^2.19.5",
     "cheerio": "^1.2.0",
     "crypto-js": "^4.2.0",
+    "fflate": "^0.8.3",
     "idb-keyval": "^6.3.0",
     "shaka-player": "^5.2.8",
     "sucrase": "^3.35.1",

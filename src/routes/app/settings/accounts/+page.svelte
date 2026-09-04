@@ -6,6 +6,7 @@
   import TrackerProviderBadge from '$lib/components/settings/TrackerProviderBadge.svelte'
   import ListProviderAccounts from '$lib/components/settings/ListProviderAccounts.svelte'
   import TraktAccountSettings from '$lib/components/settings/TraktAccountSettings.svelte'
+  import LetterboxdAccountSettings from '$lib/components/settings/LetterboxdAccountSettings.svelte'
   import { autoWatchlistEnabled, autoWatchlistEpisodes } from '$lib/settings/ui'
   import {
     anilistToken,
@@ -416,6 +417,8 @@
   </SettingsGroup>
 
   <TraktAccountSettings />
+
+  <LetterboxdAccountSettings />
 
   <SettingsGroup
     icon={Blocks}
