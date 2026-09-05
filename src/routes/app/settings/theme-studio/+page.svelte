@@ -37,7 +37,6 @@
   let draft = $state<StudioTheme>(clone(get(activeStudioTheme)))
   let notice = $state('')
   let category = $state<'palette' | 'type' | 'backdrop' | 'saved'>('palette')
-  let previewAcrossApp = $state(false)
   let baseline = $state(JSON.stringify(get(activeStudioTheme)))
   let confirmDelete = $state(false)
   const dirty = $derived(JSON.stringify(draft) !== baseline)
@@ -84,7 +83,7 @@
   const contrastPasses = $derived(contrasts.every((item) => item.value >= 4.5))
 
   $effect(() => {
-    themeStudioPreview.set(previewAcrossApp ? clone(draft) : null)
+    themeStudioPreview.set(clone(draft))
   })
   onDestroy(() => themeStudioPreview.set(null))
 
@@ -170,7 +169,7 @@
       $studioThemes = [...$studioThemes, imported]
       baseline = JSON.stringify(imported)
       draft = clone(imported)
-      notice = `${imported.name} loaded. Review it, then Save & Apply.`
+      notice = `${imported.name} loaded. Changes are live; save the theme to keep them.`
     } catch (error) {
       notice = ioErrorMessage(error, 'Invalid theme file.')
     }
@@ -181,10 +180,10 @@
 
 <div class="mx-auto max-w-6xl p-4 pb-24 sm:p-8">
   <header class="mb-7 flex flex-wrap items-center justify-between gap-4">
-    <div><h2 class="text-3xl font-bold tracking-tight">Theme Studio</h2><p class="mt-2 text-sm text-muted-foreground">Choose a starting point, then make it your own.</p></div>
+    <div><h2 class="text-3xl font-bold tracking-tight">Theme Studio</h2><p class="mt-2 text-sm text-muted-foreground">Changes appear across the app as you edit. Save to keep them.</p></div>
     <div class="flex items-center gap-2">
       <button type="button" data-focusable onclick={discardChanges} disabled={!dirty} class="studio-button disabled:opacity-35"><RotateCcw size={15} /> Discard</button>
-      <button type="button" data-focusable onclick={saveAndApply} class="studio-button bg-foreground text-background"><Save size={15} /> Save &amp; Apply</button>
+      <button type="button" data-focusable onclick={saveAndApply} class="studio-button bg-foreground text-background"><Save size={15} /> Save theme</button>
     </div>
   </header>
   {#if notice}<p role="status" class="mb-5 border-l-2 border-foreground/40 py-2 pl-4 text-sm text-muted-foreground">{notice}</p>{/if}
@@ -261,18 +260,17 @@
     </div>
 
     <aside class="min-w-0 xl:sticky xl:top-8">
-      <div class="mb-3 flex items-center justify-between"><h3 class="text-sm font-semibold">Preview</h3><span class="text-xs text-muted-foreground">{dirty ? 'Unsaved draft' : draft.id === $activeStudioThemeId && $themePreset === 'custom' ? 'Applied theme' : 'Not applied'}</span></div>
+      <div class="mb-3 flex items-center justify-between"><h3 class="text-sm font-semibold">Live preview</h3><span class="text-xs text-muted-foreground">{dirty ? 'Unsaved changes' : draft.id === $activeStudioThemeId && $themePreset === 'custom' ? 'Saved theme' : 'Not saved as active'}</span></div>
       <section aria-label="Theme preview" style={previewStyle} class="studio-preview relative overflow-hidden border border-border bg-background text-foreground" style:font-family={previewFont} style:border-radius={`${draft.radius}rem`}>
         {#if draft.backdrop !== 'solid'}<div aria-hidden="true" class="studio-ambience" data-backdrop={draft.backdrop} style:opacity={draft.backdropStrength} style:filter={`blur(${draft.glassBlur}px)`}></div>{/if}
         <div class="relative p-6" style:font-size={`${draft.fontScale}rem`}>
           <div class="flex items-center gap-4 border-b border-border pb-4 text-[0.75em]"><span class="font-semibold text-theme">izumi</span><span>Home</span><span class="text-muted-foreground">Library</span></div>
           <p class="mt-10 text-[0.7em] text-muted-foreground">Tonight’s watchlist</p><h4 class="mt-2 text-[2em] font-bold leading-tight tracking-tight">A little space<br />for your stories.</h4>
-          <p class="mt-4 max-w-xs text-[0.8em] leading-relaxed text-muted-foreground">See how text, surfaces and actions work together before applying your theme.</p>
+          <p class="mt-4 max-w-xs text-[0.8em] leading-relaxed text-muted-foreground">Your colours, typography and surfaces update across the app as you edit.</p>
           <div class="mt-6 flex gap-2"><span class="rounded-[var(--sample-radius)] bg-primary px-4 py-2 text-[0.75em] font-semibold text-primary-foreground" style:--sample-radius={`${draft.radius / 2}rem`}>Continue watching</span><span class="rounded-md bg-secondary px-3 py-2 text-[0.75em] text-secondary-foreground">Details</span></div>
           <div class="mt-8 grid grid-cols-3 gap-3">{#each ['Movies', 'Series', 'Anime'] as label}<div class="rounded-lg bg-card p-3 ring-1 ring-border"><div class="h-12 rounded bg-muted"></div><p class="mt-3 text-[0.7em] text-card-foreground">{label}</p></div>{/each}</div>
         </div>
       </section>
-      <label class="mt-4 flex min-h-11 items-center gap-3 text-xs text-muted-foreground"><input type="checkbox" bind:checked={previewAcrossApp} data-focusable class="size-4 accent-[hsl(var(--foreground))]" />Preview across the app</label>
       <details class="mt-3 border-t border-border py-4">
         <summary class="cursor-pointer text-sm font-semibold">Contrast check <span class="ml-2 text-xs font-normal text-muted-foreground">{contrastPasses ? 'Text pairs pass AA' : 'Review text contrast'}</span></summary>
         <div class="mt-4 space-y-3">{#each contrasts as contrast}<div class="flex justify-between text-xs"><span>{contrast.label}</span><span class="tabular-nums text-muted-foreground">{contrast.value.toFixed(2)}:1 {contrast.value >= 4.5 ? '· Pass' : '· Review'}</span></div>{/each}</div>

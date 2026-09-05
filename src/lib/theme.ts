@@ -18,7 +18,7 @@ function apply() {
   const preset = get(themePreset)
   const preview = get(themeStudioPreview)
   const studio = preview ?? get(activeStudioTheme)
-  // Studio drafts only override the active preset when whole-app preview is explicitly enabled.
+  // The open Theme Studio applies drafts live without persisting them until Save.
   const tokens = preview?.tokens ?? resolvedThemeTokens(preset, media.matches, preset === 'custom' ? studio.tokens : null)
   const root = document.documentElement
   const values: Record<string, string> = {

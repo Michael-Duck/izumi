@@ -5,14 +5,16 @@ import { describe, expect, it } from 'vitest'
 const page = readFileSync(fileURLToPath(new URL('./+page.svelte', import.meta.url)), 'utf8')
 
 describe('Theme Studio UI', () => {
-  it('previews drafts and explicitly saves the custom theme', () => {
-    expect(page).toContain('themeStudioPreview.set(previewAcrossApp ? clone(draft) : null)')
-    expect(page).toContain('let previewAcrossApp = $state(false)')
+  it('applies every draft live across the app without an opt-in toggle', () => {
+    expect(page).toContain('themeStudioPreview.set(clone(draft))')
+    expect(page).not.toContain('previewAcrossApp')
+    expect(page).not.toContain('Preview across the app')
     expect(page).toContain('aria-label="Theme controls"')
     expect(page).toContain('aria-label="Theme preview"')
     expect(page).toContain("$themePreset = 'custom'")
-    expect(page).toContain('Save &amp; Apply')
+    expect(page).toContain('Save theme')
     expect(page).toContain('Discard')
+    expect(page).toContain('onDestroy(() => themeStudioPreview.set(null))')
   })
 
   it('edits the full token surface and visual system controls', () => {
