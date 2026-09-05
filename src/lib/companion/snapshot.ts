@@ -1,3 +1,5 @@
+import { companionDiscovery } from './discovery'
+import { discoveryQueueFeedback } from '$lib/recommendations/discovery-queue'
 import type { Client } from '@urql/core'
 import { get } from 'svelte/store'
 import { activeProfile, profileHousehold } from '$lib/profiles/store'
@@ -66,6 +68,7 @@ function compactHomeMedia(media: CompanionMedia, keepDescription = true): Compan
   return {
     ...summary,
     description: keepDescription ? summary.description?.slice(0, 520) : undefined,
+    recommendation: summary.recommendation ? { ...summary.recommendation, reason: summary.recommendation.reason.slice(0, 240), evidence: summary.recommendation.evidence.slice(0, 3).map(value => value.slice(0, 240)) } : undefined,
   }
 }
 
@@ -87,8 +90,14 @@ export function compactCompanionSnapshot(
     hero: snapshot.hero ? compactHomeMedia(snapshot.hero) : undefined,
     rows,
     history: snapshot.history?.map((item) => compactHomeMedia(item)),
+    discovery: snapshot.discovery ? { ...snapshot.discovery, candidates: snapshot.discovery.candidates.map(item => compactHomeMedia(item)) } : undefined,
   }
   if (snapshotBytes(result) <= targetBytes) return result
+  // Keep ranked explanations; trim discovery depth before compromising navigation.
+  while ((result.discovery?.candidates.length ?? 0) > 12 && snapshotBytes(result) > targetBytes) result.discovery!.candidates.pop()
+  if (snapshotBytes(result) > targetBytes && result.discovery) {
+    result.discovery = { ...result.discovery, excluded: result.discovery.excluded.slice(0, 400), decisions: result.discovery.decisions.slice(0, 200) }
+  }
 
   // Keep Continue Watching broader because it is personal state; catalogue shelves retain at
   // least eight useful choices before an entire low-priority shelf is considered for removal.
@@ -562,10 +571,12 @@ export async function createCompanionSnapshot(
       return [entry.media.id, episode, saved?.pos, saved?.dur, saved?.updatedAt]
     }),
     spoilersHidden: get(hideSpoilers),
+    discoveryFeedback: get(discoveryQueueFeedback),
   })
   if (cached?.key === cacheKey && now - cached.at < SNAPSHOT_CACHE_MS) return cached.snapshot
   const home = await selectedHome(client, screen, active)
   const genres = await companionGenres(screen, active, home)
+  const discovery = await companionDiscovery([...home.hero, ...home.sections.flatMap(section => section.media)])
   const layoutScreen = screen
   const watching = await continueRow(watchingEntries, active, screen === 'merged')
   const history = localHistoryEntries.slice(0, 40).map((entry) => companionMedia(entry.media, {
@@ -590,6 +601,7 @@ export async function createCompanionSnapshot(
   const snapshot = compactCompanionSnapshot({
     profileId: get(activeProfile).id,
     household: get(profileHousehold),
+    discovery,
     app: 'izumi',
     kind: 'companion-home',
     version: COMPANION_PROTOCOL,

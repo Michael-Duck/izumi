@@ -10,7 +10,7 @@ import {
   searchCatalog,
 } from './resolver.js'
 
-const VERSION = '1.7.0'
+const VERSION = '1.8.0'
 const PROTOCOL = 1
 const CATEGORIES = new Set(['watch', 'manual', 'presence', 'companion', 'profiles'])
 const MAX_BODY_BYTES = 512 * 1024
@@ -397,6 +397,32 @@ async function companionProgress(request, env, pairingId) {
     .bind(pairingId, MAX_COMPANION_PROGRESS).all()
   return json({ records: result.results || [] })
 }
+
+async function companionDiscoveryFeedback(request, env, pairingId) {
+  if (request.method === 'PUT') {
+    if (!await authenticateTv(request, env, pairingId)) return json({ error: 'TV authentication failed.' }, 401)
+    const value = await body(request)
+    const now = Date.now()
+    if (typeof value.mediaKey !== 'string' || !/^[A-Za-z0-9_-]{32,64}$/.test(value.mediaKey)
+      || !Number.isFinite(value.at) || value.at <= 0 || value.at > now + 60_000
+      || !validEncryptedPayload(value.payload, 32 * 1024)) {
+      return json({ error: 'The encrypted discovery choice is invalid.' }, 400)
+    }
+    await env.DB.batch([
+      env.DB.prepare('INSERT INTO companion_discovery (pairing_id, media_key, payload, choice_at, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(pairing_id, media_key) DO UPDATE SET payload = excluded.payload, choice_at = excluded.choice_at, updated_at = excluded.updated_at WHERE excluded.choice_at >= companion_discovery.choice_at')
+        .bind(pairingId, value.mediaKey, value.payload, value.at, now),
+      env.DB.prepare('DELETE FROM companion_discovery WHERE pairing_id = ? AND media_key IN (SELECT media_key FROM companion_discovery WHERE pairing_id = ? ORDER BY updated_at DESC LIMIT -1 OFFSET ?)')
+        .bind(pairingId, pairingId, 500),
+    ])
+    return json({ ok: true, updatedAt: now })
+  }
+  const pairing = await authenticateTv(request, env, pairingId) || await ownerPairing(request, env, pairingId)
+  if (!pairing) return json({ error: 'Authentication failed.' }, 401)
+  const result = await env.DB.prepare('SELECT media_key AS mediaKey, payload, updated_at AS updatedAt FROM companion_discovery WHERE pairing_id = ? ORDER BY updated_at DESC LIMIT ?')
+    .bind(pairingId, 500).all()
+  return json({ records: result.results || [] })
+}
+
 
 /** Issue a short-lived capability for the TV's YouTube bridge. Keeping the TV bearer token in a
  * POST header means it cannot leak through the iframe URL, browser history, or YouTube Referer. */
@@ -823,7 +849,7 @@ export default {
           version: VERSION,
           protocol: PROTOCOL,
           claimed: await claimed(env),
-          features: ['companion-profiles-v1', 'profile-sync-v1', 'companion-wake-v1', 'web-push-v1', 'cloud-resolver-v1', 'cloud-resolver-v2', 'cloud-resolver-debrid-v1', 'companion-details-v2', 'companion-snapshot-v1', 'companion-progress-v1', 'companion-catalog-v1', 'companion-trailer-v1'],
+          features: ['companion-profiles-v1', 'profile-sync-v1', 'companion-wake-v1', 'web-push-v1', 'cloud-resolver-v1', 'cloud-resolver-v2', 'cloud-resolver-debrid-v1', 'companion-details-v2', 'companion-snapshot-v1', 'companion-progress-v1', 'companion-catalog-v1', 'companion-trailer-v1', 'companion-discovery-v2'],
         })
       }
       if (request.method === 'GET' && url.pathname === '/v1/companion/enrol') return companionEnrolmentPage(request)
@@ -872,6 +898,10 @@ export default {
       const companionProgressMatch = url.pathname.match(/^\/v1\/companion\/pairings\/([A-Za-z0-9_-]{16,80})\/progress$/)
       if (companionProgressMatch && (request.method === 'GET' || request.method === 'PUT')) {
         return await companionProgress(request, env, companionProgressMatch[1])
+      }
+      const discoveryMatch = url.pathname.match(/^\/v1\/companion\/pairings\/([A-Za-z0-9_-]{16,80})\/discovery$/)
+      if (discoveryMatch && (request.method === 'GET' || request.method === 'PUT')) {
+        return await companionDiscoveryFeedback(request, env, discoveryMatch[1])
       }
       const householdMatch = url.pathname.match(/^\/v1\/companion\/pairings\/([A-Za-z0-9_-]{16,80})\/household$/)
       if (householdMatch && request.method === 'GET') return await householdForTv(request, env, householdMatch[1])

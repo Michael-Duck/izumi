@@ -3,7 +3,7 @@ import { persisted } from 'svelte-persisted-store'
 import type { CompanionHomeSnapshot, CompanionMedia, CompanionPlaybackMode } from '$lib/companion/protocol'
 import type { SyncRecord, SyncStatus } from './types'
 
-export const CLOUDFLARE_WORKER_VERSION = '1.7.0'
+export const CLOUDFLARE_WORKER_VERSION = '1.8.0'
 export const CLOUDFLARE_WORKER_PROTOCOL = 1
 export const CLOUDFLARE_GIT_DEPLOY_URL =
   'https://deploy.workers.cloudflare.com/?url=https://github.com/nickEatsBread/izumi/tree/main/cloudflare-sync-worker'
@@ -733,4 +733,24 @@ export function startCloudflareWorkerUpdateChecks(): void {
   if (updateTimer) return
   setTimeout(() => { void checkCloudflareWorkerUpdate() }, 20_000)
   updateTimer = setInterval(() => { void checkCloudflareWorkerUpdate() }, 6 * 60 * 60_000)
+}
+
+export interface CloudflareDiscoveryChoice {
+  profileId: string
+  media: import('$lib/companion/protocol').CompanionMedia
+  action: 'save' | 'skip' | 'dismiss' | 'undo'
+  at: number
+}
+export async function readCloudflareDiscoveryChoices(transport: CloudflareCompanionTransport): Promise<CloudflareDiscoveryChoice[]> {
+  const config = companionConfig()
+  if (normalizeCloudflareEndpoint(config.endpoint) !== normalizeCloudflareEndpoint(transport.endpoint)) return []
+  const result = await workerRequest<{ records?: Array<{ mediaKey: string; payload: string }> }>(
+    transport.endpoint, `/v1/companion/pairings/${encodeURIComponent(transport.pairingId)}/discovery`, {}, config.deviceToken,
+  )
+  const rows = (Array.isArray(result.records) ? result.records : []).slice(0, 500)
+    .filter(row => typeof row?.mediaKey === 'string' && /^[A-Za-z0-9_-]{32,64}$/.test(row.mediaKey) && typeof row.payload === 'string')
+  const choices = await Promise.all(rows.map(row => decryptCompanionPayload<CloudflareDiscoveryChoice>(transport, `discovery:${row.mediaKey}`, row.payload)))
+  return choices.filter((choice): choice is CloudflareDiscoveryChoice => !!choice && typeof choice.profileId === 'string'
+    && ['save', 'skip', 'dismiss', 'undo'].includes(choice.action) && Number.isFinite(choice.at)
+    && !!choice.media?.ref && typeof choice.media.title === 'string')
 }

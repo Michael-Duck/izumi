@@ -57,6 +57,7 @@ export interface CompanionPerson {
 }
 
 export interface CompanionMedia {
+  recommendation?: { reason: string; evidence: string[]; exploration: boolean }
   ref: MediaRef
   /** Stable local media identity used when a TV checkpoint rejoins the normal watch-sync path. */
   mediaId?: number
@@ -160,8 +161,16 @@ export interface CompanionCatalogOption {
   label: string
 }
 
+export interface CompanionDiscovery {
+  version: 2
+  candidates: CompanionMedia[]
+  excluded: string[]
+  decisions: Array<{ key: string; action: 'skip' | 'dismiss' | 'save' | 'undo'; at: number }>
+}
+
 /** Provider-neutral payload consumed by the standalone TV project. */
 export interface CompanionHomeSnapshot {
+  discovery?: CompanionDiscovery
   /** Omitted by pre-profile clients, which always represent the main profile. */
   profileId?: string
   household?: import('$lib/profiles/store').ProfileState

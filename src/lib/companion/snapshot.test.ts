@@ -292,9 +292,12 @@ describe('companion episode details', () => {
       app: 'izumi', kind: 'companion-home', version: 1, revision: 'oversized', generatedAt: 1,
       catalog: { screen: 'merged', label: 'Merged' }, hero: all[0], rows,
       views: { search: all, trending: all, series: all, movies: all, myList: all },
+      discovery: { version: 2, candidates: all.slice(0, 60).map(media => ({ ...media, recommendation: { reason: 'R'.repeat(2000), evidence: ['E'.repeat(2000)], exploration: false } })), excluded: Array.from({ length: 1000 }, (_, i) => 'tmdb:movie:' + i), decisions: [] },
     })
 
     expect(new TextEncoder().encode(JSON.stringify(compact)).byteLength).toBeLessThanOrEqual(COMPANION_SNAPSHOT_TARGET_BYTES)
+    expect(compact.discovery?.candidates[0].recommendation?.reason).toHaveLength(240)
+    expect(compact.discovery).not.toHaveProperty('signals')
     expect(compact.views).toBeUndefined()
     expect(compact.rows[0].items.length).toBeGreaterThanOrEqual(12)
     expect(compact.rows.length).toBeGreaterThan(3)

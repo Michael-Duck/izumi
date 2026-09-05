@@ -21,6 +21,14 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "0003_cloud_resolver",
         include_str!("../../cloudflare-sync-worker/migrations/0003_cloud_resolver.sql"),
     ),
+    (
+        "0004_companion_independent",
+        include_str!("../../cloudflare-sync-worker/migrations/0004_companion_independent.sql"),
+    ),
+    (
+        "0005_companion_discovery",
+        include_str!("../../cloudflare-sync-worker/migrations/0005_companion_discovery.sql"),
+    ),
 ];
 
 #[derive(Debug, Deserialize)]
@@ -658,6 +666,12 @@ mod tests {
         assert!(WORKER_BUNDLE.starts_with("// izumi-cloudflare-source-sha256:"));
         assert!(WORKER_BUNDLE.contains("izumi-sync"));
         assert!(WORKER_BUNDLE.len() > 100_000);
+    }
+
+    #[test]
+    fn includes_independent_tv_and_discovery_migrations() {
+        assert!(MIGRATIONS.iter().any(|(name, sql)| *name == "0004_companion_independent" && sql.contains("CREATE TABLE companion_progress")));
+        assert!(MIGRATIONS.iter().any(|(name, sql)| *name == "0005_companion_discovery" && sql.contains("CREATE TABLE companion_discovery")));
     }
 
     #[test]

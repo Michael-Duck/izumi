@@ -4,6 +4,7 @@ import {
   cloudflareSyncConfig,
   publishCloudflareCompanionSnapshot,
   readCloudflareCompanionProgress,
+  readCloudflareDiscoveryChoices,
   type CloudflareCompanionTransport,
 } from './cloudflare'
 
@@ -37,17 +38,32 @@ function encoded(value: Uint8Array): string {
   return btoa(String.fromCharCode(...value)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
 }
 
-async function encryptProgress(mediaKey: string, value: unknown): Promise<string> {
+async function encryptProgress(mediaKey: string, value: unknown, context = 'progress'): Promise<string> {
   const iv = new Uint8Array(12).fill(7)
   const key = await crypto.subtle.importKey('raw', bytes(transport.tvToken), { name: 'AES-GCM' }, false, ['encrypt'])
   const data = await crypto.subtle.encrypt({
     name: 'AES-GCM', iv,
-    additionalData: new TextEncoder().encode(`izumi-companion:${transport.pairingId}:progress:${mediaKey}`),
+    additionalData: new TextEncoder().encode(`izumi-companion:${transport.pairingId}:${context}:${mediaKey}`),
   }, key, new TextEncoder().encode(JSON.stringify(value)))
   return JSON.stringify({ v: 1, iv: encoded(iv), data: encoded(new Uint8Array(data)) })
 }
 
 describe('encrypted TV materialization', () => {
+  it('decrypts discovery choices only in their own authenticated context', async () => {
+    configure()
+    const mediaKey = 'Q'.repeat(43)
+    const choice = { profileId: 'child', media: { ref: { provider: 'anilist', type: 'anime', id: '21' }, title: 'Private pick' }, action: 'dismiss', at: Date.now() }
+    const payload = await encryptProgress(mediaKey, choice, 'discovery')
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ records: [{ mediaKey, payload }] })))
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await readCloudflareDiscoveryChoices(transport)).toEqual([choice])
+    expect(fetchMock.mock.calls[0][0]).toContain('/discovery')
+    expect(new Headers(fetchMock.mock.calls[0][1].headers).get('authorization')).toBe('Bearer ' + 'D'.repeat(43))
+    const wrongContext = await encryptProgress(mediaKey, choice)
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ records: [{ mediaKey, payload: wrongContext }] })))
+    expect(await readCloudflareDiscoveryChoices(transport)).toEqual([])
+  })
+
   afterEach(() => vi.unstubAllGlobals())
 
   it('publishes a TV snapshot as ciphertext using owner authentication', async () => {

@@ -1,5 +1,9 @@
 import { invoke } from '@tauri-apps/api/core'
 import { get, writable } from 'svelte/store'
+import { discoveryQueueFeedback, recordDiscoveryDecision, forgetDiscoveryDecision } from '$lib/recommendations/discovery-queue'
+import { localLibrary, mediaIsInLocalList, setMediaInLocalList, WATCHLIST_ID } from '$lib/library/local-lists'
+import { mediaKey } from '$lib/catalog/identity'
+import { readCloudflareDiscoveryChoices, type CloudflareDiscoveryChoice } from '$lib/sync/cloudflare'
 import { activeProfileId } from '$lib/profiles/store'
 import { persisted } from 'svelte-persisted-store'
 import { SamsungSmartViewChannel } from '$lib/player/samsung-smart-view'
@@ -49,6 +53,7 @@ export interface PairedCompanion {
 
 export const pairedCompanions = persisted<PairedCompanion[]>('paired-tizen-companions-v1', [])
 const appliedCompanionProgress = persisted<Record<string, number>>('paired-tizen-progress-applied-v1', {})
+const appliedDiscoverySaves = persisted<Record<string, number>>('companion-discovery-saves-v1', {})
 const companionProgressPulling = new Set<string>()
 
 export interface PendingCompanionPlayback {
@@ -489,6 +494,10 @@ function checkpointMedia(media: CompanionMedia): Media {
     duration: media.episodeRuntimeMinutes ?? media.runtimeMinutes,
     episodes: total || undefined,
     genres: media.genres,
+    startDate: media.releaseYear ? { year: media.releaseYear } : undefined,
+    contentRating: media.contentRating,
+    isAdult: media.isAdult,
+    externalIds: { imdb: media.resolver?.imdbId, tmdb: Number(media.resolver?.tmdbId) || undefined },
   } as Media
 }
 
@@ -552,13 +561,40 @@ function applyCompanionProgress(device: PairedCompanion, record: CompanionProgre
 
 async function pullCompanionProgress(device: PairedCompanion): Promise<boolean> {
   if (!device.cloudflare) return false
+  // Older Workers lack the discovery endpoint; watch sync must keep working during upgrades.
+  const choices = await readCloudflareDiscoveryChoices(device.cloudflare).catch(() => [])
+  let discoveryChanged = false
+  for (const choice of choices.sort((a, b) => a.at - b.at)) discoveryChanged = applyCompanionDiscovery(choice) || discoveryChanged
   const records = await readCloudflareCompanionProgress(device.cloudflare)
-  let changed = false
+  let changed = discoveryChanged
   for (const record of records.sort((left, right) => left.updatedAt - right.updatedAt)) {
     const normalized = companionProgressRecord(record)
     if (normalized && applyCompanionProgress(device, normalized, 'cloud')) changed = true
   }
   return changed
+}
+
+function applyCompanionDiscovery(choice: CloudflareDiscoveryChoice): boolean {
+  if (!choice || typeof choice !== 'object' || choice.profileId !== get(activeProfileId) || !Number.isFinite(choice.at) || choice.at <= 0 || choice.at > Date.now() + 60_000
+    || !choice.media?.ref || typeof choice.media.ref.id !== 'string' || typeof choice.media.ref.provider !== 'string' || typeof choice.media.ref.type !== 'string' || typeof choice.media.title !== 'string' || !['save', 'skip', 'dismiss', 'undo'].includes(choice.action)) return false
+  const media = checkpointMedia(choice.media)
+  const key = mediaKey(media)
+  const previous = get(discoveryQueueFeedback)
+  if (choice.at <= Math.max(previous.records[key]?.at ?? 0, previous.removed?.[key] ?? 0)) return false
+  const saveKey = choice.profileId + ':' + key
+  if (choice.action === 'undo') {
+    forgetDiscoveryDecision(media, choice.at)
+    const addedAt = get(appliedDiscoverySaves)[saveKey]
+    // Never undo an unrelated watchlist edit made after this TV save.
+    if (addedAt && get(localLibrary).entries[key]?.updatedAt === addedAt) setMediaInLocalList(media, WATCHLIST_ID, false)
+  } else {
+    recordDiscoveryDecision(media, choice.action, choice.at)
+    if (choice.action === 'save' && !mediaIsInLocalList(get(localLibrary), media, WATCHLIST_ID)) {
+      setMediaInLocalList(media, WATCHLIST_ID, true)
+      appliedDiscoverySaves.update(state => Object.fromEntries(Object.entries({ ...state, [saveKey]: get(localLibrary).entries[key]?.updatedAt ?? 0 }).sort((a, b) => b[1] - a[1]).slice(0, 1000)))
+    }
+  }
+  return true
 }
 
 function sendWorkerTransport(connection: CompanionConnection): void {
@@ -604,6 +640,18 @@ function keepConnection(
         const window = getCurrentWindow()
         return window.show().then(() => window.setFocus())
       }).catch(() => {})
+    }),
+    channel.on('izumi.companion.discovery', (value) => {
+      const request = value as { credential?: string; choices?: CloudflareDiscoveryChoice[] } | null
+      if (request?.credential !== device.credential || !Array.isArray(request.choices)) return
+      let changed = false
+      for (const choice of request.choices.slice(0, 500)) changed = applyCompanionDiscovery(choice) || changed
+      if (changed && createSnapshot) {
+        void createSnapshot().then(async snapshot => {
+          sendSnapshot(connection, snapshot)
+          await publishCompanionSnapshot(snapshot)
+        }).catch(() => {})
+      }
     }),
     channel.on('izumi.companion.refresh', () => {
       pulseCompanionActivity()

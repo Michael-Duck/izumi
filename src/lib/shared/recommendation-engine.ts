@@ -1,6 +1,8 @@
 /**
  * Izumi recommendation engine v2. Pure, deterministic and runtime-independent.
- * No Svelte, network, storage, account tokens or global clock. TV vendors this exact file.
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ * No Svelte, network, storage, account tokens or global clock.
+ * The independently licensed TV consumes ranked results over encrypted sync.
  * Scores express ordering, NOT a probability that someone will like a title.
  */
 export interface TasteItem {

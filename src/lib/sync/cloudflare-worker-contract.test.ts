@@ -14,6 +14,13 @@ const resolverGenerator = fileURLToPath(new URL('../../../scripts/generate-cloud
 const generatedDebridHttp = readFileSync(fileURLToPath(new URL('../../../cloudflare-sync-worker/src/generated/resolver-core/debrid/http.ts', import.meta.url)), 'utf8')
 
 describe('Cloudflare Worker deployment contract', () => {
+  it('includes every SQL migration in the built-in native updater', async () => {
+    const { readdirSync } = await import('node:fs')
+    const directory = new URL('../../../cloudflare-sync-worker/migrations/', import.meta.url)
+    const native = readFileSync(fileURLToPath(new URL('../../../src-tauri/src/cloudflare_deploy.rs', import.meta.url)), 'utf8')
+    for (const name of readdirSync(directory).filter(name => name.endsWith('.sql'))) expect(native).toContain('migrations/' + name)
+  })
+
   it('uses an auto-provisioned D1 binding and deploy-time migration', () => {
     expect(config).toContain('"binding": "DB"')
     expect(manifest).toContain('wrangler d1 migrations apply DB --remote')
