@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { page } from '$app/state'
-  import { hasTauriRuntime } from '$lib/platform'
+  import { hasTauriRuntime, isMobile, isTv } from '$lib/platform'
+  import { gameMode } from '$lib/player/session'
   import { parseTvSetupLink } from '$lib/companion/tv-setup-link'
   import { invokeTvSetup, TV_SETUP_ORIGIN } from '$lib/companion/tv-setup-bridge'
 
@@ -42,12 +43,14 @@
 </script>
 
 <svelte:head><title>TV setup · izumi</title></svelte:head>
-<div class="tv-setup">
-  <a href="/app/settings/sync" class="back">← Back to Device sync</a>
+<!-- Match the shell's titlebar visibility so its drag region cannot cover the Back link. -->
+<div class="tv-setup" class:desktop-chrome={!$gameMode && !$isMobile && !$isTv}>
+  <a href="/app/settings/sync" data-focusable class="back">← Back to Device sync</a>
   {#if source}<iframe bind:this={frame} src={source} title="izumi TV Cloudflare setup" referrerpolicy="no-referrer" allow="clipboard-write" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"></iframe>{/if}
 </div>
 <style>
   .tv-setup { display: flex; flex-direction: column; height: calc(100dvh - 80px); min-height: 500px; }
-  .back { padding: 14px 24px; font-size: 14px; font-weight: 700; }
+  .desktop-chrome { padding-top: 2rem; }
+  .back { align-self: flex-start; flex-shrink: 0; min-height: 44px; padding: 14px 24px; font-size: 14px; font-weight: 700; }
   iframe { border: 0; width: 100%; flex: 1; background: #0c0e10; border-radius: 12px; }
 </style>
