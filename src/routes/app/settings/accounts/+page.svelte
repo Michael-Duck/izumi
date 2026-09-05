@@ -4,7 +4,6 @@
   import SettingsRow from '$lib/components/settings/SettingsRow.svelte'
   import SettingsSwitch from '$lib/components/settings/SettingsSwitch.svelte'
   import TrackerProviderBadge from '$lib/components/settings/TrackerProviderBadge.svelte'
-  import ListProviderAccounts from '$lib/components/settings/ListProviderAccounts.svelte'
   import TraktAccountSettings from '$lib/components/settings/TraktAccountSettings.svelte'
   import LetterboxdAccountSettings from '$lib/components/settings/LetterboxdAccountSettings.svelte'
   import { autoWatchlistEnabled, autoWatchlistEpisodes } from '$lib/settings/ui'
@@ -508,7 +507,7 @@
   <div hidden={section !== 'libraries'}>
   <p class="mb-6 max-w-2xl text-sm leading-6 text-muted-foreground">Bring in lists without adding more sidebar destinations. Browse everything in <a href="/app/library" class="font-bold text-foreground underline underline-offset-4">Library</a>, or choose which feeds appear on Home.</p>
   <LetterboxdAccountSettings />
-  <ListProviderAccounts />
+  <p class="mb-6 max-w-2xl border-b border-border pb-6 text-sm leading-6 text-muted-foreground">Trakt lists use your connection in <button type="button" data-focusable onclick={() => section = 'connections'} class="font-semibold text-foreground underline underline-offset-4">Connections</button>. Additional list add-ons belong in <a href="/app/settings/sources" class="font-semibold text-foreground underline underline-offset-4">Sources</a>; manage their rows in <a href="/app/settings/catalog/home?provider=stremio" class="font-semibold text-foreground underline underline-offset-4">Home layout</a>.</p>
 
   <SettingsGroup icon={Eye} title="Public libraries" desc="Browse a public AniList or MyAnimeList library without signing in. These profiles are never updated.">
     <SettingsRow

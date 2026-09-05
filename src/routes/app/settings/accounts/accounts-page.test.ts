@@ -16,7 +16,7 @@ describe('Accounts settings information architecture', () => {
   it('puts connected trackers before optional public profiles and sync behaviour', () => {
     const trackers = source.indexOf('title="Tracker accounts"')
     const stremio = source.indexOf('title="Stremio add-on sync"')
-    const listProviders = source.indexOf('<ListProviderAccounts />')
+    const listProviders = source.indexOf('<LetterboxdAccountSettings />')
     const publicProfiles = source.indexOf('title="Public libraries"')
     const sync = source.indexOf('title="List behaviour"')
     expect(trackers).toBeGreaterThan(0)

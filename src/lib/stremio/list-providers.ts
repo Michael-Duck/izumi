@@ -1,4 +1,4 @@
-export type ListProviderId = 'trakt' | 'mdblist'
+export type ListProviderId = 'trakt'
 
 export interface ListProvider {
   id: ListProviderId
@@ -11,8 +11,7 @@ export interface ListProvider {
   initials: string
 }
 
-/** First-class account entry points backed by each service's Stremio list add-on. The configured
- * manifest stays private on this device and its catalogs are adapted into optional Home rows. */
+/** Legacy list add-on metadata used to label already-installed catalogs, not account setup. */
 export const LIST_PROVIDERS: readonly ListProvider[] = [
   {
     id: 'trakt',
@@ -23,16 +22,6 @@ export const LIST_PROVIDERS: readonly ListProvider[] = [
     configureUrl: 'https://2ecbbd610840-trakt.baby-beamup.club/configure/',
     accent: 'bg-[#ed1c24]/15 text-[#ff4f56]',
     initials: 'T',
-  },
-  {
-    id: 'mdblist',
-    name: 'MDBList',
-    description: 'Your dynamic, ranked, and curated movie and series lists.',
-    addonId: 'com.mdblist.lists',
-    base: 'https://1fe84bc728af-stremio-mdblist.baby-beamup.club',
-    configureUrl: 'https://1fe84bc728af-stremio-mdblist.baby-beamup.club/configure',
-    accent: 'bg-[#f5c518]/15 text-[#f5c518]',
-    initials: 'MDB',
   },
 ] as const
 
