@@ -9,6 +9,10 @@ const clientDeepLinks = readFileSync(fileURLToPath(new URL('./deep-links.ts', im
 const defaultCapability = JSON.parse(readFileSync(fileURLToPath(new URL('../../src-tauri/capabilities/default.json', import.meta.url)), 'utf8'))
 
 describe('deep links', () => {
+  it('routes validated Trakt returns without putting the code in navigation history', () => {
+    expect(parseDeepLink(`izumi://auth/trakt#state=${'a'.repeat(64)}&code=private-code`)?.path).toBe('/app/settings/accounts?section=connections')
+    expect(parseDeepLink('izumi://auth/trakt#state=invalid&code=private-code')).toBeNull()
+  })
   it('routes anime and episode links', () => {
     expect(parseDeepLink('izumi://anime/21')?.path).toBe('/app/anime/21')
     expect(parseDeepLink('izumi://watch/21/1070')?.path).toBe('/app/anime/21?episode=1070')

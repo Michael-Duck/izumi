@@ -1,3 +1,4 @@
+import { parseTraktCallback } from '$lib/trakt/oauth'
 export type DeepLinkTarget = { path: string; notice?: string }
 
 /** What a batch of incoming links resolves to: somewhere to navigate, something to tell the user,
@@ -13,6 +14,7 @@ export function parseDeepLink(raw: string): DeepLinkTarget | null {
       return name ? { path: `/app/search?q=${encodeURIComponent(name)}`, notice: 'Magnet opened in search' } : { path: '/app/search' }
     }
     if (url.protocol !== 'izumi:') return null
+    if (parseTraktCallback(raw)) return { path: '/app/settings/accounts?section=connections' }
     const parts = [url.hostname, ...url.pathname.split('/').filter(Boolean)]
     const kind = parts.shift()
     if (kind === 'companion' && parts[0] === 'pair' && parseCompanionPairingLink(raw)) {

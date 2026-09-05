@@ -2,7 +2,8 @@ import { goto } from '$app/navigation'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrent, onOpenUrl } from '@tauri-apps/plugin-deep-link'
 import { writable } from 'svelte/store'
-import { resolveDeepLinks } from '$lib/deep-link-target'
+import { parseDeepLink, resolveDeepLinks } from '$lib/deep-link-target'
+import { isTraktCallbackLink } from '$lib/trakt/oauth'
 
 /** One-line feedback for the last handled link (rendered as a toast by the app shell). Set for
  *  anything the user would otherwise experience as "nothing happened". */
@@ -16,6 +17,21 @@ export function showDeepLinkNotice(text: string) {
 }
 
 async function openUrls(urls: string[] | null) {
+  for (const raw of urls ?? []) {
+    const link = raw.trim()
+    if (isTraktCallbackLink(link)) {
+      try {
+        const { completeTraktBrowserAuth } = await import('$lib/trakt/browser-auth')
+        await completeTraktBrowserAuth(link)
+        showDeepLinkNotice('Trakt connected')
+      } catch (reason) {
+        showDeepLinkNotice(reason instanceof Error ? reason.message : 'Trakt connection failed')
+      }
+      await goto('/app/settings/accounts?section=connections')
+      return
+    }
+    if (parseDeepLink(link)) break
+  }
   const outcome = resolveDeepLinks(urls)
   if (!outcome) return
   if (outcome.path) await goto(outcome.path)

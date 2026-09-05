@@ -5,9 +5,10 @@ import { describe, expect, it } from 'vitest'
 const component = readFileSync(fileURLToPath(new URL('./TraktAccountSettings.svelte', import.meta.url)), 'utf8')
 
 describe('native Trakt account settings', () => {
-  it('uses device authorization and keeps all credentials scoped to the active profile', () => {
-    expect(component).toContain("import('$lib/trakt/auth')")
-    expect(component).toContain('deviceCode.userCode')
+  it('uses the website callback and keeps all credentials scoped to the active profile', () => {
+    expect(component).toContain('startTraktBrowserAuth')
+    expect(component).toContain('izumi.watch/link/trakt')
+    expect(component).toContain('completeTraktBrowserAuth')
     expect(component).toContain('inside the active profile')
     expect(component).toContain('never includes it in profile sync')
   })
