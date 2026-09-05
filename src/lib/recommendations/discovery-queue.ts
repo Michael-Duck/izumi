@@ -38,6 +38,7 @@ export interface DiscoveryQueueDecision {
 
 export interface DiscoveryQueueFeedbackState {
   records: Record<string, DiscoveryQueueDecision>
+  removed?: Record<string, number>
 }
 
 export interface DiscoveryTasteSeed {
@@ -96,15 +97,17 @@ export function recordDiscoveryDecision(
     const trimmed = Object.fromEntries(Object.entries(records)
       .sort(([, left], [, right]) => right.at - left.at)
       .slice(0, MAX_RECORDS))
-    return { records: trimmed }
+    const removed = { ...state.removed }
+    delete removed[mediaKey(media)]
+    return { records: trimmed, removed }
   })
 }
 
-export function forgetDiscoveryDecision(media: Media): void {
+export function forgetDiscoveryDecision(media: Media, now = Date.now()): void {
   discoveryQueueFeedback.update((state) => {
     const records = { ...(state?.records ?? {}) }
     delete records[mediaKey(media)]
-    return { records }
+    return { records, removed: Object.fromEntries(Object.entries({ ...state.removed, [mediaKey(media)]: now }).sort((a, b) => b[1] - a[1]).slice(0, MAX_RECORDS)) }
   })
 }
 
@@ -199,4 +202,40 @@ export function rankDiscoveryQueue(
     item: discoveryTasteItem(seed.media), weight: seed.weight, at: seed.at, priority: seed.priority, source: seed.source,
   })), { now, excluded, limit: options.limit })
     .map(item => ({ ...item, media: byKey.get(item.key)! }))
+}
+
+/** Last-write-wins per title, with bounded undo tombstones to prevent stale peers resurrecting a skip. */
+export function mergeDiscoveryFeedback(current: DiscoveryQueueFeedbackState, incoming: unknown, now = Date.now()): DiscoveryQueueFeedbackState {
+  if (!incoming || typeof incoming !== 'object') return current
+  const value = incoming as Partial<DiscoveryQueueFeedbackState>
+  const records = { ...current.records }, removed = { ...current.removed }
+  for (const [key, at] of Object.entries(value.removed ?? {}).slice(0, MAX_RECORDS)) {
+    if (key.length <= 500 && Number.isFinite(at) && at > 0 && at <= now + 60_000 && at > (removed[key] ?? 0)) removed[key] = at
+  }
+  for (const [key, record] of Object.entries(value.records ?? {}).slice(0, MAX_RECORDS)) {
+    if (!record || !['save', 'skip', 'dismiss'].includes(record.action) || !Number.isFinite(record.at)
+      || record.at <= 0 || record.at > now + 60_000 || !record.media || !Number.isFinite(record.media.id)
+      || !record.media.title || typeof record.media.title !== 'object' || key.length > 500) continue
+    try {
+      if (mediaKey(record.media) !== key || record.at <= (records[key]?.at ?? 0)) continue
+      const media = tasteSnapshot(record.media as Media)
+      // Do not admit malformed catalog labels/arrays into rendering or the pure ranker.
+      if (!Object.values(media.title).every(title => title == null || typeof title === 'string')
+        || media.genres && !media.genres.every(genre => typeof genre === 'string')) continue
+      records[key] = { action: record.action, at: record.at, until: record.action === 'skip' ? record.at + 7 * DAY : undefined, media }
+    } catch { /* Corrupt peer records are ignored, not allowed to poison profile storage. */ }
+  }
+  for (const [key, at] of Object.entries(removed)) {
+    if ((records[key]?.at ?? 0) <= at) delete records[key]
+    else delete removed[key]
+  }
+  const trim = <T>(items: Record<string, T>, at: (item: T) => number) => Object.fromEntries(Object.entries(items).sort((a, b) => at(b[1]) - at(a[1])).slice(0, MAX_RECORDS))
+  return { records: trim(records, record => record.at), removed: trim(removed, at => at) }
+}
+
+export function importDiscoveryFeedback(value: unknown): void {
+  discoveryQueueFeedback.update(current => {
+    const next = mergeDiscoveryFeedback(current, value)
+    return JSON.stringify(current) === JSON.stringify(next) ? current : next
+  })
 }

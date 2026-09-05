@@ -1,3 +1,4 @@
+import { discoveryQueueFeedback } from "$lib/recommendations/discovery-queue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { get, writable } from "svelte/store";
@@ -336,6 +337,7 @@ export function initDeviceSync() {
   seriesTrackPreferences.subscribe(() => {
     if (primed) scheduleWatchPush();
   });
+  discoveryQueueFeedback.subscribe(() => { if (primed) scheduleWatchPush() });
   sceneBookmarkRecords.subscribe(() => {
     if (primed) scheduleWatchPush();
   });

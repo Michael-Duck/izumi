@@ -1,3 +1,4 @@
+import { discoveryQueueFeedback, importDiscoveryFeedback, type DiscoveryQueueFeedbackState } from '$lib/recommendations/discovery-queue'
 import { get } from 'svelte/store'
 import { save } from '@tauri-apps/plugin-dialog'
 import { invoke } from '@tauri-apps/api/core'
@@ -42,6 +43,8 @@ interface ExportBundle {
   localLibrary?: LocalLibraryState
   /** Stable per-series audio/subtitle identities (never credential-bearing URLs). */
   trackPreferences?: Record<string, SeriesTrackPreferences>
+  /** Profile-scoped taste decisions and undo tombstones. */
+  discoveryFeedback?: DiscoveryQueueFeedbackState
   /** Timestamped scenes and deletion tombstones, so removal also propagates between devices. */
   sceneBookmarks?: SceneBookmarkRecords
 }
@@ -62,6 +65,7 @@ export function exportJson(options: WatchJsonOptions = {}): string {
     localLibrary: get(localLibrary),
     trackPreferences: get(seriesTrackPreferences),
     sceneBookmarks: get(sceneBookmarkRecords),
+    discoveryFeedback: get(discoveryQueueFeedback),
   }
   return JSON.stringify(bundle, null, 2)
 }
@@ -211,6 +215,7 @@ export function importJson(text: string, options: WatchJsonOptions = {}): {
       return JSON.stringify(merged) === JSON.stringify(current) ? current : merged
     })
   }
+  importDiscoveryFeedback(data.discoveryFeedback)
   mergeSeriesTrackPreferences(data.trackPreferences)
   const sceneBookmarksImported = mergeSceneBookmarkRecords(data.sceneBookmarks)
   return { imported, positionsImported, originsImported, episodeOriginsImported, sceneBookmarksImported }
