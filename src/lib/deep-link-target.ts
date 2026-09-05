@@ -1,4 +1,5 @@
 import { parseTraktCallback } from '$lib/trakt/oauth'
+import { parseTvSetupLink } from '$lib/companion/tv-setup-link'
 export type DeepLinkTarget = { path: string; notice?: string }
 
 /** What a batch of incoming links resolves to: somewhere to navigate, something to tell the user,
@@ -9,6 +10,8 @@ export type DeepLinkOutcome = { path?: string; notice?: string }
 export function parseDeepLink(raw: string): DeepLinkTarget | null {
   try {
     const url = new URL(raw)
+    const tvSetup = parseTvSetupLink(raw)
+    if (tvSetup) return { path: tvSetup, notice: 'TV Cloudflare setup opened' }
     if (url.protocol === 'magnet:') {
       const name = url.searchParams.get('dn')?.trim()
       return name ? { path: `/app/search?q=${encodeURIComponent(name)}`, notice: 'Magnet opened in search' } : { path: '/app/search' }
