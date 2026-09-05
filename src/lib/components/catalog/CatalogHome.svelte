@@ -20,7 +20,6 @@
   import { mediaHref } from '$lib/anilist/media'
   import { anilistUser } from '$lib/anilist/account'
   import { anilistUserName, malToken, malUser } from '$lib/trackers/config'
-  import DiscoveryQueueCta from './DiscoveryQueueCta.svelte'
 
   // Provider payloads are immutable snapshots. Deep-proxying every Media object gives Svelte's
   // keyed carousels a fresh proxy identity on every progressive update; in dev builds the sixth
@@ -120,7 +119,6 @@
   {/if}
 
   <div class="space-y-5">
-    {#if home || !loading}<DiscoveryQueueCta />{/if}
     {#if continueEnabled && !home}
       {#key listUser}<ContinueRow title="Continue Watching" userName={listUser} malActive={!!$malToken || !!$malUser} />{/key}
     {/if}
