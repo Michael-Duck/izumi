@@ -6,6 +6,10 @@ export const TV_SETUP_ORIGIN = 'https://tv-link.izumi.watch'
 export async function invokeTvSetup(method: unknown, input: unknown): Promise<unknown> {
   const value = input as Record<string, unknown> | null
   if (!value || typeof value !== 'object') throw new Error('Invalid TV setup request.')
+  if (method === 'setupProfile') {
+    const { currentTvSetupProfile } = await import('./tv-setup-profile')
+    return currentTvSetupProfile()
+  }
   if (method === 'openExternal') {
     const url = new URL(String(value.url || ''))
     if (url.protocol !== 'https:' || url.username || url.password || !['dash.cloudflare.com', 'www.cloudflare.com'].includes(url.hostname)) throw new Error('Invalid Cloudflare link.')

@@ -18,7 +18,7 @@
       if (!hasTauriRuntime() || event.source !== frame?.contentWindow || event.origin !== TV_SETUP_ORIGIN) return
       const message = event.data
       if (message?.type === 'izumi.cloudflare.hello' && typeof message.nonce === 'string' && message.nonce.length <= 64) {
-        frame.contentWindow?.postMessage({ type: 'izumi.cloudflare.ready', nonce: message.nonce }, TV_SETUP_ORIGIN)
+        frame.contentWindow?.postMessage({ type: 'izumi.cloudflare.ready', nonce: message.nonce, capabilities: ['setupProfile'] }, TV_SETUP_ORIGIN)
         return
       }
       if (message?.type !== 'izumi.cloudflare.request' || typeof message.id !== 'string' || message.id.length > 64) return
