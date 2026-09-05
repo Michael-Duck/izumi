@@ -4,7 +4,7 @@ import type { Media } from '$lib/anilist/types'
 import {
   CURRENTLY_AIRING_ID, EPISODE_QUEUE_ID, WATCHLIST_ID, availableLocalLists, browsableLocalLists,
   createLocalList, deleteLocalList, enqueueEpisode, localEntriesForList, localLibrary,
-  localTrackingForMedia, mediaIsInLocalList, mergeLocalLibrary, removeLocalTracking,
+  localTrackingForMedia, localTrackingRemoved, mediaIsInLocalList, mergeLocalLibrary, removeLocalTracking,
   removeQueuedEpisode, renameLocalList, reorderLocalList, reorderQueuedEpisode, saveLocalTracking,
   setMediaInLocalList, syncWatchedHistoryToWatchlist,
 } from './local-lists'
@@ -58,6 +58,33 @@ describe('device-local media lists', () => {
     syncWatchedHistoryToWatchlist({ 42: { media, progress: 3 } }, 3)
     expect(mediaIsInLocalList(get(localLibrary), media, WATCHLIST_ID)).toBe(true)
     expect(localTrackingForMedia(get(localLibrary), media)).toMatchObject({ status: 'CURRENT', progress: 3 })
+  })
+
+  it('keeps an explicit removal through history backfill and stale device sync, retaining custom lists', () => {
+    const custom = createLocalList('Favourites')!
+    saveLocalTracking(media, { status: 'CURRENT', progress: 3 })
+    setMediaInLocalList(media, WATCHLIST_ID, true)
+    setMediaInLocalList(media, custom, true)
+    const stale = get(localLibrary)
+    removeLocalTracking(media)
+    syncWatchedHistoryToWatchlist({ 42: { media, progress: 3 } }, 1)
+    const merged = mergeLocalLibrary(get(localLibrary), stale)
+    expect(localTrackingRemoved(merged, media)).toBe(true)
+    expect(mediaIsInLocalList(merged, media, WATCHLIST_ID)).toBe(false)
+    expect(mediaIsInLocalList(merged, media, custom)).toBe(true)
+    expect(localEntriesForList(merged, 'status:CURRENT')).toEqual([])
+
+    localLibrary.set(merged)
+    saveLocalTracking(media, { status: 'CURRENT', progress: 3 })
+    expect(localTrackingRemoved(get(localLibrary), media)).toBe(false)
+    expect(localTrackingForMedia(mergeLocalLibrary(get(localLibrary), merged), media)?.status).toBe('CURRENT')
+  })
+
+  it('records removal even when the only existing evidence is playback history', () => {
+    removeLocalTracking(media)
+    syncWatchedHistoryToWatchlist({ 42: { media, progress: 3 } }, 1)
+    expect(get(localLibrary).entries).toEqual({})
+    expect(localTrackingRemoved(get(localLibrary), media)).toBe(true)
   })
 
   it('renames, reorders and deletes custom lists without touching the watchlist', () => {

@@ -9,7 +9,8 @@
       .map((node) => node.mediaRecommendation),
   )
   const tmdbPeople = $derived(media.catalog?.provider === 'tmdb')
-  const personHref = (id: number) => tmdbPeople ? `/app/person/tmdb/${id}` : `/app/staff/${id}`
+  const personHref = (id: number) => tmdbPeople ? `/app/person/tmdb/${id}`
+    : !media.catalog || media.catalog.provider === 'anilist' ? `/app/staff/${id}` : undefined
 </script>
 
 {#if view === 'people'}
@@ -35,13 +36,13 @@
                 <div class="truncate font-black">{character.node.name.full}</div>
                 <div class="text-xs text-muted-foreground">{character.role.toLowerCase()}</div>
                 {#if actor}
-                  <a href={personHref(actor.id)} data-focusable class="mt-3 flex items-center gap-2 rounded-md hover:bg-accent/50">
+                  <svelte:element this={personHref(actor.id) ? 'a' : 'div'} href={personHref(actor.id)} data-focusable={personHref(actor.id) ? '' : undefined} class="mt-3 flex items-center gap-2 rounded-md hover:bg-accent/50">
                     <img src={actor.image?.large} alt="" loading="lazy" decoding="async" class="size-9 rounded-full object-cover" />
                     <div class="min-w-0">
                       <div class="truncate text-sm font-bold">{actor.name.full}</div>
                       <div class="text-[0.65rem] uppercase tracking-wide text-muted-foreground">Japanese voice</div>
                     </div>
-                  </a>
+                  </svelte:element>
                 {/if}
               </div>
             </div>
@@ -56,13 +57,13 @@
       {#if media.staff?.edges?.length}
         <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {#each media.staff.edges as credit (`${credit.node.id}-${credit.role}`)}
-            <a href={personHref(credit.node.id)} data-focusable class="flex items-center gap-3 rounded-lg border border-border bg-secondary/30 p-2 hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring">
+            <svelte:element this={personHref(credit.node.id) ? 'a' : 'div'} href={personHref(credit.node.id)} data-focusable={personHref(credit.node.id) ? '' : undefined} class="flex items-center gap-3 rounded-lg border border-border bg-secondary/30 p-2 hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring">
               <img src={credit.node.image?.large} alt="" loading="lazy" decoding="async" class="size-14 rounded-md object-cover" />
               <div class="min-w-0">
                 <div class="truncate font-bold">{credit.node.name.full}</div>
                 <div class="line-clamp-2 text-xs text-muted-foreground">{credit.role}</div>
               </div>
-            </a>
+            </svelte:element>
           {/each}
         </div>
       {:else}<p class="text-sm text-muted-foreground">No staff credits are available.</p>{/if}

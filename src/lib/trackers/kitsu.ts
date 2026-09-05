@@ -126,10 +126,10 @@ export interface KitsuProgress {
   score: number
 }
 
-export async function getKitsuProgress(mediaId: number, idMal?: number): Promise<KitsuProgress | null> {
+export async function getKitsuProgress(mediaId: number, idMal?: number, idKitsu?: number): Promise<KitsuProgress | null> {
   if (!get(kitsuToken)) return null
   try {
-    const kitsuId = await resolveKitsuId({ kind: 'progress', mediaId, idMal })
+    const kitsuId = await resolveKitsuId({ kind: 'progress', mediaId, idMal, idKitsu })
     if (!kitsuId) return null
     const entry = await findEntry(kitsuId)
     if (!entry) return null

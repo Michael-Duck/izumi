@@ -7,6 +7,7 @@
   import type { Media } from '$lib/anilist/types'
   import { offlineMode } from '$lib/stores/offline'
   import CalendarClock from '@lucide/svelte/icons/calendar-clock'
+  import { anilistIdOf } from '$lib/catalog/identity'
 
   let { media, toolbar = false }: {
     media: Media
@@ -16,7 +17,8 @@
   let info = $state<ScheduleInfo | null>(null)
   $effect(() => {
     if ($offlineMode) return
-    const id = media.id
+    const id = anilistIdOf(media)
+    if (id == null) { info = null; return }
     const titles = scheduleTitles(media.title)
     let cancelled = false
     getScheduleInfo(id, titles).then((i) => { if (!cancelled) info = i })

@@ -7,7 +7,7 @@ import { malHttpFetch } from './mal-http'
 import { pushKitsu, getKitsuProgress } from './kitsu'
 import { pushSimkl, getSimklProgress, invalidateSimklList } from './simkl'
 import { kitsuToAni, malToAni, simklToAni } from './status'
-import { getIndex, lookupAnilistByMal } from '$lib/stremio/idmap'
+import { getIndex, lookupAnilistByMal, lookupAnilistByKitsu } from '$lib/stremio/idmap'
 import { mapMalAnimeListMedia, type MalAnimeListNode } from './mal-list-media'
 import { recordProgress, localHistory } from '$lib/player/history'
 import { incognito } from '$lib/stores/incognito'
@@ -62,6 +62,10 @@ const DELETE_ENTRY = gql`mutation ($id: Int) {
   DeleteMediaListEntry(id: $id) { deleted }
 }`
 
+const ENTRY_FOR_REMOVAL = gql`query EntryForRemoval($mediaId: Int) {
+  Media(id: $mediaId) { id mediaListEntry { id } }
+}`
+
 const MAL_LIST = (idMal: number) => `https://api.myanimelist.net/v2/anime/${idMal}/my_list_status`
 const FORM = { 'Content-Type': 'application/x-www-form-urlencoded' }
 
@@ -107,8 +111,17 @@ async function pushAniList(op: TrackerOp): Promise<PushResult> {
     } else if (op.kind === 'status') {
       r = await anilist.mutation(SET_STATUS, { mediaId, status: op.status }).toPromise()
     } else if (op.kind === 'remove') {
-      if (!op.listEntryId) return { ok: false, retryable: false } // no AniList entry to delete
-      r = await anilist.mutation(DELETE_ENTRY, { id: op.listEntryId }).toPromise()
+      let entryId = op.listEntryId
+      if (!entryId) {
+        // Fallback/catalog snapshots lack the viewer's entry id. Resolve it on the authenticated
+        // AniList path; failures remain retryable instead of silently dropping the removal.
+        const lookup = await anilist.query(ENTRY_FOR_REMOVAL, { mediaId }, { requestPolicy: 'network-only' }).toPromise()
+        if (lookup.error) return aniClassify(lookup.error)
+        if (!lookup.data?.Media) return { ok: false, retryable: true }
+        entryId = lookup.data.Media.mediaListEntry?.id
+        if (!entryId) return { ok: true } // the viewer already has no entry
+      }
+      r = await anilist.mutation(DELETE_ENTRY, { id: entryId }).toPromise()
     } else {
       r = await anilist.mutation(SAVE_SCORE, { mediaId, scoreRaw: aniScore(op.score ?? 0) }).toPromise()
     }
@@ -142,12 +155,19 @@ function malBody(op: TrackerOp): string {
 }
 
 async function pushMal(op: TrackerOp): Promise<PushResult> {
-  if (!op.idMal) return { ok: false, retryable: false } // can't address MAL without idMal
   try {
+    let idMal = op.idMal
+    if (!idMal && op.kind === 'remove' && (op.idAniList || op.idKitsu)) {
+      const index = await getIndex()
+      if (!index.size) return { ok: false, retryable: true }
+      const idAniList = op.idAniList ?? (op.idKitsu ? lookupAnilistByKitsu(index, op.idKitsu) : undefined)
+      idMal = idAniList == null ? undefined : index.get(idAniList)?.mal_id
+    }
+    if (!idMal) return { ok: false, retryable: false }
     const init: RequestInit = op.kind === 'remove'
       ? { method: 'DELETE' }
       : { method: 'PATCH', headers: FORM, body: malBody(op) }
-    const r = await malFetch(MAL_LIST(op.idMal), init)
+    const r = await malFetch(MAL_LIST(idMal), init)
     if (!r) return { ok: false, retryable: false } // no token → not connected
     if (r.ok) return { ok: true }
     // malFetch already refreshed-and-retried once on 401, so a 401 here is a dead token (permanent).
@@ -190,7 +210,7 @@ async function push(media: Media, op: Omit<TrackerOp, 'mediaId' | 'idAniList' | 
     const aop: TrackerOp = { ...op, mediaId: media.id, idAniList }
     await deliver('AniList', aop, pushAniList)
   }
-  if (get(malToken) && idMal) {
+  if (get(malToken) && (idMal || (op.kind === 'remove' && (idAniList || idKitsu)))) {
     const mop: TrackerOp = { ...op, mediaId: media.id, idAniList, idMal, idKitsu }
     await deliver('MAL', mop, pushMal)
   }
@@ -293,13 +313,11 @@ export function setScore(media: Media, score0to100: number): Promise<string[]> {
   return push(media, { kind: 'score', score: score0to100 })
 }
 
-// Remove the title from the viewer's list entirely (AniList DeleteMediaListEntry by entry id + MAL
-// DELETE my_list_status). Best-effort; the AniList delete no-ops when we don't have the entry id
-// (e.g. MAL-only). Pass the media whose mediaListEntry.id was fetched by the detail query.
+// Remove the title locally immediately, then mirror the removal to connected trackers. Missing
+// AniList entry ids are resolved by the sender, including when replaying after an outage.
 export function removeFromList(media: Media): Promise<string[]> {
   if (!get(incognito)) {
     removeLocalTracking(media)
-    setMediaInLocalList(media, WATCHLIST_ID, false)
   }
   void setTraktWatchlist(media, false).catch(() => {})
   return push(media, { kind: 'remove', listEntryId: media.mediaListEntry?.id })
@@ -340,10 +358,10 @@ export interface ExternalTrackerProgress {
 }
 
 /** Read back every connected REST tracker and merge their furthest progress for tracker-only users. */
-export async function getExternalTrackerProgress(mediaId: number, idMal?: number): Promise<ExternalTrackerProgress | null> {
+export async function getExternalTrackerProgress(mediaId: number, idMal?: number, idKitsu?: number): Promise<ExternalTrackerProgress | null> {
   const [mal, kitsu, simkl] = await Promise.all([
     getMalProgress(idMal),
-    getKitsuProgress(mediaId, idMal),
+    getKitsuProgress(mediaId, idMal, idKitsu),
     getSimklProgress(mediaId, idMal),
   ])
   const entries: ExternalTrackerProgress[] = []

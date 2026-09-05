@@ -33,7 +33,7 @@ export interface TrackerOp {
   idAniList?: number
   idMal?: number
   idKitsu?: number
-  listEntryId?: number // AniList mediaList entry id — required to DELETE the entry (kind 'remove')
+  listEntryId?: number // AniList entry id; removal resolves it from idAniList when absent
   progress?: number
   status?: AniStatus
   score?: number // 0-100 (canonical); mapped per-tracker at push time

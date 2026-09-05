@@ -2,19 +2,20 @@
   import { queryStore, getContextClient } from '@urql/svelte'
   import { openUrl } from '@tauri-apps/plugin-opener'
   import { invoke } from '@tauri-apps/api/core'
-  import { MEDIA_BY_ID } from '$lib/anilist/detail-queries'
+  import { ANIME_LIST_ENTRY, MEDIA_BY_ID } from '$lib/anilist/detail-queries'
   import Hero from '$lib/components/banner/Hero.svelte'
   import Tabs from '$lib/components/detail/Tabs.svelte'
   import EpisodeList from '$lib/components/detail/EpisodeList.svelte'
   import SmallCard from '$lib/components/cards/SmallCard.svelte'
-  import { banner, title, cover, format, status, season, seasonBrowseHref, ratingBg, resumeEp, totalEpisodes } from '$lib/anilist/media'
+  import { banner, title, cover, format, status, season, seasonBrowseHref, ratingBg, totalEpisodes } from '$lib/anilist/media'
   import type { Media } from '$lib/anilist/types'
   import { resumeEpisode, playEpisode, prefetchEpisodeSources, type PlayState } from '$lib/stremio/play'
   import { offlineMode } from '$lib/stores/offline'
   import { downloads, downloadedMedia } from '$lib/downloads/state'
   import { localHistory, sessionProgress, manualProgressOverrides } from '$lib/player/history'
   import { seriesTitle } from '$lib/downloads/library'
-  import { readable } from 'svelte/store'
+  import { readable, type Readable } from 'svelte/store'
+  import { animeResumeEpisode, animeWatchedProgress, type AnimeDetailState } from '$lib/catalog/anime-detail'
   import { focusOnMount } from '$lib/nav'
   import { copyToClipboard } from '$lib/util/clipboard'
   import { anilistToken } from '$lib/anilist/auth'
@@ -24,7 +25,7 @@
   import { mergedProgress, STATUS_LABEL, STATUS_COLOR } from '$lib/trackers/status'
   import ListEditor from '$lib/components/detail/ListEditor.svelte'
   import LocalListPicker from '$lib/components/library/LocalListPicker.svelte'
-  import { localLibrary, localTrackingForMedia, mediaIsSaved } from '$lib/library/local-lists'
+  import { localLibrary, localTrackingForMedia, localTrackingKey, localTrackingRemoved, mediaIsSaved } from '$lib/library/local-lists'
   import BookmarkPlus from '@lucide/svelte/icons/bookmark-plus'
   import BookmarkCheck from '@lucide/svelte/icons/bookmark-check'
   import ChevronDown from '@lucide/svelte/icons/chevron-down'
@@ -49,7 +50,7 @@
   import { gameMode } from '$lib/player/session'
   import { controllerMode } from '$lib/nav/input'
   import { getKitsuId } from '$lib/anizip'
-  import { kitsuIdOf } from '$lib/catalog/identity'
+  import { anilistIdOf, kitsuIdOf, providerExternalUrl } from '$lib/catalog/identity'
   import { detailTrackerLinks } from './tracker-links'
   import TrackerProviderBadge from '$lib/components/settings/TrackerProviderBadge.svelte'
   import { pendingCompanionPlayback, type PendingCompanionPlayback } from '$lib/companion/client'
@@ -61,7 +62,7 @@
   // `id` is a prop (the +page keys this component on it), so navigating anime→relation
   // remounts with the new id and the query re-fetches — a same-route param change alone
   // would NOT re-run a component captured at mount.
-  let { id }: { id: number } = $props()
+  let { id, source }: { id: number; source?: Readable<AnimeDetailState> } = $props()
   const controllerUi = $derived($gameMode || $controllerMode)
 
   const client = getContextClient()
@@ -73,8 +74,16 @@
     },
   )
   const store = $derived(
-    $offlineMode ? EMPTY_STORE : queryStore<{ Media: Media }>({ client, query: MEDIA_BY_ID, variables: { id } }),
+    $offlineMode ? EMPTY_STORE : source ?? queryStore<{ Media: Media }>({ client, query: MEDIA_BY_ID, variables: { id } }),
   )
+  // A provider owns the metadata and playback id. When mapped, AniList still owns the viewer's
+  // AniList entry; loading that optional entry must never gate the provider's detail page.
+  const mappedId = $derived(source && $store.data?.Media ? anilistIdOf($store.data.Media) : undefined)
+  const EMPTY_ENTRY = readable<{ data?: { Media: Pick<Media, 'mediaListEntry'> | null } }>({})
+  const mappedEntryStore = $derived(!$offlineMode && $anilistToken && mappedId
+    ? queryStore<{ Media: Pick<Media, 'mediaListEntry'> | null }>({ client, query: ANIME_LIST_ENTRY, variables: { id: mappedId } })
+    : EMPTY_ENTRY)
+  const rawEntry = $derived($mappedEntryStore.data?.Media?.mediaListEntry ?? $store.data?.Media?.mediaListEntry)
 
   // REST-tracker read-back: merge MAL, Kitsu, and Simkl into the AniList media so progress shows
   // even when the user does not use AniList. Take whichever connected tracker is further
@@ -93,7 +102,7 @@
     // "Play" for one MAL round-trip on every emission.
     const current = $store.data?.Media
     const key = current
-      ? `${current.id}:${current.idMal ?? ''}:${!!$malToken}:${!!$kitsuToken}:${!!$simklToken}`
+      ? `${current.id}:${anilistIdOf(current) ?? ''}:${current.idMal ?? ''}:${kitsuIdOf(current) ?? ''}:${!!$malToken}:${!!$kitsuToken}:${!!$simklToken}`
       : ''
     if (key === externalEntryFor) return
     externalEntryFor = key
@@ -102,7 +111,7 @@
     // Accept the response only if it is still the title we asked about. Snapshotting the key beats
     // an effect-scoped `cancelled` flag here, because ANY re-run of this effect (urql emits several
     // times per query) would fire that flag's teardown and drop an in-flight request.
-    getExternalTrackerProgress(current.id, current.idMal ?? undefined).then((entry) => {
+    getExternalTrackerProgress(anilistIdOf(current) ?? current.id, current.idMal ?? undefined, kitsuIdOf(current)).then((entry) => {
       if (externalEntryFor === key) externalEntry = entry
     })
   })
@@ -126,9 +135,9 @@
     if ($offlineMode) return offlineMedia
     const base = $store.data?.Media
     if (!base) return base
-    const externalProgress = externalEntry?.progress ?? 0
-    if (externalProgress <= (base.mediaListEntry?.progress ?? 0)) return base
-    return { ...base, mediaListEntry: { ...base.mediaListEntry, progress: externalProgress, status: base.mediaListEntry?.status ?? externalEntry?.status } }
+    const local = localTrackingForMedia($localLibrary, base)
+    const progress = Math.max(rawEntry?.progress ?? 0, externalEntry?.progress ?? 0, local?.progress ?? 0)
+    return { ...base, mediaListEntry: { ...rawEntry, progress, status: local?.status ?? rawEntry?.status ?? externalEntry?.status } }
   })
   // AniList does not expose Kitsu IDs. AniZip is already the detail page's episode-metadata
   // mapping source, so reuse its cached per-title mapping to make the Kitsu destination exact.
@@ -138,12 +147,12 @@
     if (!current) { externalKitsuId = undefined; return }
     const direct = kitsuIdOf(current)
     if (direct) { externalKitsuId = direct; return }
-    const requestedId = current.id
+    const requestedId = anilistIdOf(current)
     externalKitsuId = undefined
-    if (requestedId <= 0) return
+    if (requestedId == null || requestedId <= 0) return
     let cancelled = false
     void getKitsuId(requestedId).then((value) => {
-      if (!cancelled && media?.id === requestedId) externalKitsuId = value
+      if (!cancelled && media && anilistIdOf(media) === requestedId) externalKitsuId = value
     })
     return () => { cancelled = true }
   })
@@ -161,13 +170,9 @@
 
   // Match the episode list's progress ownership. Tracker queries can still be stale when Android
   // returns from the player, while session/local history has already recorded the completed episode.
-  const watchedThrough = $derived(
-    $manualProgressOverrides[id] ?? Math.max(
-      media?.mediaListEntry?.progress ?? 0,
-      $localHistory[id]?.progress ?? 0,
-      $sessionProgress[id] ?? 0,
-    ),
-  )
+  const watchedThrough = $derived(media
+    ? animeWatchedProgress(media, $localHistory, $sessionProgress, $manualProgressOverrides)
+    : 0)
 
   // Resume target for the hero CTA. Offline = first not-yet-watched DOWNLOADED episode (else the
   // first downloaded) — never resumeEp(), which reads tracker progress and could point at an
@@ -180,7 +185,10 @@
     const prog = $localHistory[m.id]?.progress ?? 0
     return doneEps.find((e) => e > prog) ?? doneEps[0]
   }
-  const ctaEp = (m: Media) => ($offlineMode ? offlineResumeEp(m) : resumeEp(m, watchedThrough))
+  const ctaEp = (m: Media) => {
+    if ($offlineMode) return offlineResumeEp(m)
+    return animeResumeEpisode(m, watchedThrough)
+  }
   const ctaHasProgress = (m: Media) => ($offlineMode ? (m.mediaListEntry?.progress ?? 0) : watchedThrough) > 0
   function playCta(m: Media) {
     h.impact('medium')
@@ -227,10 +235,10 @@
   let showEditor = $state(false)
   let showLocalLists = $state(false)
   let listOpt = $state<{ status?: AniStatus; progress?: number; score?: number; removed?: boolean }>({})
-  const rawEntry = $derived($store.data?.Media?.mediaListEntry) // AniList list entry (has id/status/score)
   const localEntry = $derived(media ? localTrackingForMedia($localLibrary, media) : undefined)
+  const entryRemoved = $derived(listOpt.removed || (!!media && localTrackingRemoved($localLibrary, media)))
   const effStatus = $derived.by((): AniStatus | undefined => {
-    if (listOpt.removed) return undefined
+    if (entryRemoved) return undefined
     if (listOpt.status) return listOpt.status
     return (localEntry?.status as AniStatus | undefined)
       ?? (rawEntry?.status as AniStatus | undefined)
@@ -238,13 +246,15 @@
   })
   // Explicit user actions (optimistic edit, manual override) win outright; between the trackers
   // take the max — an AniList entry at 0 must not `??`-shadow real external progress.
-  const effProgress = $derived(listOpt.removed ? 0 : (
+  const effProgress = $derived(entryRemoved ? 0 : (
     listOpt.progress
     ?? $manualProgressOverrides[id]
     ?? mergedProgress(localEntry?.progress, rawEntry?.progress, externalEntry?.progress)
   ))
-  const effScore100 = $derived(listOpt.removed ? 0 : (listOpt.score ?? localEntry?.score ?? rawEntry?.score ?? externalEntry?.score ?? 0))
+  const effScore100 = $derived(entryRemoved ? 0 : (listOpt.score ?? localEntry?.score ?? rawEntry?.score ?? externalEntry?.score ?? 0))
   const hasEntry = $derived(!!effStatus)
+  const canRemove = $derived(!entryRemoved && (hasEntry || (!!media && Object.values($localHistory)
+    .some((entry) => localTrackingKey(entry.media) === localTrackingKey(media)))))
   const savedLocally = $derived(media ? mediaIsSaved($localLibrary, media) : false)
 
   const fmtDate = (d?: { year?: number; month?: number; day?: number } | null) =>
@@ -261,7 +271,7 @@
   // still show a number (see totalEpisodes).
   const epsTotal = totalEpisodes
   async function onShare(m: Media) {
-    const url = `https://anilist.co/anime/${m.id}`
+    const url = providerExternalUrl(m) ?? title(m)
     if ($isAndroid) {
       await invoke('plugin:extplayer|share_text', {
         payload: { title: `Share ${title(m)}`, text: `${title(m)}\n${url}` },
@@ -778,6 +788,7 @@
       initScore0to100={effScore100}
       total={epsTotal(m) || 0}
       {hasEntry}
+      {canRemove}
       onclose={() => (showEditor = false)}
       onsaved={(patch) => (listOpt = { ...listOpt, ...patch })}
     />

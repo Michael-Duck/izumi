@@ -4,7 +4,9 @@ import { LIST_IDS_QUERY } from './lists'
 import { getMalAnimeIds } from '$lib/trackers'
 import { getKitsuAnimeIds } from '$lib/trackers/kitsu'
 import { getSimklAnimeIds } from '$lib/trackers/simkl'
-import { localHistory } from '$lib/player/history'
+import { localHistory, type HistoryEntry } from '$lib/player/history'
+import { anilistIdOf } from '$lib/catalog/identity'
+import { localLibrary, localTrackingForMedia, localTrackingRemoved, type LocalLibraryState } from '$lib/library/local-lists'
 import type { Media } from './types'
 
 // "My shows" = the set the personalized schedule filters/highlights to. Built from three sources so
@@ -13,8 +15,8 @@ import type { Media } from './types'
 //   - MAL list: watching + plan_to_watch (keyed by idMal — the weekly airings carry media.idMal, so
 //     no MAL→AniList id mapping is needed)
 //   - Kitsu/Simkl lists (mapped to canonical AniList ids)
-//   - Local watch history (keyed by media.id) — covers "something you're watching right now" with no
-//     tracker linked.
+//   - Explicit local tracking and completed-episode history — an opened-only episode is just resume
+//     history and must not silently enrol the title in My Shows.
 // Dropped lists are loaded too, but only as a VETO on the local-history source: dropping a show is a
 // tracker edit, and local history has no way to learn about it, so a dropped title used to keep
 // airing on the schedule forever just because it had been played on this device once.
@@ -28,6 +30,7 @@ export interface MySets {
   malPlanning: Set<number>
   malDropped: Set<number>
   local: Set<number>         // media ids from on-device history
+  library?: LocalLibraryState
   /** Current AniList entries kept as media so a moved/delayed slot can still render a card. */
   aniCurrentMedia: Map<number, Media>
 }
@@ -41,15 +44,22 @@ export const emptyMySets = (): MySets => ({
 
 /** Is this title on a tracker's Dropped list? */
 export function isDropped(m: Media, s: MySets): boolean {
-  return s.aniDropped.has(m.id) || (m.idMal != null && s.malDropped.has(m.idMal))
+  return s.aniDropped.has(anilistIdOf(m) ?? m.id) || (m.idMal != null && s.malDropped.has(m.idMal))
 }
 
-/** How a title relates to the viewer, or null if it isn't one of their shows. Local history counts as
- *  "watching" (you're actively watching it here) unless a tracker says you dropped it. An explicit
+/** How a title relates to the viewer, or null if it isn't one of their shows. Explicit local list
+ *  edits take precedence over stale tracker data. Confirmed watch history counts unless dropped. An explicit
  *  Watching/Planning entry always wins over a Dropped one on the OTHER tracker — the drop only vetoes
  *  the implicit local-history signal, so a stale list on one service can't hide a live show. */
 export function classifyMine(m: Media, s: MySets): MineKind | null {
-  const { id, idMal } = m
+  if (s.library) {
+    if (localTrackingRemoved(s.library, m)) return null
+    const status = localTrackingForMedia(s.library, m)?.status
+    if (status === 'CURRENT' || status === 'REPEATING') return 'watching'
+    if (status === 'PLANNING') return 'planning'
+    if (status) return null // an explicit local edit wins over an old tracker response
+  }
+  const id = anilistIdOf(m) ?? m.id, idMal = m.idMal
   if (s.aniWatching.has(id) || (idMal != null && s.malWatching.has(idMal))) return 'watching'
   if (s.aniPlanning.has(id) || (idMal != null && s.malPlanning.has(idMal))) return 'planning'
   if (s.local.has(id) && !isDropped(m, s)) return 'watching'
@@ -57,6 +67,25 @@ export function classifyMine(m: Media, s: MySets): MineKind | null {
 }
 
 export const isMine = (m: Media, s: MySets) => classifyMine(m, s) !== null
+
+/** Opening an episode is resume history, not evidence that the user follows the series. */
+export function withLocalMyShows(
+  sets: MySets,
+  history: Record<number, HistoryEntry>,
+  library: LocalLibraryState,
+): MySets {
+  const candidates = [
+    ...Object.values(history).filter((entry) => entry.progress > 0).map((entry) => entry.media),
+    ...Object.values(library.entries ?? {}).filter((entry) => entry.tracking?.status).map((entry) => entry.media),
+  ]
+  const local = new Set(candidates.flatMap((media) => {
+    if (localTrackingRemoved(library, media)) return []
+    const status = localTrackingForMedia(library, media)?.status
+    if (status && !['CURRENT', 'REPEATING', 'PLANNING'].includes(status)) return []
+    return [anilistIdOf(media) ?? media.id]
+  }))
+  return { ...sets, local, library }
+}
 
 /** True if there's any source the personalized view could draw from (so we know to default to it). */
 export function hasMySources(s: MySets): boolean {
@@ -111,12 +140,11 @@ export async function loadMySets(userName: string | undefined): Promise<MySets> 
     getSimklAnimeIds('plantowatch', 500),
     getSimklAnimeIds('dropped', 500),
   ])
-  const local = new Set(Object.keys(get(localHistory)).map(Number))
-  return {
+  return withLocalMyShows({
     aniWatching: new Set([...ani.ids.CURRENT, ...kitsuW, ...simklW]),
     aniPlanning: new Set([...ani.ids.PLANNING, ...kitsuP, ...simklP]),
     aniDropped: new Set([...ani.ids.DROPPED, ...kitsuD, ...simklD]),
     malWatching: new Set(malW), malPlanning: new Set(malP), malDropped: new Set(malD),
-    local, aniCurrentMedia: ani.currentMedia,
-  }
+    local: new Set(), aniCurrentMedia: ani.currentMedia,
+  }, get(localHistory), get(localLibrary))
 }

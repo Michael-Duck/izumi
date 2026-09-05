@@ -12,7 +12,7 @@
   import { groupByDay, weekRange, type Airing } from '$lib/anilist/schedule'
   import { cachedScheduleWeek, loadScheduleWeek } from '$lib/anilist/schedule-cache'
   import {
-    loadMySets, classifyMine, isMine, hasMySources, emptyMySets, type MySets, type MineKind,
+    loadMySets, classifyMine, isMine, hasMySources, emptyMySets, withLocalMyShows, type MySets, type MineKind,
   } from '$lib/anilist/my-shows'
   import {
     delayPlaceholder, getScheduleInfoMany, getWeeklySchedule, mergeScheduleAirings, scheduleTitles,
@@ -22,6 +22,7 @@
   import { anilistUserName, malToken } from '$lib/trackers/config'
   import { anilistUser } from '$lib/anilist/account'
   import { localHistory } from '$lib/player/history'
+  import { localLibrary } from '$lib/library/local-lists'
   import { gameMode } from '$lib/player/session'
   import { controllerMode } from '$lib/nav/input'
   import { scheduleLayout, scheduleShowNextUp } from '$lib/settings/ui'
@@ -113,7 +114,7 @@
     })
     return () => { cancelled = true }
   })
-  const sets = $derived<MySets>({ ...netSets, local: new Set(Object.keys($localHistory).map(Number)) })
+  const sets = $derived<MySets>(withLocalMyShows(netSets, $localHistory, $localLibrary))
   const badgeOf = (m: Media): MineKind | null => classifyMine(m, sets)
 
   // View: My Shows vs All. Default to My Shows once we know the viewer has any source; flips to All

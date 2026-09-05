@@ -1,11 +1,49 @@
-import { describe, it, expect } from 'vitest'
+import { beforeEach, describe, it, expect } from 'vitest'
+import { get } from 'svelte/store'
 import {
-  classifyMine, isDropped, isMine, hasMySources, emptyMySets, splitAniListIds, type MySets,
+  classifyMine, isDropped, isMine, hasMySources, emptyMySets, splitAniListIds, withLocalMyShows, type MySets,
 } from './my-shows'
 import type { Media } from './types'
+import type { HistoryEntry } from '$lib/player/history'
+import { localLibrary, removeLocalTracking, saveLocalTracking } from '$lib/library/local-lists'
 
 const media = (id: number, idMal?: number) => ({ id, idMal }) as Media
 const sets = (over: Partial<MySets>): MySets => ({ ...emptyMySets(), ...over })
+
+describe('local schedule membership', () => {
+  const bleach = { id: 185874, title: { english: 'BLEACH' } } as Media
+  beforeEach(() => localLibrary.set({ lists: [], entries: {} }))
+
+  it('does not classify an opened-only episode as Watching', () => {
+    const history = { 185874: { media: bleach, episode: 2, progress: 0, updatedAt: 1 } } as Record<number, HistoryEntry>
+    const opened = withLocalMyShows(emptyMySets(), history, get(localLibrary))
+    expect(classifyMine(bleach, opened)).toBeNull()
+    expect(hasMySources(opened)).toBe(false)
+    history[185874].progress = 1
+    expect(classifyMine(bleach, withLocalMyShows(emptyMySets(), history, get(localLibrary)))).toBe('watching')
+  })
+
+  it('honours a fallback-card removal over old history and stale tracker membership', () => {
+    const fallback = { ...bleach, id: -900, catalog: { provider: 'kitsu', type: 'anime', id: '50000' }, externalIds: { anilist: bleach.id } } as Media
+    const remote = sets({ aniWatching: new Set([bleach.id]) })
+    const history = { 185874: { media: bleach, episode: 2, progress: 1, updatedAt: 1 } } as Record<number, HistoryEntry>
+    removeLocalTracking(fallback)
+    const removed = withLocalMyShows(remote, history, get(localLibrary))
+    expect(classifyMine(bleach, removed)).toBeNull()
+    expect(classifyMine(fallback, removed)).toBeNull()
+    saveLocalTracking(fallback, { status: 'PLANNING' })
+    expect(classifyMine(bleach, withLocalMyShows(remote, history, get(localLibrary)))).toBe('planning')
+    saveLocalTracking(fallback, { status: 'DROPPED' })
+    expect(classifyMine(bleach, withLocalMyShows(remote, history, get(localLibrary)))).toBeNull()
+  })
+
+  it('applies a tracker’s Dropped status to a provider-native Kitsu card', () => {
+    const fallback = { ...bleach, id: -900, catalog: { provider: 'kitsu', type: 'anime', id: '50000' }, externalIds: { anilist: bleach.id } } as Media
+    const history = { 185874: { media: bleach, episode: 2, progress: 1, updatedAt: 1 } } as Record<number, HistoryEntry>
+    const dropped = withLocalMyShows(sets({ aniDropped: new Set([bleach.id]) }), history, get(localLibrary))
+    expect(classifyMine(fallback, dropped)).toBeNull()
+  })
+})
 
 describe('classifyMine', () => {
   it('marks an AniList watching entry', () => {

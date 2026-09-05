@@ -16,7 +16,7 @@
   import Plus from '@lucide/svelte/icons/plus'
 
   let {
-    media, initStatus, initProgress, initScore0to100, total, hasEntry, onclose, onsaved,
+    media, initStatus, initProgress, initScore0to100, total, hasEntry, canRemove = hasEntry, onclose, onsaved,
   }: {
     media: Media
     initStatus: AniStatus | undefined
@@ -24,6 +24,7 @@
     initScore0to100: number
     total: number // 0 = unknown
     hasEntry: boolean
+    canRemove?: boolean
     onclose: () => void
     onsaved: (patch: { status?: AniStatus; progress?: number; score?: number; removed?: boolean }) => void
   } = $props()
@@ -170,7 +171,7 @@
     </div>
 
     <div class="flex shrink-0 items-center gap-2 border-t border-border bg-card px-5 pt-3" style="padding-bottom: max(1rem, env(safe-area-inset-bottom));">
-      {#if hasEntry}
+      {#if canRemove}
         <button data-focusable onclick={remove} disabled={busy} aria-label="Remove from list"
                 class="grid size-10 place-items-center rounded-md text-destructive hover:bg-accent disabled:opacity-40"><Trash2 size={18} /></button>
       {/if}

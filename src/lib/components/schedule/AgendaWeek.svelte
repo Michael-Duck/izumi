@@ -9,6 +9,7 @@
   import type { Media } from '$lib/anilist/types'
   import type { MineKind } from '$lib/anilist/my-shows'
   import { delayLines, type ScheduleInfo } from '$lib/anime/animeschedule'
+  import ScheduleRemove from './ScheduleRemove.svelte'
 
   let { days, start, todayIdx, badgeOf, infoOf, headerOffset = 0 }:
     { days: Airing[][]; start: number; todayIdx: number; badgeOf?: (m: Media) => MineKind | null
@@ -73,10 +74,11 @@
             {@const mine = badgeOf?.(a.media)}
             {@const delay = delayOf(a.media)}
             {@const source = scheduleSourceLabel(a)}
+            <div class="relative" data-schedule-item>
             <a
               data-focusable
               href={mediaHref(a.media)}
-              class="flex items-center gap-4 rounded-lg border bg-secondary p-2.5 transition-colors hover:bg-accent {aired(a.airingAt) && !a.delayPlaceholder ? 'opacity-55' : ''} {mine ? 'border-border/80' : 'border-transparent'}"
+              class="flex items-center gap-4 rounded-lg border bg-secondary p-2.5 transition-colors hover:bg-accent {aired(a.airingAt) && !a.delayPlaceholder ? 'opacity-55' : ''} {mine ? 'border-border/80 pr-14' : 'border-transparent'}"
             >
               <img src={cover(a.media)} alt="" loading="lazy" decoding="async"
                    class="h-24 w-16 shrink-0 rounded object-cover" />
@@ -96,6 +98,8 @@
                 <span class="shrink-0 text-sm font-bold text-emerald-400">{until(a.airingAt)}</span>
               {/if}
             </a>
+            {#if mine}<ScheduleRemove media={a.media} />{/if}
+            </div>
           {/each}
         </div>
       </section>

@@ -1,5 +1,5 @@
 import type { Media } from '$lib/anilist/types'
-import { mediaKey } from '$lib/catalog/identity'
+import { anilistIdOf, mediaKey } from '$lib/catalog/identity'
 import { profiledPersisted } from '$lib/profiles/store'
 
 export const WATCHLIST_ID = 'watchlist'
@@ -47,6 +47,8 @@ export interface LocalLibraryState {
   entries: Record<string, LocalMediaEntry>
   deletedLists?: Record<string, number>
   deletedEntries?: Record<string, number>
+  /** Explicit tracker-list removals survive history backfills and stale remote reads. */
+  removedTracking?: Record<string, number>
   listOrderUpdatedAt?: number
   queue?: LocalEpisodeQueueEntry[]
   queueUpdatedAt?: number
@@ -108,7 +110,32 @@ export function mediaIsSaved(state: LocalLibraryState, media: Media): boolean {
 }
 
 export function localTrackingForMedia(state: LocalLibraryState, media: Media): LocalMediaEntry['tracking'] | undefined {
-  return state.entries?.[mediaKey(media)]?.tracking
+  if (localTrackingRemoved(state, media)) return undefined
+  return matchingTrackingEntries(state, media).find((entry) => entry.tracking)?.tracking
+}
+
+/** Fallback Kitsu cards and their AniList originals share the same tracking intent. */
+export const localTrackingKey = (media: Media): string => {
+  const id = anilistIdOf(media)
+  return id != null ? `anilist:${media.type === 'MANGA' || media.catalog?.type === 'manga' ? 'manga' : 'anime'}:${id}` : mediaKey(media)
+}
+
+const matchingTrackingEntries = (state: LocalLibraryState, media: Media): LocalMediaEntry[] => {
+  const key = localTrackingKey(media)
+  return Object.values(state.entries ?? {}).filter((entry) => localTrackingKey(entry.media) === key)
+    .sort((left, right) => right.updatedAt - left.updatedAt)
+}
+
+export function localTrackingRemoved(state: LocalLibraryState, media: Media): boolean {
+  const removedAt = state.removedTracking?.[localTrackingKey(media)]
+  return removedAt != null && !matchingTrackingEntries(state, media)
+    .some((entry) => entry.tracking?.status && entry.updatedAt > removedAt)
+}
+
+export function localWatchingAllowed(state: LocalLibraryState, media: Media): boolean {
+  if (localTrackingRemoved(state, media)) return false
+  const status = localTrackingForMedia(state, media)?.status
+  return !status || status === 'CURRENT' || status === 'REPEATING'
 }
 
 const snapshotMedia = (media: Media): Media => JSON.parse(JSON.stringify(media)) as Media
@@ -191,7 +218,7 @@ export function saveLocalTracking(media: Media, patch: NonNullable<LocalMediaEnt
   localLibrary.update((state) => {
     const key = mediaKey(media)
     const previous = state.entries?.[key]
-    const now = Date.now()
+    const now = Math.max(Date.now(), (state.removedTracking?.[localTrackingKey(media)] ?? 0) + 1)
     const entries = { ...(state.entries ?? {}) }
     const deletedEntries = { ...(state.deletedEntries ?? {}) }
     delete deletedEntries[key]
@@ -206,17 +233,20 @@ export function saveLocalTracking(media: Media, patch: NonNullable<LocalMediaEnt
   })
 }
 
-/** Remove only the AniList-style local entry; custom-list membership remains intact. */
+/** Remove tracking and the default Watchlist across catalog aliases; custom lists stay intact. */
 export function removeLocalTracking(media: Media): void {
   localLibrary.update((state) => {
-    const key = mediaKey(media)
-    const previous = state.entries?.[key]
-    if (!previous?.tracking) return state
+    const trackingKey = localTrackingKey(media)
     const entries = { ...(state.entries ?? {}) }
     const deletedEntries = { ...(state.deletedEntries ?? {}) }
-    if (previous.listIds.length) entries[key] = { ...previous, tracking: undefined, updatedAt: Date.now() }
-    else { delete entries[key]; deletedEntries[key] = Date.now() }
-    return { ...state, entries, deletedEntries }
+    const now = Math.max(Date.now(), ...matchingTrackingEntries(state, media).map((entry) => entry.updatedAt + 1))
+    for (const [key, previous] of Object.entries(entries)) {
+      if (localTrackingKey(previous.media) !== trackingKey) continue
+      const listIds = previous.listIds.filter((id) => id !== WATCHLIST_ID)
+      if (listIds.length) entries[key] = { ...previous, listIds, tracking: undefined, updatedAt: now }
+      else { delete entries[key]; deletedEntries[key] = now }
+    }
+    return { ...state, entries, deletedEntries, removedTracking: { ...state.removedTracking, [trackingKey]: now } }
   })
 }
 
@@ -234,9 +264,10 @@ export function syncWatchedHistoryToWatchlist(
     let changed = false
     for (const watched of Object.values(history)) {
       if (watched.progress < threshold) continue
+      if (localTrackingRemoved(state, watched.media)) continue
       const key = mediaKey(watched.media)
       const previous = entries[key]
-      const previousStatus = previous?.tracking?.status
+      const previousStatus = localTrackingForMedia(state, watched.media)?.status
       if (previousStatus && !['CURRENT', 'PLANNING', 'REPEATING'].includes(previousStatus)) continue
       const listIds = new Set(previous?.listIds ?? [])
       const progress = Math.max(previous?.tracking?.progress ?? 0, watched.progress)
@@ -352,6 +383,8 @@ export function reorderQueuedEpisode(id: string, direction: -1 | 1): void {
 
 /** Merge paired-device library snapshots with timestamped deletion tombstones. */
 export function mergeLocalLibrary(current: LocalLibraryState, incoming: LocalLibraryState): LocalLibraryState {
+  const removedTracking = { ...(current.removedTracking ?? {}) }
+  for (const [key, at] of Object.entries(incoming.removedTracking ?? {})) removedTracking[key] = Math.max(removedTracking[key] ?? 0, at)
   const deletedLists = { ...(current.deletedLists ?? {}) }
   for (const [id, at] of Object.entries(incoming.deletedLists ?? {})) deletedLists[id] = Math.max(deletedLists[id] ?? 0, at)
   const byList = new Map<string, LocalMediaList>()
@@ -380,6 +413,10 @@ export function mergeLocalLibrary(current: LocalLibraryState, incoming: LocalLib
     }
   }
   for (const key of Object.keys(entries)) {
+    const entry = entries[key]!
+    if ((removedTracking[localTrackingKey(entry.media)] ?? -1) >= entry.updatedAt) {
+      entries[key] = { ...entry, tracking: undefined, listIds: entry.listIds.filter((id) => id !== WATCHLIST_ID) }
+    }
     if (!entries[key]!.listIds.length && !entries[key]!.tracking) delete entries[key]
   }
 
@@ -389,6 +426,7 @@ export function mergeLocalLibrary(current: LocalLibraryState, incoming: LocalLib
     entries,
     deletedLists,
     deletedEntries,
+    removedTracking,
     listOrderUpdatedAt: Math.max(current.listOrderUpdatedAt ?? 0, incoming.listOrderUpdatedAt ?? 0),
     queue: incomingQueueWins ? [...(incoming.queue ?? [])] : [...(current.queue ?? [])],
     queueUpdatedAt: Math.max(current.queueUpdatedAt ?? 0, incoming.queueUpdatedAt ?? 0),

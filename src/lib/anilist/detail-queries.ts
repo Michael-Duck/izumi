@@ -6,6 +6,14 @@ import { showAdult } from '$lib/settings/ui'
 // Detail page only: pull the viewer's list entry (progress/status) + favourite
 // flag. Kept off the shared MediaFields fragment so browse/card queries don't
 // over-fetch per-viewer data.
+export const ANIME_LIST_ENTRY = gql`
+  query AnimeListEntry($id: Int!) {
+    Media(id: $id, type: ANIME) {
+      id
+      mediaListEntry { id progress status score(format: POINT_100) repeat startedAt { year month day } completedAt { year month day } }
+    }
+  }`
+
 export const MEDIA_BY_ID = gql`
   query MediaById($id: Int!, $withPreview: Boolean = true) {
     Media(id: $id, type: ANIME) {

@@ -5,7 +5,9 @@
   // `cards` vs simple `compact` rows) follows the persisted Appearance setting;
   // per-episode thumbnails/titles/ratings come from AniZip.
   import { playEpisode, prefetchEpisodeSources, type PlayState } from '$lib/stremio/play'
-  import { airedCount, totalEpisodes } from '$lib/anilist/media'
+  import { airedCount } from '$lib/anilist/media'
+  import { animeEpisodeNumbers, animeEpisodeMetadata, animeWatchedProgress } from '$lib/catalog/anime-detail'
+  import { anilistIdOf } from '$lib/catalog/identity'
   import type { Media } from '$lib/anilist/types'
   import { getEpisodeMeta } from '$lib/anizip'
   import type { EpMeta } from '$lib/anizip/types'
@@ -59,7 +61,8 @@
   // schedule when AniList's scalar `episodes`/`nextAiringEpisode` are null (common on OVAs/
   // ONAs and adult titles), so a title known only through its schedule still lists its
   // episodes instead of collapsing to "Episodes TBA".
-  const total = $derived(offline ? offlineEps.length : totalEpisodes(media))
+  const allEpisodes = $derived(offline ? offlineEps : animeEpisodeNumbers(media))
+  const total = $derived(allEpisodes.length)
   // aired = last episode that has already aired, never more than the total. airedCount can
   // be Infinity when the count is genuinely unknown — that is not permission to expose a
   // provider's planned total, so keep every episode gated until release metadata arrives.
@@ -67,15 +70,9 @@
   const aired = $derived.by(() => {
     if (offline) return offlineEps.at(-1) ?? 0
     const a = airedCount(media)
-    return Math.min(total, Number.isFinite(a) ? a : 0)
+    return Math.min(allEpisodes.at(-1) ?? 0, Number.isFinite(a) ? a : 0)
   })
-  const watchedThrough = $derived(
-    $manualProgressOverrides[media.id] ?? Math.max(
-      media.mediaListEntry?.progress ?? 0,
-      $localHistory[media.id]?.progress ?? 0,
-      $sessionProgress[media.id] ?? 0,
-    ),
-  )
+  const watchedThrough = $derived(animeWatchedProgress(media, $localHistory, $sessionProgress, $manualProgressOverrides))
   const PER = 48
   // `page` stays null until the user manually pages; until then we show `autoPage` — the page that
   // holds the next episode to watch — so opening a long-running series (One Piece) lands on where
@@ -83,14 +80,12 @@
   // hydrates a tick late, and it stops following once the user hits Prev/Next.
   let page = $state<number | null>(null)
   const pages = $derived(Math.max(1, Math.ceil(total / PER)))
-  const autoPage = $derived(
-    Math.min(pages - 1, Math.max(0, Math.floor((Math.min(watchedThrough + 1, total) - 1) / PER))),
-  )
+  const autoPage = $derived.by(() => {
+    const next = allEpisodes.findIndex((episode) => episode > watchedThrough)
+    return Math.max(0, Math.floor((next < 0 ? total - 1 : next) / PER))
+  })
   const curPage = $derived(page ?? autoPage)
   const startIdx = $derived(curPage * PER)
-  const allEpisodes = $derived(
-    offline ? offlineEps : Array.from({ length: total }, (_, index) => index + 1),
-  )
   let episodeQuery = $state('')
   let searchOpen = $state(false)
   const searchedEpisodes = $derived.by(() => {
@@ -102,11 +97,7 @@
       || String(meta[episode]?.abs ?? '').includes(query))
   })
   const eps = $derived(
-    searchedEpisodes ?? (
-    offline
-      ? offlineEps.slice(startIdx, startIdx + PER)
-      : allEpisodes.slice(startIdx, startIdx + PER)
-    ),
+    searchedEpisodes ?? allEpisodes.slice(startIdx, startIdx + PER),
   )
 
   // Oldest/Newest toggle: reorders the current page's episodes for display. Pagination itself
@@ -142,11 +133,21 @@
   let meta = $state<Record<number, EpMeta>>({})
   let metaLoading = $state(true)
   $effect(() => {
-    if (offline) { meta = {}; metaLoading = false; return } // no per-episode metadata fetch offline
+    const supplied = animeEpisodeMetadata(media)
+    meta = supplied
+    const canonical = anilistIdOf(media)
+    if (offline || canonical == null) { metaLoading = false; return }
     let cancelled = false
-    metaLoading = true
-    const applyMeta = (m: Record<number, EpMeta>) => { if (!cancelled) { meta = m; metaLoading = false } }
-    getEpisodeMeta(media.id, watchedThrough, applyMeta).then(applyMeta)
+    metaLoading = !media.videos?.length
+    const applyMeta = (m: Record<number, EpMeta>) => {
+      if (cancelled) return
+      const combined = { ...supplied }
+      for (const [episode, details] of Object.entries(m)) {
+        combined[Number(episode)] = { ...supplied[Number(episode)], ...Object.fromEntries(Object.entries(details).filter(([, value]) => value != null)) }
+      }
+      meta = combined; metaLoading = false
+    }
+    getEpisodeMeta(canonical, watchedThrough, applyMeta).then(applyMeta)
     return () => { cancelled = true }
   })
 
@@ -161,9 +162,10 @@
   // Filler episodes (AnimeFillerList) — marked in the list.
   let fillerSet = $state<Set<number>>(new Set())
   $effect(() => {
-    if (offline) return // no filler-list fetch offline
+    const canonical = anilistIdOf(media)
+    if (offline || canonical == null) { fillerSet = new Set(); return }
     let cancelled = false
-    fillerEpisodes(media.id).then((list) => { if (!cancelled) fillerSet = new Set(list) })
+    fillerEpisodes(canonical).then((list) => { if (!cancelled) fillerSet = new Set(list) })
     return () => { cancelled = true }
   })
 
@@ -181,10 +183,12 @@
   const numberLabel = (episode: number) => episodeNumberLabel(episode, meta[episode]?.abs, $absoluteEpisodeNumbers)
 
   function randomEpisode() {
-    if (aired < 1 || resolving) return
-    play(1 + Math.floor(Math.random() * aired))
+    const available = allEpisodes.filter((episode) => episode <= aired)
+    if (!available.length || resolving) return
+    play(available[Math.floor(Math.random() * available.length)])
   }
-  const nextQueueEpisode = $derived(Math.max(1, Math.min(watchedThrough + 1, aired || 1)))
+  const nextQueueEpisode = $derived(allEpisodes.find((episode) => episode > watchedThrough && episode <= aired)
+    ?? allEpisodes.find((episode) => episode <= aired) ?? 1)
   let queuedNotice = $state(false)
   function queueEpisode(episode: number) {
     enqueueEpisode(media, episode)

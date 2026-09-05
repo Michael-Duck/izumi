@@ -9,6 +9,7 @@ import { hasAiredEpisodeToWatch } from '$lib/anilist/media'
 import { localHistory, durableHistory, sessionProgress, historyEntries, mediaSnapshot, type HistoryEntry } from './history'
 import { incognito, onIncognitoPurge } from '$lib/stores/incognito'
 import type { Media } from '$lib/anilist/types'
+import { localLibrary, localWatchingAllowed } from '$lib/library/local-lists'
 
 // Local-first "Continue Watching": the row paints instantly from an on-device copy, then AniList/MAL
 // reconcile in the background. `cwSnapshot` is a VIEW CACHE — the last merged list — deliberately
@@ -121,9 +122,10 @@ export function mergeInstant(
 
 /** Renders instantly from the local snapshot ∪ history (minus dismissals); recomputes as any store changes. */
 export const continueWatching: Readable<CwEntry[]> = derived(
-  [cwSnapshot, localHistory, sessionProgress, cwDismissed, incognitoDismissed],
-  ([$snapshot, $history, $session, $dismissed, $incognitoDismissed]) =>
-    mergeInstant($snapshot, $history, $session, { ...$dismissed, ...$incognitoDismissed }),
+  [cwSnapshot, localHistory, sessionProgress, cwDismissed, incognitoDismissed, localLibrary],
+  ([$snapshot, $history, $session, $dismissed, $incognitoDismissed, $library]) =>
+    mergeInstant($snapshot, $history, $session, { ...$dismissed, ...$incognitoDismissed })
+      .filter((entry) => localWatchingAllowed($library, entry.media)),
 )
 
 /** Remove a series from Continue Watching. Records a dismissed floor (survives reconcile, self-heals

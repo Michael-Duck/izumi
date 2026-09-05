@@ -20,7 +20,7 @@
   import type { Media } from '$lib/anilist/types'
   import type { PlayState } from '$lib/stremio/play'
   import { autoWatchlistEnabled, autoWatchlistEpisodes, episodeQueueEnabled, watchlistLayout, watchlistSort, type WatchlistLayout, type WatchlistSort } from '$lib/settings/ui'
-  import { WATCHLIST_ID, RECENTLY_ADDED_ID, CURRENTLY_AIRING_ID, EPISODE_QUEUE_ID, browsableLocalLists, localEntriesForList, localLibrary, removeQueuedEpisode, reorderQueuedEpisode, syncWatchedHistoryToWatchlist } from '$lib/library/local-lists'
+  import { WATCHLIST_ID, RECENTLY_ADDED_ID, CURRENTLY_AIRING_ID, EPISODE_QUEUE_ID, browsableLocalLists, localEntriesForList, localLibrary, localWatchingAllowed, removeQueuedEpisode, reorderQueuedEpisode, syncWatchedHistoryToWatchlist } from '$lib/library/local-lists'
   import { durableHistory, localHistory } from '$lib/player/history'
   import LocalListManager from '$lib/components/library/LocalListManager.svelte'
   import SelectMenu from '$lib/components/settings/SelectMenu.svelte'
@@ -71,9 +71,11 @@
     updatedAt: Math.floor(entry.updatedAt / 1000),
   })))
   const items = $derived.by(() => buildWatchlist(
-    selectedListId === WATCHLIST_ID ? [...trackerEntries, ...localWatchEntries] : localWatchEntries,
+    selectedListId === WATCHLIST_ID
+      ? [...trackerEntries.filter((entry) => localWatchingAllowed($localLibrary, entry.media)), ...localWatchEntries]
+      : localWatchEntries,
     selectedListId === WATCHLIST_ID ? trackerMalEntries : [],
-    selectedListId === WATCHLIST_ID ? trackerMalMedia : [],
+    selectedListId === WATCHLIST_ID ? trackerMalMedia.filter((media) => localWatchingAllowed($localLibrary, media)) : [],
   ))
   const canTrackProgress = $derived(
     selectedListId === WATCHLIST_ID

@@ -5,6 +5,7 @@
   import type { MineKind } from '$lib/anilist/my-shows'
   import { delayLines, type ScheduleInfo } from '$lib/anime/animeschedule'
   import { scheduleCardNav } from './schedule-nav'
+  import ScheduleRemove from './ScheduleRemove.svelte'
 
   let { label, airings, today = false, big = false, badgeOf, infoOf, navFirst }:
     { label: string; airings: Airing[]; today?: boolean; big?: boolean
@@ -26,13 +27,14 @@
         {@const delay = delayOf(a.media)}
         {@const nav = scheduleCardNav(big ? navFirst : undefined, i, airings.length)}
         {@const source = scheduleSourceLabel(a)}
+        <div class="relative" data-schedule-item>
           <a
             data-focusable
             data-nav-id={nav.id}
             data-nav-left={nav.left}
             data-nav-right={nav.right}
             href={mediaHref(a.media)}
-            class="flex min-w-0 items-center gap-3 rounded-xl border bg-secondary p-2.5 transition-colors hover:bg-accent {aired(a.airingAt) && !a.delayPlaceholder ? 'opacity-70' : ''} {mine ? 'border-border/80' : 'border-transparent'}"
+            class="flex h-full min-w-0 items-center gap-3 rounded-xl border bg-secondary p-2.5 transition-colors hover:bg-accent {aired(a.airingAt) && !a.delayPlaceholder ? 'opacity-70' : ''} {mine ? 'border-border/80 pr-14' : 'border-transparent'}"
           >
             <img src={cover(a.media)} alt="" loading="lazy" decoding="async"
                  class="{big ? 'h-20 w-14' : 'h-14 w-10'} shrink-0 rounded-lg object-cover" />
@@ -48,6 +50,8 @@
               </div>
             </div>
           </a>
+          {#if mine}<ScheduleRemove media={a.media} />{/if}
+        </div>
       {/each}
     {:else}
       <div class="rounded-xl border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">Nothing scheduled for this day.</div>
