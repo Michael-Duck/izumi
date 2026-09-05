@@ -74,6 +74,8 @@
     deployment: CloudflareDeploymentTarget
   }
 
+  let syncSection = $state<'sync' | 'tv'>('sync')
+  let cloudSetup = $state<'create' | 'join'>('create')
   let status = $state<SyncStatus>({ state: 'starting' })
   let joinTicket = $state('')
   let busy = $state('')
@@ -621,10 +623,10 @@
   })
 </script>
 
-<div class="p-4 sm:p-8">
-  <h2 class="mb-1 text-xl font-black">Device sync</h2>
+<div class="mx-auto max-w-4xl p-4 pb-24 sm:p-8">
+  <h2 class="mb-2 text-3xl font-bold tracking-tight">Device sync</h2>
   <p class="mb-5 max-w-2xl text-sm text-muted-foreground">
-    Keep your progress and setup in step across Izumi devices. Records are end-to-end encrypted with either connection method.
+    Keep your progress and setup in step across Izumi devices. History and settings are end-to-end encrypted. Optional TV source resolution is configured separately.
   </p>
 
   {#if message}
@@ -637,6 +639,13 @@
     <div role="alert" class="mb-4 max-w-2xl rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
   {/if}
 
+  <nav aria-label="Device sync sections" class="mb-7 flex max-w-2xl gap-6 border-b border-border">
+    {#each [{ id: 'sync', label: 'Sync & devices' }, { id: 'tv', label: 'TV connections' }] as item}
+      <button type="button" data-focusable aria-current={syncSection === item.id ? 'page' : undefined} onclick={() => syncSection = item.id as 'sync' | 'tv'} class="min-h-12 border-b-2 px-1 text-sm font-semibold {syncSection === item.id ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}">{item.label}</button>
+    {/each}
+  </nav>
+  {#if syncSection === 'tv'}
+    <div class="max-w-2xl">
   <SettingsGroup title="Samsung TV" desc="Add Izumi Companion without scanning the QR code" icon={MonitorSmartphone}>
     <div class="flex flex-col gap-3 p-3 sm:flex-row sm:items-end">
       <label for="tv-pairing-code" class="min-w-0 flex-1">
@@ -692,18 +701,96 @@
     {/if}
   </SettingsGroup>
 
+
+    {#if $syncProvider === 'cloudflare' && paired}
+        <section class="rounded-xl border border-border p-4">
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div class="min-w-0 flex-1">
+              <h3 class="font-black">TV playback through CF Sync</h3>
+              <p class="mt-1 text-xs leading-5 text-muted-foreground">Your paired TV asks this Worker for sources first, even while Izumi is closed. The TV downloads media directly; Cloudflare only handles discovery, ranking, sync, and optional debrid resolution.</p>
+            </div>
+            <button
+              type="button"
+              data-focusable
+              disabled={!!busy || (!cloudResolverEnabled && !$enabledAddonUrls.length)}
+              onclick={() => { h.impact(); toggleCloudResolver() }}
+              class="min-h-10 shrink-0 rounded-lg px-3 py-2 text-sm font-bold disabled:opacity-50 {cloudResolverEnabled ? 'bg-destructive/10 text-destructive' : 'bg-primary text-primary-foreground'}"
+            >{busy === 'cloud-resolver-toggle' ? 'Saving…' : cloudResolverEnabled ? 'Turn off' : 'Enable'}</button>
+          </div>
+          <div class="mt-3 rounded-lg border border-amber-400/25 bg-amber-400/10 p-3 text-xs leading-5 text-amber-100">
+            This is separate from encrypted sync: configured add-on URLs and your existing debrid credential must be readable by your own Worker while it resolves a source. If debrid is configured in Sources → Playback, CF Sync uses that same provider automatically. The credential is never returned by the Worker or sent to the TV. Media still goes directly to your TV.
+          </div>
+          <button
+            type="button"
+            data-focusable
+            aria-pressed={cloudResolverConnectedDevices}
+            disabled={!!busy || !cloudResolverEnabled}
+            onclick={() => { h.impact(); toggleCloudResolverConnectedDevices() }}
+            class="mt-3 flex w-full items-start gap-3 rounded-lg border p-3 text-left disabled:opacity-50 {cloudResolverConnectedDevices ? 'border-primary/50 bg-primary/10' : 'border-border bg-secondary/30'}"
+          >
+            <span class="mt-0.5 grid size-5 shrink-0 place-items-center rounded border {cloudResolverConnectedDevices ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/50'}">
+              {#if cloudResolverConnectedDevices}<Check size={14} />{/if}
+            </span>
+            <span>
+              <span class="block text-sm font-black">Optional linked-device fallback</span>
+              <span class="mt-0.5 block text-xs leading-5 text-muted-foreground">Off by default. Keep this only for raw P2P, true transcoding/remuxing, client-local sources, or unusual header-bound streams the free Worker cannot handle. Android may be notified when closed; desktop is used only while Izumi is open.</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            data-focusable
+            aria-pressed={$cloudflareAllowLanSources}
+            disabled={!!busy || !cloudResolverEnabled}
+            onclick={() => { h.impact(); $cloudflareAllowLanSources = !$cloudflareAllowLanSources }}
+            class="mt-3 flex w-full items-start gap-3 rounded-lg border p-3 text-left disabled:opacity-50 {$cloudflareAllowLanSources ? 'border-primary/50 bg-primary/10' : 'border-border bg-secondary/30'}"
+          >
+            <span class="mt-0.5 grid size-5 shrink-0 place-items-center rounded border {$cloudflareAllowLanSources ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/50'}">
+              {#if $cloudflareAllowLanSources}<Check size={14} />{/if}
+            </span>
+            <span>
+              <span class="block text-sm font-black">Allow direct LAN sources</span>
+              <span class="mt-0.5 block text-xs leading-5 text-muted-foreground">The Worker only hands the private URL to this TV; it never fetches or proxies it. Enable only for add-ons and media servers you trust on the same network.</span>
+            </span>
+          </button>
+          {#if cloudResolverError}
+            <p class="mt-3 text-xs text-amber-300">{cloudResolverError}</p>
+          {/if}
+          <div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span>{$enabledAddonUrls.length} enabled add-on{$enabledAddonUrls.length === 1 ? '' : 's'}</span>
+            {#if cloudResolverEnabled}
+              <span>· {$preferredQuality === 'any' ? 'Best available' : `${$preferredQuality}p preferred`}</span>
+              {#if cloudResolverDebridProvider}<span>· {providerName(cloudResolverDebridProvider)}</span>{/if}
+              <span>· {cloudResolverConnectedDevices ? 'Cloudflare + device' : 'Cloudflare only'}</span>
+              {#if cloudResolverUpdatedAt}<span>· Updated {new Date(cloudResolverUpdatedAt).toLocaleString()}</span>{/if}
+              <button type="button" data-focusable disabled={!!busy || !$enabledAddonUrls.length} onclick={() => { h.tap(); updateCloudResolver() }} class="ml-auto min-h-9 rounded-lg bg-secondary px-3 py-1.5 font-bold disabled:opacity-50">
+                {busy === 'cloud-resolver-update' ? 'Updating…' : 'Update from this device'}
+              </button>
+            {/if}
+          </div>
+        </section>
+
+
+    {:else}
+      <p class="mt-6 border-t border-border pt-5 text-sm leading-6 text-muted-foreground">Want your TV to find sources while Izumi is closed? Connect private Cloudflare sync first, then return here to enable TV playback. <button type="button" data-focusable onclick={() => syncSection = 'sync'} class="font-semibold text-foreground underline underline-offset-4">Open sync setup</button></p>
+    {/if}
+    </div>
+  {:else}
+  <details class="mb-6 max-w-2xl border-b border-border pb-4" open={!paired}>
+    <summary class="cursor-pointer py-2 text-sm font-semibold">Connection method <span class="ml-2 font-normal text-muted-foreground">{$syncProvider === 'cloudflare' ? 'Private Cloudflare' : 'Peer-to-peer'}</span></summary>
   <SettingsGroup title="Connection" desc="Choose where encrypted device records travel" icon={Cloud}>
     <div class="grid grid-cols-2 gap-2 p-3">
-      <button type="button" data-focusable onclick={() => { h.tap(); void selectProvider('iroh') }}
-        class="min-h-12 rounded-lg px-3 py-2 text-sm font-bold {$syncProvider === 'iroh' ? 'bg-primary text-primary-foreground' : 'bg-secondary'}">
+      <button type="button" data-focusable disabled={!!busy} aria-pressed={$syncProvider === 'iroh'} onclick={() => { h.tap(); void selectProvider('iroh') }}
+        class="min-h-12 rounded-lg px-3 py-2 text-sm font-bold {$syncProvider === 'iroh' ? 'bg-foreground/10 text-foreground ring-1 ring-foreground/50' : 'bg-secondary text-muted-foreground'}">
         Peer-to-peer <span class="mt-0.5 block text-[10px] font-normal opacity-75">No account</span>
       </button>
-      <button type="button" data-focusable onclick={() => { h.tap(); void selectProvider('cloudflare') }}
-        class="min-h-12 rounded-lg px-3 py-2 text-sm font-bold {$syncProvider === 'cloudflare' ? 'bg-primary text-primary-foreground' : 'bg-secondary'}">
+      <button type="button" data-focusable disabled={!!busy} aria-pressed={$syncProvider === 'cloudflare'} onclick={() => { h.tap(); void selectProvider('cloudflare') }}
+        class="min-h-12 rounded-lg px-3 py-2 text-sm font-bold {$syncProvider === 'cloudflare' ? 'bg-foreground/10 text-foreground ring-1 ring-foreground/50' : 'bg-secondary text-muted-foreground'}">
         My Cloudflare <span class="mt-0.5 block text-[10px] font-normal opacity-75">Self-hosted Worker</span>
       </button>
     </div>
   </SettingsGroup>
+
+  </details>
 
   {#if $syncProvider === 'cloudflare'}
     {#if status.state === 'starting'}
@@ -731,6 +818,11 @@
       </section>
     {:else if !paired}
       <div class="max-w-2xl space-y-5">
+        <div class="flex flex-wrap gap-2" aria-label="Cloudflare setup">
+          <button type="button" data-focusable aria-pressed={cloudSetup === 'create'} onclick={() => cloudSetup = 'create'} class="min-h-11 rounded-lg px-4 text-sm font-semibold {cloudSetup === 'create' ? 'bg-foreground/10 text-foreground' : 'text-muted-foreground hover:bg-secondary'}">Set up for the first time</button>
+          <button type="button" data-focusable aria-pressed={cloudSetup === 'join'} onclick={() => cloudSetup = 'join'} class="min-h-11 rounded-lg px-4 text-sm font-semibold {cloudSetup === 'join' ? 'bg-foreground/10 text-foreground' : 'text-muted-foreground hover:bg-secondary'}">Join my devices</button>
+        </div>
+        {#if cloudSetup === 'create'}
         <section class="rounded-xl border border-border p-4">
           <div class="flex items-start gap-3">
             <span class="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary"><Cloud size={18} /></span>
@@ -806,7 +898,7 @@
             <p class="mt-1 text-xs leading-5 text-muted-foreground">For Wrangler or the older Git-based deploy. Generate the secret before deploying, configure it as <code>BOOTSTRAP_SECRET</code>, then paste the resulting Worker URL.</p>
             {#if $cloudflareSetupSecret}
               <div class="mt-2 flex gap-2">
-                <input readonly value={$cloudflareSetupSecret} aria-label="Cloudflare setup secret" class="min-w-0 flex-1 rounded-lg bg-input px-3 py-2 font-mono text-xs" />
+                <input type="password" readonly value={$cloudflareSetupSecret} aria-label="Cloudflare setup secret" class="min-w-0 flex-1 rounded-lg bg-input px-3 py-2 font-mono text-xs" />
                 <button type="button" data-focusable aria-label="Copy setup secret" onclick={() => copyCloudflare($cloudflareSetupSecret, 'Setup secret')} class="grid min-h-10 min-w-10 place-items-center rounded-lg bg-secondary"><Copy size={16} /></button>
               </div>
             {:else}
@@ -819,12 +911,14 @@
           </details>
         </section>
 
+        {:else}
         <section class="rounded-xl border border-border p-4">
           <h3 class="font-black">Join my existing Worker</h3>
           <p class="mt-1 text-sm text-muted-foreground">Paste a single-use invite created on a paired device. It expires after ten minutes.</p>
-          <textarea bind:value={joinTicket} rows="4" data-focusable spellcheck="false" autocomplete="off" placeholder="izumi-cloudflare:…" class="mt-3 w-full resize-y rounded-lg bg-input px-3 py-2.5 font-mono text-xs"></textarea>
+          <textarea aria-label="Cloudflare device invite" bind:value={joinTicket} rows="3" data-focusable spellcheck="false" autocomplete="off" placeholder="izumi-cloudflare:…" class="mt-3 w-full resize-y rounded-lg bg-input px-3 py-2.5 font-mono text-xs"></textarea>
           <button type="button" data-focusable disabled={!!busy || !joinTicket.trim()} onclick={() => { h.impact(); joinCloudflare() }} class="mt-2 min-h-10 rounded-lg bg-secondary px-3 py-2 text-sm font-bold disabled:opacity-50">{busy === 'cloudflare-join' ? 'Joining…' : 'Join with invite'}</button>
         </section>
+        {/if}
       </div>
     {:else}
       <div class="max-w-2xl space-y-5">
@@ -893,74 +987,9 @@
           </div>
         </section>
 
-        <section class="rounded-xl border border-border p-4">
-          <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div class="min-w-0 flex-1">
-              <h3 class="font-black">TV playback through CF Sync</h3>
-              <p class="mt-1 text-xs leading-5 text-muted-foreground">Your paired TV asks this Worker for sources first, even while Izumi is closed. The TV downloads media directly; Cloudflare only handles discovery, ranking, sync, and optional debrid resolution.</p>
-            </div>
-            <button
-              type="button"
-              data-focusable
-              disabled={!!busy || (!cloudResolverEnabled && !$enabledAddonUrls.length)}
-              onclick={() => { h.impact(); toggleCloudResolver() }}
-              class="min-h-10 shrink-0 rounded-lg px-3 py-2 text-sm font-bold disabled:opacity-50 {cloudResolverEnabled ? 'bg-destructive/10 text-destructive' : 'bg-primary text-primary-foreground'}"
-            >{busy === 'cloud-resolver-toggle' ? 'Saving…' : cloudResolverEnabled ? 'Turn off' : 'Enable'}</button>
-          </div>
-          <div class="mt-3 rounded-lg border border-amber-400/25 bg-amber-400/10 p-3 text-xs leading-5 text-amber-100">
-            This is separate from encrypted sync: configured add-on URLs and your existing debrid credential must be readable by your own Worker while it resolves a source. If debrid is configured in Sources → Playback, CF Sync uses that same provider automatically. The credential is never returned by the Worker or sent to the TV. Media still goes directly to your TV.
-          </div>
-          <button
-            type="button"
-            data-focusable
-            aria-pressed={cloudResolverConnectedDevices}
-            disabled={!!busy || !cloudResolverEnabled}
-            onclick={() => { h.impact(); toggleCloudResolverConnectedDevices() }}
-            class="mt-3 flex w-full items-start gap-3 rounded-lg border p-3 text-left disabled:opacity-50 {cloudResolverConnectedDevices ? 'border-primary/50 bg-primary/10' : 'border-border bg-secondary/30'}"
-          >
-            <span class="mt-0.5 grid size-5 shrink-0 place-items-center rounded border {cloudResolverConnectedDevices ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/50'}">
-              {#if cloudResolverConnectedDevices}<Check size={14} />{/if}
-            </span>
-            <span>
-              <span class="block text-sm font-black">Optional linked-device fallback</span>
-              <span class="mt-0.5 block text-xs leading-5 text-muted-foreground">Off by default. Keep this only for raw P2P, true transcoding/remuxing, client-local sources, or unusual header-bound streams the free Worker cannot handle. Android may be notified when closed; desktop is used only while Izumi is open.</span>
-            </span>
-          </button>
-          <button
-            type="button"
-            data-focusable
-            aria-pressed={$cloudflareAllowLanSources}
-            disabled={!!busy || !cloudResolverEnabled}
-            onclick={() => { h.impact(); $cloudflareAllowLanSources = !$cloudflareAllowLanSources }}
-            class="mt-3 flex w-full items-start gap-3 rounded-lg border p-3 text-left disabled:opacity-50 {$cloudflareAllowLanSources ? 'border-primary/50 bg-primary/10' : 'border-border bg-secondary/30'}"
-          >
-            <span class="mt-0.5 grid size-5 shrink-0 place-items-center rounded border {$cloudflareAllowLanSources ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/50'}">
-              {#if $cloudflareAllowLanSources}<Check size={14} />{/if}
-            </span>
-            <span>
-              <span class="block text-sm font-black">Allow direct LAN sources</span>
-              <span class="mt-0.5 block text-xs leading-5 text-muted-foreground">The Worker only hands the private URL to this TV; it never fetches or proxies it. Enable only for add-ons and media servers you trust on the same network.</span>
-            </span>
-          </button>
-          {#if cloudResolverError}
-            <p class="mt-3 text-xs text-amber-300">{cloudResolverError}</p>
-          {/if}
-          <div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span>{$enabledAddonUrls.length} enabled add-on{$enabledAddonUrls.length === 1 ? '' : 's'}</span>
-            {#if cloudResolverEnabled}
-              <span>· {$preferredQuality === 'any' ? 'Best available' : `${$preferredQuality}p preferred`}</span>
-              {#if cloudResolverDebridProvider}<span>· {providerName(cloudResolverDebridProvider)}</span>{/if}
-              <span>· {cloudResolverConnectedDevices ? 'Cloudflare + device' : 'Cloudflare only'}</span>
-              {#if cloudResolverUpdatedAt}<span>· Updated {new Date(cloudResolverUpdatedAt).toLocaleString()}</span>{/if}
-              <button type="button" data-focusable disabled={!!busy || !$enabledAddonUrls.length} onclick={() => { h.tap(); updateCloudResolver() }} class="ml-auto min-h-9 rounded-lg bg-secondary px-3 py-1.5 font-bold disabled:opacity-50">
-                {busy === 'cloud-resolver-update' ? 'Updating…' : 'Update from this device'}
-              </button>
-            {/if}
-          </div>
-        </section>
-
-        <section class="rounded-xl border border-border p-4">
-          <h3 class="font-black">Settings & sources</h3>
+        <details class="border-y border-border py-4">
+          <summary class="cursor-pointer text-sm font-semibold">Transfer settings &amp; sources</summary>
+          <div class="pt-4"><h3 class="font-black">Settings & sources</h3>
           <p class="mt-1 text-xs leading-5 text-amber-400">This can include add-on URLs and debrid credentials. It remains encrypted, and is only applied when you choose a device below.</p>
           <button type="button" data-focusable disabled={!!busy} onclick={() => { h.impact(); sendManual() }} class="mt-2 inline-flex min-h-10 items-center gap-2 rounded-lg bg-secondary px-3 py-2 text-sm font-bold disabled:opacity-50"><Upload size={16} /> {busy === 'send' ? 'Sending…' : 'Share this device’s setup'}</button>
           {#if devices.some((device) => !device.isThisDevice)}
@@ -970,9 +999,10 @@
               {/each}
             </ul>
           {/if}
-        </section>
+          </div>
+        </details>
 
-        <section class="flex flex-col gap-3 rounded-xl border border-border p-4 sm:flex-row sm:items-center">
+        <section class="flex flex-col gap-3 border-t border-border py-5 sm:flex-row sm:items-center">
           <div class="min-w-0 flex-1"><h3 class="font-black">Disconnect this device</h3><p class="text-xs text-muted-foreground">The encrypted records on your other devices and Worker remain.</p></div>
           <button type="button" data-focusable disabled={!!busy} onclick={() => { h.warn(); requestLeave() }} class="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-bold text-destructive active:bg-destructive/10 disabled:opacity-50"><Unlink size={16} /> {busy === 'leave' ? 'Leaving…' : confirmLeave ? 'Confirm leave' : 'Leave Worker'}</button>
         </section>
@@ -1264,5 +1294,6 @@
         </button>
       </div>
     </div>
+  {/if}
   {/if}
 </div>

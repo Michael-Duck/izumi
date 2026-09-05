@@ -8,6 +8,17 @@ const cloudflare = read('../../../../lib/sync/cloudflare.ts')
 const nativeCloudflare = read('../../../../../src-tauri/src/cloudflare_deploy.rs')
 
 describe('Device sync screen', () => {
+  it('separates TV connections, first-time setup, and joining devices', () => {
+    expect(page).toContain("syncSection === 'tv'")
+    expect(page).toContain('Sync & devices')
+    expect(page).toContain('TV connections')
+    expect(page).toContain("cloudSetup === 'create'")
+    expect(page).toContain('Set up for the first time')
+    expect(page).toContain('Join my devices')
+    expect(page).toContain('Transfer settings &amp; sources')
+    expect(page).toContain('<details')
+  })
+
   it('starts from the old off-state, not a setup wizard', () => {
     expect(page).toContain('Enable device sync')
     expect(page).toContain('Device sync is off')
