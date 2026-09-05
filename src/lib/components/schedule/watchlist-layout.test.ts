@@ -15,9 +15,9 @@ describe('watchlist progress layout', () => {
     expect(source).toContain('role="progressbar"')
   })
 
-  it('uses the Izumi accent for watch progress instead of the neutral white primary', () => {
-    expect(source).toContain('bg-theme transition-[width]')
-    expect(source).toContain('bg-theme/40 transition-[left,width]')
+  it('distinguishes watched and available progress with quiet neutral tones', () => {
+    expect(source).toContain('bg-foreground/45 transition-[width]')
+    expect(source).toContain('bg-foreground/15 transition-[left,width]')
     expect(source).not.toContain('bg-primary')
   })
 })
