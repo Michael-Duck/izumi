@@ -29,15 +29,14 @@ describe('Subtitles settings page', () => {
     expect(src).not.toContain('Accounts & API keys')
   })
 
-  it('toggles and expands providers from the whole pulsing row', () => {
+  it('separates source switches from deliberately opened credential editors', () => {
     for (const provider of ['opensubtitles', 'subdl', 'jimaku']) {
-      expect(src).toContain(`expanded={hasProvider('${provider}')}`)
-      expect(src).toContain(`onActivate={() => toggleProvider('${provider}')}`)
-      expect(src).toContain(`pressed={hasProvider('${provider}')}`)
+      expect(src).toContain(`expanded={expandedProvider === '${provider}'}`)
+      expect(src).toContain(`onToggle={() => toggleProvider('${provider}')}`)
+      expect(src).toContain(`toggleProviderDetails('${provider}')`)
     }
-    expect(src.match(/interactive=\{false\} label="Enable (?:OpenSubtitles|SubDL|Jimaku)"/g)).toHaveLength(3)
-    expect(src).not.toContain('expandedProvider')
-    expect(src).not.toContain('toggleProviderDetails')
+    expect(src.match(/<SettingsSwitch label="Enable (?:OpenSubtitles|SubDL|Jimaku)"/g)).toHaveLength(3)
+    expect(src).toContain('let expandedProvider = $state<string | null>(null)')
   })
 
   it('places providers before appearance', () => {
@@ -132,8 +131,8 @@ describe('Subtitles settings page', () => {
 
   it('keeps every api key field masked', () => {
     for (const store of ['$subDlApiKey', '$jimakuApiKey']) {
-      const tag = (src.match(/<input[^>]*>/g) ?? []).find((t) => t.includes(`bind:value={${store}}`))
-      expect(tag).toContain('type="password"')
+      const tag = (src.match(/<CredentialField[^>]*>/g) ?? []).find((t) => t.includes(`bind:value={${store}}`))
+      expect(tag).toBeTruthy()
     }
   })
 

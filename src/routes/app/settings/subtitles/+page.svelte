@@ -26,6 +26,7 @@
     subtitleStripSdhHarder,
     subtitleRegexFilter,
   } from '$lib/settings/ui'
+  import CredentialField from '$lib/components/settings/CredentialField.svelte'
   import SettingsGroup from '$lib/components/settings/SettingsGroup.svelte'
   import SettingsRow from '$lib/components/settings/SettingsRow.svelte'
   import SettingsSwitch from '$lib/components/settings/SettingsSwitch.svelte'
@@ -104,6 +105,8 @@
     expires_at: number
   }
 
+  let expandedProvider = $state<string | null>(null)
+  function toggleProviderDetails(id: string) { expandedProvider = expandedProvider === id ? null : id }
   function hasProvider(id: string) {
     return $subtitleProviders.includes(id)
   }
@@ -112,6 +115,7 @@
     $subtitleProviders = enabling
       ? [...$subtitleProviders, id]
       : $subtitleProviders.filter((p) => p !== id)
+    if (enabling && !(id === 'subdl' ? $subDlApiKey : id === 'jimaku' ? $jimakuApiKey : $openSubtitlesToken)) expandedProvider = id
   }
 
   // OpenSubtitles account (username/password → JWT via Rust). The password never
@@ -163,7 +167,7 @@
 </script>
 
 <div class="p-4 sm:p-8">
-  <h2 class="mb-1 text-xl font-black">Subtitles</h2>
+  <h2 class="mb-2 text-3xl font-bold tracking-tight">Subtitles</h2>
   <p class="mb-4 max-w-2xl text-sm text-muted-foreground">Subtitle sources, appearance, and playback behaviour.</p>
 
   {#snippet openSubtitlesBadge()}<SubtitleProviderBadge provider="opensubtitles" />{/snippet}
@@ -176,7 +180,8 @@
     </span>
   {/snippet}
   {#snippet openSubtitlesControl()}
-    <SettingsSwitch interactive={false} label="Enable OpenSubtitles" value={hasProvider('opensubtitles')} onToggle={() => toggleProvider('opensubtitles')} />
+    <button type="button" data-focusable aria-expanded={expandedProvider === 'opensubtitles'} onclick={() => toggleProviderDetails('opensubtitles')} class="min-h-10 rounded-lg bg-secondary px-3 text-xs font-semibold">{$openSubtitlesToken ? 'Manage' : 'Sign in'}</button>
+    <SettingsSwitch label="Enable OpenSubtitles" value={hasProvider('opensubtitles')} onToggle={() => toggleProvider('opensubtitles')} />
   {/snippet}
   {#snippet subDlBadge()}<SubtitleProviderBadge provider="subdl" />{/snippet}
   {#snippet subDlMeta()}
@@ -186,7 +191,8 @@
     </span>
   {/snippet}
   {#snippet subDlControl()}
-    <SettingsSwitch interactive={false} label="Enable SubDL" value={hasProvider('subdl')} onToggle={() => toggleProvider('subdl')} />
+    <button type="button" data-focusable aria-expanded={expandedProvider === 'subdl'} onclick={() => toggleProviderDetails('subdl')} class="min-h-10 rounded-lg bg-secondary px-3 text-xs font-semibold">{$subDlApiKey ? 'Manage' : 'Set up'}</button>
+    <SettingsSwitch label="Enable SubDL" value={hasProvider('subdl')} onToggle={() => toggleProvider('subdl')} />
   {/snippet}
   {#snippet jimakuBadge()}<SubtitleProviderBadge provider="jimaku" />{/snippet}
   {#snippet jimakuMeta()}
@@ -196,11 +202,12 @@
     </span>
   {/snippet}
   {#snippet jimakuControl()}
-    <SettingsSwitch interactive={false} label="Enable Jimaku" value={hasProvider('jimaku')} onToggle={() => toggleProvider('jimaku')} />
+    <button type="button" data-focusable aria-expanded={expandedProvider === 'jimaku'} onclick={() => toggleProviderDetails('jimaku')} class="min-h-10 rounded-lg bg-secondary px-3 text-xs font-semibold">{$jimakuApiKey ? 'Manage' : 'Set up'}</button>
+    <SettingsSwitch label="Enable Jimaku" value={hasProvider('jimaku')} onToggle={() => toggleProvider('jimaku')} />
   {/snippet}
 
-  <SettingsGroup icon={Languages} title="Providers" desc="Enable a source and configure it in the same row.">
-    <SettingsRow settingKey="opensubtitles" title="OpenSubtitles" leading={openSubtitlesBadge} meta={openSubtitlesMeta} control={openSubtitlesControl} expanded={hasProvider('opensubtitles')} onActivate={() => toggleProvider('opensubtitles')} pressed={hasProvider('opensubtitles')}>
+  <SettingsGroup icon={Languages} title="Providers" desc="Choose your sources. Account details stay tucked away until you need them.">
+    <SettingsRow settingKey="opensubtitles" title="OpenSubtitles" leading={openSubtitlesBadge} meta={openSubtitlesMeta} control={openSubtitlesControl} expanded={expandedProvider === 'opensubtitles'}>
       {#if $openSubtitlesToken && $openSubtitlesUserName}
         <div class="flex items-center justify-between gap-3">
           <p class="text-xs text-muted-foreground">
@@ -232,30 +239,16 @@
       {/if}
     </SettingsRow>
 
-    <SettingsRow settingKey="subdl" title="SubDL" leading={subDlBadge} meta={subDlMeta} control={subDlControl} expanded={hasProvider('subdl')} onActivate={() => toggleProvider('subdl')} pressed={hasProvider('subdl')}>
-      <div>
-        <div class="mb-1 flex items-center justify-between gap-2">
-          <label for="subdl-api-key" class="text-xs font-bold">API key</label>
-          <a href="https://subdl.com/panel/api" target="_blank" rel="noopener noreferrer" data-focusable class="inline-flex min-h-8 items-center gap-1 rounded-md px-2 text-xs font-bold text-theme hover:bg-secondary hover:underline">
-            Get API key <ExternalLink size={12} aria-hidden="true" />
-          </a>
-        </div>
-        <input id="subdl-api-key" type="password" bind:value={$subDlApiKey} data-focusable autocomplete="off" placeholder="Paste SubDL API key" class="h-10 w-full rounded-md bg-input px-3 text-sm" />
-        <span class="mt-1 block text-[11px] text-muted-foreground">Saved on this device. SubDL is skipped until a key is present.</span>
-      </div>
+    <SettingsRow settingKey="subdl" title="SubDL" leading={subDlBadge} meta={subDlMeta} control={subDlControl} expanded={expandedProvider === 'subdl'}>
+      <CredentialField bind:value={$subDlApiKey} label="SubDL API key" startOpen description="Add your SubDL key to enable subtitle results from this source. The key stays on this device.">
+        {#snippet help()}<a href="https://subdl.com/panel/api" target="_blank" rel="noopener noreferrer" data-focusable class="inline-flex min-h-9 items-center gap-2 font-semibold underline underline-offset-4">Get API key <ExternalLink size={12} /></a>{/snippet}
+      </CredentialField>
     </SettingsRow>
 
-    <SettingsRow settingKey="jimaku" title="Jimaku" leading={jimakuBadge} meta={jimakuMeta} control={jimakuControl} expanded={hasProvider('jimaku')} onActivate={() => toggleProvider('jimaku')} pressed={hasProvider('jimaku')}>
-      <div>
-        <div class="mb-1 flex items-center justify-between gap-2">
-          <label for="jimaku-api-key" class="text-xs font-bold">API key</label>
-          <a href="https://jimaku.cc/account" target="_blank" rel="noopener noreferrer" data-focusable class="inline-flex min-h-8 items-center gap-1 rounded-md px-2 text-xs font-bold text-theme hover:bg-secondary hover:underline">
-            Get API key <ExternalLink size={12} aria-hidden="true" />
-          </a>
-        </div>
-        <input id="jimaku-api-key" type="password" bind:value={$jimakuApiKey} data-focusable autocomplete="off" placeholder="Paste Jimaku API key" class="h-10 w-full rounded-md bg-input px-3 text-sm" />
-        <span class="mt-1 block text-[11px] text-muted-foreground">Saved on this device. Jimaku is skipped until a key is present.</span>
-      </div>
+    <SettingsRow settingKey="jimaku" title="Jimaku" leading={jimakuBadge} meta={jimakuMeta} control={jimakuControl} expanded={expandedProvider === 'jimaku'}>
+      <CredentialField bind:value={$jimakuApiKey} label="Jimaku API key" startOpen description="Add your Jimaku key to enable subtitle results from this source. The key stays on this device.">
+        {#snippet help()}<a href="https://jimaku.cc/account" target="_blank" rel="noopener noreferrer" data-focusable class="inline-flex min-h-9 items-center gap-2 font-semibold underline underline-offset-4">Get API key <ExternalLink size={12} /></a>{/snippet}
+      </CredentialField>
     </SettingsRow>
   </SettingsGroup>
 

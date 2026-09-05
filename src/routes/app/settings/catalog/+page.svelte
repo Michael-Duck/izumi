@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CredentialField from '$lib/components/settings/CredentialField.svelte'
   import {
     catalogDefaultProvider,
     catalogLastProvider,
@@ -250,9 +251,7 @@
         <button type="button" data-focusable onclick={() => (showTmdbGuide = true)} class="mb-3 inline-flex min-h-9 items-center gap-2 rounded-lg bg-secondary px-3 text-xs font-bold transition-colors hover:bg-accent">
           <CircleHelp size={15} aria-hidden="true" /> How to get a free token
         </button>
-        <input bind:value={$tmdbReadToken} type="password" autocomplete="off" spellcheck="false" data-focusable
-          placeholder="eyJhbGciOiJIUzI1NiJ9…" aria-label="TMDB read access token"
-          class="h-11 w-full rounded-md bg-input px-3 font-mono text-base sm:h-10 sm:text-sm" />
+        <CredentialField bind:value={$tmdbReadToken} label="TMDB read access token" description="Paste the API Read Access Token from your TMDB account. Saved on this device." placeholder="eyJhbGciOiJIUzI1NiJ9…" />
         <p class="mt-2 text-[11px] text-muted-foreground">This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
       </SettingsRow>
     </SettingsGroup>
@@ -265,9 +264,7 @@
           class="mb-3 inline-flex min-h-9 items-center gap-2 rounded-lg bg-secondary px-3 text-xs font-bold transition-colors hover:bg-accent">
           Get a free OMDb key
         </button>
-        <input bind:value={$omdbApiKey} type="password" autocomplete="off" spellcheck="false" data-focusable
-          placeholder="OMDb API key" aria-label="OMDb API key"
-          class="h-11 w-full rounded-md bg-input px-3 font-mono text-base sm:h-10 sm:text-sm" />
+        <CredentialField bind:value={$omdbApiKey} label="OMDb API key" description="Optional: adds critic ratings where available. Saved on this device." />
         <p class="mt-2 text-[11px] text-muted-foreground">Stored only on this device. The free OMDb tier currently allows 1,000 requests per day.</p>
       </SettingsRow>
     </SettingsGroup>
@@ -277,7 +274,7 @@
     <SettingsGroup icon={Boxes} title="Stremio metadata">
       <SettingsRow title="Configured add-ons" description="Add-ons declaring catalogs provide Home rows; catalog-only list providers use metadata fallbacks for details.">
         <p class="text-xs text-muted-foreground">{$addonUrls.length ? `${$addonUrls.length} configured add-on${$addonUrls.length === 1 ? '' : 's'} will be checked.` : 'No add-ons are configured yet.'}</p>
-        {#if !$addonUrls.length}<div class="mt-3 flex flex-wrap gap-2"><a href="/app/settings/accounts" data-focusable class="inline-flex min-h-10 items-center rounded-md bg-primary px-4 text-sm font-bold text-primary-foreground">Connect a list provider</a><a href="/app/settings/sources" data-focusable class="inline-flex min-h-10 items-center rounded-md bg-secondary px-4 text-sm font-bold">Add a source</a></div>{/if}
+        {#if !$addonUrls.length}<div class="mt-3 flex flex-wrap gap-2"><a href="/app/settings/accounts" data-focusable class="inline-flex min-h-10 items-center rounded-md bg-primary px-4 text-sm font-bold text-primary-foreground">Manage accounts</a><a href="/app/settings/sources" data-focusable class="inline-flex min-h-10 items-center rounded-md bg-secondary px-4 text-sm font-bold">Add a source</a></div>{/if}
       </SettingsRow>
     </SettingsGroup>
   {/if}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CredentialField from '$lib/components/settings/CredentialField.svelte'
   let {
     section = 'manage',
     hasManageRows = $bindable(false),
@@ -377,11 +378,9 @@
       </span>
     </div>
 
-    <label class="mb-6 flex flex-col gap-1">
-      <span class="text-sm font-bold">{current?.name ?? 'Debrid'} {current?.credential === 'userpass' ? 'login' : 'API key'}</span>
-      <input type="password" bind:value={$debridKey} data-focusable placeholder={current?.credential === 'userpass' ? 'username:password' : `Your ${current?.name ?? 'debrid'} token`} class="rounded-md bg-input px-3 py-2 text-sm" />
-      <span class="text-xs text-muted-foreground">From {current?.keyHint ?? 'your debrid account'}. Turns torrent results into cached streams.</span>
-    </label>
+    <div class="mb-6">
+      <CredentialField bind:value={$debridKey} label={`${current?.name ?? 'Debrid'} ${current?.credential === 'userpass' ? 'login' : 'API key'}`} placeholder={current?.credential === 'userpass' ? 'username:password' : 'Paste your token'} description={`From ${current?.keyHint ?? 'your debrid account'}. Turns torrent results into cached streams. Only shared if you explicitly transfer a setup including credentials.`} />
+    </div>
 
     {#if $debridKey}
       <section class="mb-6 rounded-lg border border-border bg-card p-4" aria-label="Debrid account usage">
