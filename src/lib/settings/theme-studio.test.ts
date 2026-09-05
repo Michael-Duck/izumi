@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { get } from 'svelte/store'
 import {
+  activeStudioThemeId,
+  studioThemes,
+  duplicateStudioTheme,
   defaultStudioTheme,
   hexToHslToken,
   hslTokenToHex,
@@ -11,6 +15,19 @@ import {
 } from './theme-studio'
 
 describe('Theme Studio model', () => {
+  it('can save a duplicate without applying it', () => {
+    const previous = get(studioThemes)
+    const active = get(activeStudioThemeId)
+    try {
+      const copy = duplicateStudioTheme(defaultStudioTheme(10), 20, false)
+      expect(get(studioThemes).some(theme => theme.id === copy.id)).toBe(true)
+      expect(get(activeStudioThemeId)).toBe(active)
+    } finally {
+      studioThemes.set(previous)
+      activeStudioThemeId.set(active)
+    }
+  })
+
   it('round-trips display colours and accepts bounded HSL tokens', () => {
     for (const hex of ['#e93b69', '#09090b', '#fafafa', '#08b6cf']) {
       expect(hslTokenToHex(hexToHslToken(hex))).toBe(hex)

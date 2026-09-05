@@ -6,7 +6,10 @@ const page = readFileSync(fileURLToPath(new URL('./+page.svelte', import.meta.ur
 
 describe('Theme Studio UI', () => {
   it('previews drafts and explicitly saves the custom theme', () => {
-    expect(page).toContain('themeStudioPreview.set(clone(draft))')
+    expect(page).toContain('themeStudioPreview.set(previewAcrossApp ? clone(draft) : null)')
+    expect(page).toContain('let previewAcrossApp = $state(false)')
+    expect(page).toContain('aria-label="Theme controls"')
+    expect(page).toContain('aria-label="Theme preview"')
     expect(page).toContain("$themePreset = 'custom'")
     expect(page).toContain('Save &amp; Apply')
     expect(page).toContain('Discard')

@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import { get } from 'svelte/store'
-  import Palette from '@lucide/svelte/icons/palette'
   import Save from '@lucide/svelte/icons/save'
   import Copy from '@lucide/svelte/icons/copy'
   import Trash2 from '@lucide/svelte/icons/trash-2'
@@ -9,7 +8,6 @@
   import Upload from '@lucide/svelte/icons/upload'
   import RotateCcw from '@lucide/svelte/icons/rotate-ccw'
   import Check from '@lucide/svelte/icons/check'
-  import TriangleAlert from '@lucide/svelte/icons/triangle-alert'
   import { saveTextFile, ioErrorMessage } from '$lib/player/history-io'
   import { themePreset } from '$lib/settings/ui'
   import {
@@ -38,6 +36,13 @@
   const clone = (theme: StudioTheme): StudioTheme => JSON.parse(JSON.stringify(theme)) as StudioTheme
   let draft = $state<StudioTheme>(clone(get(activeStudioTheme)))
   let notice = $state('')
+  let category = $state<'palette' | 'type' | 'backdrop' | 'saved'>('palette')
+  let previewAcrossApp = $state(false)
+  let baseline = $state(JSON.stringify(get(activeStudioTheme)))
+  let confirmDelete = $state(false)
+  const dirty = $derived(JSON.stringify(draft) !== baseline)
+  const previewStyle = $derived(Object.entries(draft.tokens).filter(([key]) => key !== 'scheme').map(([key, value]) => `--${key.replace(/[A-Z]/g, letter => '-' + letter.toLowerCase())}:${value}`).join(';'))
+  const previewFont = $derived(({ nunito: 'Nunito, sans-serif', system: 'system-ui, sans-serif', serif: 'Georgia, serif', mono: 'Geist Mono, monospace' })[draft.font])
   let importInput = $state<HTMLInputElement>()
 
   const paletteStarters: Array<{ id: PresetName; label: string }> = [
@@ -79,7 +84,7 @@
   const contrastPasses = $derived(contrasts.every((item) => item.value >= 4.5))
 
   $effect(() => {
-    themeStudioPreview.set(clone(draft))
+    themeStudioPreview.set(previewAcrossApp ? clone(draft) : null)
   })
   onDestroy(() => themeStudioPreview.set(null))
 
@@ -94,39 +99,46 @@
   }
 
   function selectTheme(id: string) {
+    confirmDelete = false
+    if (dirty) { notice = 'Save or discard your changes before choosing another theme.'; return }
     const selected = $studioThemes.find((theme) => theme.id === id)
     if (!selected) return
-    $activeStudioThemeId = id
     draft = clone(selected)
+    baseline = JSON.stringify(selected)
     notice = ''
   }
 
   function saveAndApply() {
     const saved = saveStudioTheme(clone(draft))
     draft = clone(saved)
+    baseline = JSON.stringify(saved)
     $themePreset = 'custom'
     notice = `${saved.name} saved and applied.`
   }
 
   function makeCopy() {
-    const copy = duplicateStudioTheme(clone(draft))
+    const copy = duplicateStudioTheme(clone(draft), Date.now(), false)
     draft = clone(copy)
+    baseline = JSON.stringify(copy)
     notice = 'Created a separate editable copy.'
   }
 
   function removeCurrent() {
+    if (!confirmDelete) { confirmDelete = true; return }
+    confirmDelete = false
     const remaining = $studioThemes.filter((theme) => theme.id !== draft.id)
     if (!deleteStudioTheme(draft.id)) {
       notice = 'Keep at least one saved theme.'
       return
     }
     draft = clone(remaining[0] ?? defaultStudioTheme())
-    $activeStudioThemeId = draft.id
+    baseline = JSON.stringify(draft)
     notice = 'Theme deleted.'
   }
 
   function discardChanges() {
-    draft = clone(get(activeStudioTheme))
+    draft = clone($studioThemes.find(theme => theme.id === draft.id) ?? get(activeStudioTheme))
+    baseline = JSON.stringify(draft)
     notice = 'Draft reset to the saved version.'
   }
 
@@ -151,10 +163,12 @@
     const file = input.files?.[0]
     input.value = ''
     if (!file) return
+    if (dirty) { notice = 'Save or discard your changes before importing a theme.'; return }
+    if (file.size > 64_000 || $studioThemes.length >= 24) { notice = 'Use a theme file under 64 KB and keep fewer than 24 saved themes.'; return }
     try {
       const imported = parseStudioTheme(await file.text())
       $studioThemes = [...$studioThemes, imported]
-      $activeStudioThemeId = imported.id
+      baseline = JSON.stringify(imported)
       draft = clone(imported)
       notice = `${imported.name} loaded. Review it, then Save & Apply.`
     } catch (error) {
@@ -165,151 +179,113 @@
 
 <svelte:head><title>Theme Studio · izumi</title></svelte:head>
 
-<div class="p-4 pb-24 sm:p-8">
-  <header class="mb-6 flex flex-wrap items-end justify-between gap-4">
-    <div>
-      <div class="mb-1 flex items-center gap-2 text-theme"><Palette size={18} /><span class="text-[11px] font-black uppercase tracking-[0.2em]">Theme Studio</span></div>
-      <h2 class="text-3xl font-black tracking-tight">Make Izumi yours.</h2>
-      <p class="mt-1 max-w-2xl text-sm text-muted-foreground">Every change previews across the whole app. Nothing replaces the active theme until you save.</p>
-    </div>
-    <div class="flex flex-wrap gap-2">
-      <button data-focusable onclick={discardChanges} class="inline-flex min-h-10 items-center gap-2 rounded-xl bg-secondary px-4 text-sm font-black"><RotateCcw size={16} /> Discard</button>
-      <button data-focusable onclick={saveAndApply} class="inline-flex min-h-10 items-center gap-2 rounded-xl bg-primary px-5 text-sm font-black text-primary-foreground"><Save size={16} /> Save &amp; Apply</button>
+<div class="mx-auto max-w-6xl p-4 pb-24 sm:p-8">
+  <header class="mb-7 flex flex-wrap items-center justify-between gap-4">
+    <div><h2 class="text-3xl font-bold tracking-tight">Theme Studio</h2><p class="mt-2 text-sm text-muted-foreground">Choose a starting point, then make it your own.</p></div>
+    <div class="flex items-center gap-2">
+      <button type="button" data-focusable onclick={discardChanges} disabled={!dirty} class="studio-button disabled:opacity-35"><RotateCcw size={15} /> Discard</button>
+      <button type="button" data-focusable onclick={saveAndApply} class="studio-button bg-foreground text-background"><Save size={15} /> Save &amp; Apply</button>
     </div>
   </header>
+  {#if notice}<p role="status" class="mb-5 border-l-2 border-foreground/40 py-2 pl-4 text-sm text-muted-foreground">{notice}</p>{/if}
 
-  {#if notice}<div role="status" class="mb-5 rounded-xl border border-theme/25 bg-theme/10 px-4 py-3 text-sm font-bold">{notice}</div>{/if}
-
-  <div class="grid items-start gap-6 xl:grid-cols-[15rem_minmax(0,1fr)_20rem]">
-    <aside class="space-y-5 xl:sticky xl:top-8">
-      <section>
-        <div class="mb-2 flex items-center justify-between"><h3 class="text-xs font-black uppercase tracking-[0.16em] text-muted-foreground">Saved themes</h3><span class="text-xs text-muted-foreground">{$studioThemes.length}/24</span></div>
-        <div class="space-y-2">
-          {#each $studioThemes as theme (theme.id)}
-            <button data-focusable onclick={() => selectTheme(theme.id)} aria-pressed={theme.id === draft.id}
-              class="flex min-h-14 w-full items-center gap-3 rounded-xl border p-2.5 text-left transition {theme.id === draft.id ? 'border-theme bg-theme/10' : 'border-border bg-card hover:bg-secondary'}">
-              <span class="grid grid-cols-2 overflow-hidden rounded-lg border border-black/20">
-                <span class="size-5" style={`background:${hslTokenToHex(theme.tokens.background)}`}></span><span class="size-5" style={`background:${hslTokenToHex(theme.tokens.theme)}`}></span>
-                <span class="size-5" style={`background:${hslTokenToHex(theme.tokens.card)}`}></span><span class="size-5" style={`background:${hslTokenToHex(theme.tokens.foreground)}`}></span>
-              </span>
-              <span class="min-w-0 flex-1"><span class="block truncate text-sm font-black">{theme.name}</span><span class="block text-[10px] capitalize text-muted-foreground">{theme.tokens.scheme} · {theme.font}</span></span>
-              {#if theme.id === $activeStudioThemeId}<Check size={15} class="text-theme" />{/if}
+  <div class="grid items-start gap-8 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,0.9fr)]">
+    <div class="min-w-0">
+      <div class="mb-5 flex items-end gap-3">
+        <label class="min-w-0 flex-1"><span class="mb-2 block text-xs font-semibold text-muted-foreground">Theme name{dirty ? ' · Unsaved changes' : ''}</span><input bind:value={draft.name} maxlength="48" data-focusable class="h-11 w-full rounded-lg bg-input px-3 text-base" /></label>
+        <select aria-label="Colour scheme" bind:value={draft.tokens.scheme} data-focusable class="h-11 rounded-lg bg-secondary px-3 text-sm"><option value="dark">Dark</option><option value="light">Light</option></select>
+      </div>
+      <nav aria-label="Theme controls" class="mb-6 flex gap-5 overflow-x-auto border-b border-border">
+        {#each [{ id: 'palette', label: 'Palette' }, { id: 'type', label: 'Type & shape' }, { id: 'backdrop', label: 'Backdrop' }, { id: 'saved', label: 'Saved themes' }] as item}
+          <button type="button" data-focusable aria-current={category === item.id ? 'page' : undefined} onclick={() => { category = item.id as typeof category; confirmDelete = false }} class="min-h-12 shrink-0 border-b-2 text-sm font-semibold {category === item.id ? 'border-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}">{item.label}</button>
+        {/each}
+      </nav>
+      {#if category === 'palette'}
+        <h3 class="text-sm font-semibold">Start with a palette</h3>
+        <div class="mb-7 mt-3 grid grid-cols-5 gap-2">
+          {#each paletteStarters as starter}
+            <button type="button" data-focusable onclick={() => applyStarter(starter.id)} class="min-w-0 rounded-lg p-1 text-left hover:bg-secondary" aria-label={`Load ${starter.label} palette`}>
+              <span class="mb-2 flex h-12 overflow-hidden rounded-md ring-1 ring-inset ring-foreground/10"><span class="flex-1" style={`background:hsl(${THEME_PRESETS[starter.id].background})`}></span><span class="flex-1" style={`background:hsl(${THEME_PRESETS[starter.id].card})`}></span><span class="w-1/4" style={`background:hsl(${THEME_PRESETS[starter.id].theme})`}></span></span>
+              <span class="block truncate text-xs font-medium">{starter.label}</span>
             </button>
           {/each}
         </div>
-        <div class="mt-2 grid grid-cols-2 gap-2">
-          <button data-focusable onclick={makeCopy} class="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-secondary text-xs font-black"><Copy size={14} /> Duplicate</button>
-          <button data-focusable onclick={removeCurrent} disabled={$studioThemes.length <= 1} class="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl text-xs font-black text-destructive hover:bg-destructive/10 disabled:opacity-35"><Trash2 size={14} /> Delete</button>
+        {#each colorGroups as group}
+          <details class="border-t border-border py-4" open={group.label === 'Canvas'}>
+            <summary class="cursor-pointer text-sm font-semibold">{group.label}<span class="ml-2 text-xs font-normal text-muted-foreground">{group.items.length} colours</span></summary>
+            <div class="mt-4 grid gap-x-5 gap-y-3 sm:grid-cols-2">
+              {#each group.items as item}
+                <label class="flex min-w-0 items-center gap-3"><input type="color" value={hslTokenToHex(draft.tokens[item.key])} oninput={(event) => updateColor(item.key, event)} data-focusable aria-label={item.label} class="h-10 w-12 shrink-0 cursor-pointer rounded-md border border-border bg-transparent p-1" /><span class="min-w-0"><span class="block text-sm">{item.label}</span><span class="font-mono text-xs text-muted-foreground">{hslTokenToHex(draft.tokens[item.key]).toUpperCase()}</span></span></label>
+              {/each}
+            </div>
+          </details>
+        {/each}
+      {:else if category === 'type'}
+        <h3 class="mb-4 text-base font-semibold">Type &amp; shape</h3>
+        <div class="grid grid-cols-2 gap-3">
+          {#each fonts as font}
+            <button type="button" data-focusable onclick={() => draft.font = font.id} aria-pressed={draft.font === font.id} class="rounded-lg border p-4 text-left {draft.font === font.id ? 'border-foreground/60 bg-foreground/5' : 'border-border hover:bg-secondary'}">
+              <span class="block text-lg font-semibold">{font.label}</span><span class="mt-2 block text-xs text-muted-foreground">{font.sample}</span>
+            </button>
+          {/each}
         </div>
-      </section>
-
-      <section class="rounded-2xl border border-border bg-card p-4">
-        <h3 class="text-xs font-black uppercase tracking-[0.16em] text-muted-foreground">Portable theme</h3>
-        <p class="mt-2 text-xs leading-5 text-muted-foreground">Theme files contain visual tokens only—never accounts or history.</p>
-        <div class="mt-3 grid gap-2">
-          <button data-focusable onclick={exportTheme} class="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-secondary text-xs font-black"><Download size={15} /> Export JSON</button>
-          <button data-focusable onclick={() => importInput?.click()} class="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-secondary text-xs font-black"><Upload size={15} /> Import JSON</button>
+        <label class="mt-7 block"><span class="flex justify-between text-sm"><span>Type &amp; UI scale</span><span class="tabular-nums text-muted-foreground">{Math.round(draft.fontScale * 100)}%</span></span><input bind:value={draft.fontScale} type="range" min="0.85" max="1.2" step="0.01" data-focusable class="mt-3 w-full accent-[hsl(var(--foreground))]" /></label>
+        <label class="mt-6 block"><span class="flex justify-between text-sm"><span>Corner radius</span><span class="tabular-nums text-muted-foreground">{draft.radius.toFixed(2)}rem</span></span><input bind:value={draft.radius} type="range" min="0" max="2" step="0.05" data-focusable class="mt-3 w-full accent-[hsl(var(--foreground))]" /></label>
+      {:else if category === 'backdrop'}
+        <h3 class="mb-4 text-base font-semibold">Ambient backdrop</h3>
+        <div class="grid grid-cols-2 gap-3">{#each backdrops as backdrop}<button type="button" data-focusable onclick={() => draft.backdrop = backdrop.id} aria-pressed={draft.backdrop === backdrop.id} class="min-h-14 rounded-lg border text-sm {draft.backdrop === backdrop.id ? 'border-foreground/60 bg-foreground/5' : 'border-border hover:bg-secondary'}">{backdrop.label}</button>{/each}</div>
+        <label class="mt-7 block"><span class="flex justify-between text-sm"><span>Strength</span><span class="tabular-nums text-muted-foreground">{Math.round(draft.backdropStrength * 100)}%</span></span><input bind:value={draft.backdropStrength} type="range" min="0" max="0.65" step="0.01" data-focusable class="mt-3 w-full accent-[hsl(var(--foreground))]" /></label>
+        <label class="mt-6 block"><span class="flex justify-between text-sm"><span>Mesh softness</span><span class="tabular-nums text-muted-foreground">{draft.glassBlur}px</span></span><input bind:value={draft.glassBlur} type="range" min="0" max="40" step="1" data-focusable class="mt-3 w-full accent-[hsl(var(--foreground))]" /></label>
+      {:else}
+        <div class="mb-4 flex items-center justify-between"><h3 class="text-base font-semibold">Saved themes</h3><span class="text-xs text-muted-foreground">{$studioThemes.length} / 24</span></div>
+        <div class="divide-y divide-border">
+          {#each $studioThemes as theme}
+            <button type="button" data-focusable onclick={() => selectTheme(theme.id)} aria-pressed={theme.id === draft.id} class="flex min-h-16 w-full items-center gap-3 rounded-md px-2 text-left hover:bg-secondary">
+              <span class="flex size-9 shrink-0 overflow-hidden rounded-md"><span class="w-2/3" style={`background:hsl(${theme.tokens.background})`}></span><span class="w-1/3" style={`background:hsl(${theme.tokens.theme})`}></span></span>
+              <span class="min-w-0 flex-1 truncate text-sm font-semibold">{theme.name}</span>{#if theme.id === $activeStudioThemeId && $themePreset === 'custom'}<span class="text-xs text-muted-foreground">Applied</span>{/if}{#if theme.id === draft.id}<Check size={16} />{/if}
+            </button>
+          {/each}
+        </div>
+        <div class="mt-5 flex flex-wrap gap-2">
+          <button type="button" data-focusable onclick={makeCopy} disabled={$studioThemes.length >= 24} class="studio-button bg-secondary disabled:opacity-35"><Copy size={15} /> Duplicate</button>
+          <button type="button" data-focusable onclick={removeCurrent} disabled={$studioThemes.length <= 1} class="studio-button text-destructive disabled:opacity-35"><Trash2 size={15} />{confirmDelete ? 'Confirm delete' : 'Delete selected'}</button>
+          {#if confirmDelete}<button type="button" data-focusable onclick={() => confirmDelete = false} class="studio-button">Keep theme</button>{/if}
+        </div>
+        <div class="mt-6 border-t border-border pt-5">
+          <p class="text-xs leading-5 text-muted-foreground">Import or export a theme file. Files contain appearance settings only, never accounts or history.</p>
+          <div class="mt-3 flex flex-wrap gap-2"><button type="button" data-focusable onclick={exportTheme} class="studio-button bg-secondary"><Download size={15} /> Export JSON</button><button type="button" data-focusable onclick={() => importInput?.click()} class="studio-button bg-secondary"><Upload size={15} /> Import JSON</button></div>
           <input bind:this={importInput} onchange={importTheme} type="file" accept="application/json,.json,.izumi-theme.json" class="hidden" />
         </div>
-      </section>
-    </aside>
-
-    <div class="space-y-6">
-      <section class="rounded-2xl border border-border bg-card p-5">
-        <div class="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
-          <label><span class="mb-1.5 block text-xs font-black uppercase tracking-wide text-muted-foreground">Theme name</span><input bind:value={draft.name} maxlength="48" data-focusable class="h-11 w-full rounded-xl border border-border bg-input px-3 text-sm font-bold" /></label>
-          <div class="flex rounded-xl bg-secondary p-1">
-            {#each ['dark', 'light'] as scheme}
-              <button data-focusable onclick={() => (draft.tokens.scheme = scheme as 'dark' | 'light')} aria-pressed={draft.tokens.scheme === scheme}
-                class="min-h-9 rounded-lg px-4 text-xs font-black capitalize {draft.tokens.scheme === scheme ? 'bg-background shadow-sm' : 'text-muted-foreground'}">{scheme}</button>
-            {/each}
-          </div>
-        </div>
-      </section>
-
-      <section class="rounded-2xl border border-border bg-card p-5">
-        <h3 class="font-black">Palette starters</h3><p class="mt-1 text-xs text-muted-foreground">Load a complete accessible base, then tune individual tokens below.</p>
-        <div class="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
-          {#each paletteStarters as starter}
-            <button data-focusable onclick={() => applyStarter(starter.id)} class="rounded-xl border border-border bg-secondary/40 p-2 text-left hover:border-theme/50">
-              <span class="mb-2 flex h-9 overflow-hidden rounded-lg"><span class="flex-1" style={`background:hsl(${THEME_PRESETS[starter.id].background})`}></span><span class="flex-1" style={`background:hsl(${THEME_PRESETS[starter.id].card})`}></span><span class="flex-1" style={`background:hsl(${THEME_PRESETS[starter.id].theme})`}></span></span>
-              <span class="text-xs font-black">{starter.label}</span>
-            </button>
-          {/each}
-        </div>
-      </section>
-
-      {#each colorGroups as group (group.label)}
-        <section class="rounded-2xl border border-border bg-card p-5">
-          <h3 class="font-black">{group.label}</h3>
-          <div class="mt-4 grid gap-x-5 gap-y-4 sm:grid-cols-2">
-            {#each group.items as item (item.key)}
-              <label class="flex items-center gap-3">
-                <input type="color" value={hslTokenToHex(draft.tokens[item.key])} oninput={(event) => updateColor(item.key, event)} data-focusable aria-label={item.label}
-                  class="h-11 w-14 cursor-pointer rounded-xl border border-border bg-transparent p-1" />
-                <span class="min-w-0"><span class="block text-sm font-bold">{item.label}</span><span class="block truncate font-mono text-[10px] text-muted-foreground">{draft.tokens[item.key]}</span></span>
-              </label>
-            {/each}
-          </div>
-        </section>
-      {/each}
-
-      <section class="rounded-2xl border border-border bg-card p-5">
-        <h3 class="font-black">Type &amp; shape</h3>
-        <div class="mt-4 grid gap-2 sm:grid-cols-2">
-          {#each fonts as font}
-            <button data-focusable onclick={() => (draft.font = font.id)} aria-pressed={draft.font === font.id}
-              class="rounded-xl border p-3 text-left {draft.font === font.id ? 'border-theme bg-theme/10' : 'border-border bg-secondary/35'}">
-              <span class="block text-sm font-black">{font.label}</span><span class="mt-1 block text-xs text-muted-foreground">{font.sample}</span>
-            </button>
-          {/each}
-        </div>
-        <div class="mt-5 grid gap-5 sm:grid-cols-2">
-          <label><span class="flex justify-between text-xs font-bold"><span>Type &amp; UI scale</span><span>{Math.round(draft.fontScale * 100)}%</span></span><input bind:value={draft.fontScale} type="range" min="0.85" max="1.2" step="0.01" data-focusable class="mt-2 w-full accent-[hsl(var(--theme))]" /></label>
-          <label><span class="flex justify-between text-xs font-bold"><span>Corner radius</span><span>{draft.radius.toFixed(2)}rem</span></span><input bind:value={draft.radius} type="range" min="0" max="2" step="0.05" data-focusable class="mt-2 w-full accent-[hsl(var(--theme))]" /></label>
-        </div>
-      </section>
-
-      <section class="rounded-2xl border border-border bg-card p-5">
-        <h3 class="font-black">Ambient backdrop</h3>
-        <div class="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {#each backdrops as backdrop}
-            <button data-focusable onclick={() => (draft.backdrop = backdrop.id)} aria-pressed={draft.backdrop === backdrop.id}
-              class="min-h-11 rounded-xl border text-xs font-black {draft.backdrop === backdrop.id ? 'border-theme bg-theme/10' : 'border-border bg-secondary/35'}">{backdrop.label}</button>
-          {/each}
-        </div>
-        <div class="mt-5 grid gap-5 sm:grid-cols-2">
-          <label><span class="flex justify-between text-xs font-bold"><span>Strength</span><span>{Math.round(draft.backdropStrength * 100)}%</span></span><input bind:value={draft.backdropStrength} type="range" min="0" max="0.65" step="0.01" data-focusable class="mt-2 w-full accent-[hsl(var(--theme))]" /></label>
-          <label><span class="flex justify-between text-xs font-bold"><span>Mesh softness</span><span>{draft.glassBlur}px</span></span><input bind:value={draft.glassBlur} type="range" min="0" max="40" step="1" data-focusable class="mt-2 w-full accent-[hsl(var(--theme))]" /></label>
-        </div>
-      </section>
+        <button type="button" data-focusable onclick={resetDesign} class="studio-button mt-5 text-muted-foreground"><RotateCcw size={15} /> Reset design controls</button>
+      {/if}
     </div>
 
-    <aside class="space-y-5 xl:sticky xl:top-8">
-      <section class="overflow-hidden rounded-2xl border border-border bg-card shadow-xl">
-        <div class="relative h-40 overflow-hidden bg-background p-5">
-          <div class="absolute -right-8 -top-12 size-40 rounded-full bg-theme/25 blur-3xl"></div>
-          <span class="relative text-[10px] font-black uppercase tracking-[0.18em] text-theme">Live preview</span>
-          <h3 class="relative mt-3 text-2xl font-black">The cinema, remixed.</h3>
-          <p class="relative mt-2 text-xs text-muted-foreground">Semantic tokens keep every surface consistent.</p>
-        </div>
-        <div class="border-t border-border p-4">
-          <div class="flex gap-2"><button class="rounded-lg bg-primary px-3 py-2 text-xs font-black text-primary-foreground">Primary</button><button class="rounded-lg bg-secondary px-3 py-2 text-xs font-black text-secondary-foreground">Secondary</button></div>
-          <div class="mt-3 rounded-xl bg-muted p-3"><p class="text-xs font-bold">Surface sample</p><p class="mt-1 text-[10px] text-muted-foreground">Muted copy and border contrast.</p></div>
+    <aside class="min-w-0 xl:sticky xl:top-8">
+      <div class="mb-3 flex items-center justify-between"><h3 class="text-sm font-semibold">Preview</h3><span class="text-xs text-muted-foreground">{dirty ? 'Unsaved draft' : draft.id === $activeStudioThemeId && $themePreset === 'custom' ? 'Applied theme' : 'Not applied'}</span></div>
+      <section aria-label="Theme preview" style={previewStyle} class="studio-preview relative overflow-hidden border border-border bg-background text-foreground" style:font-family={previewFont} style:border-radius={`${draft.radius}rem`}>
+        {#if draft.backdrop !== 'solid'}<div aria-hidden="true" class="studio-ambience" data-backdrop={draft.backdrop} style:opacity={draft.backdropStrength} style:filter={`blur(${draft.glassBlur}px)`}></div>{/if}
+        <div class="relative p-6" style:font-size={`${draft.fontScale}rem`}>
+          <div class="flex items-center gap-4 border-b border-border pb-4 text-[0.75em]"><span class="font-semibold text-theme">izumi</span><span>Home</span><span class="text-muted-foreground">Library</span></div>
+          <p class="mt-10 text-[0.7em] text-muted-foreground">Tonight’s watchlist</p><h4 class="mt-2 text-[2em] font-bold leading-tight tracking-tight">A little space<br />for your stories.</h4>
+          <p class="mt-4 max-w-xs text-[0.8em] leading-relaxed text-muted-foreground">See how text, surfaces and actions work together before applying your theme.</p>
+          <div class="mt-6 flex gap-2"><span class="rounded-[var(--sample-radius)] bg-primary px-4 py-2 text-[0.75em] font-semibold text-primary-foreground" style:--sample-radius={`${draft.radius / 2}rem`}>Continue watching</span><span class="rounded-md bg-secondary px-3 py-2 text-[0.75em] text-secondary-foreground">Details</span></div>
+          <div class="mt-8 grid grid-cols-3 gap-3">{#each ['Movies', 'Series', 'Anime'] as label}<div class="rounded-lg bg-card p-3 ring-1 ring-border"><div class="h-12 rounded bg-muted"></div><p class="mt-3 text-[0.7em] text-card-foreground">{label}</p></div>{/each}</div>
         </div>
       </section>
-
-      <section class="rounded-2xl border border-border bg-card p-4">
-        <div class="flex items-center justify-between gap-3"><h3 class="font-black">Contrast check</h3>{#if contrastPasses}<span class="inline-flex items-center gap-1 text-xs font-black text-emerald-500"><Check size={14} /> AA</span>{:else}<span class="inline-flex items-center gap-1 text-xs font-black text-amber-500"><TriangleAlert size={14} /> Review</span>{/if}</div>
-        <div class="mt-3 space-y-2">
-          {#each contrasts as contrast}
-            <div class="flex items-center justify-between rounded-lg bg-secondary/45 px-3 py-2 text-xs"><span>{contrast.label}</span><span class="font-mono font-black {contrast.value >= 4.5 ? 'text-emerald-500' : 'text-amber-500'}">{contrast.value.toFixed(2)}:1</span></div>
-          {/each}
-        </div>
-        <p class="mt-3 text-[10px] leading-4 text-muted-foreground">WCAG AA asks for at least 4.5:1 on normal text. Saving remains available for intentionally low-contrast art themes.</p>
-      </section>
-
-      <button data-focusable onclick={resetDesign} class="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-border text-sm font-black hover:bg-secondary"><RotateCcw size={16} /> Reset design controls</button>
+      <label class="mt-4 flex min-h-11 items-center gap-3 text-xs text-muted-foreground"><input type="checkbox" bind:checked={previewAcrossApp} data-focusable class="size-4 accent-[hsl(var(--foreground))]" />Preview across the app</label>
+      <details class="mt-3 border-t border-border py-4">
+        <summary class="cursor-pointer text-sm font-semibold">Contrast check <span class="ml-2 text-xs font-normal text-muted-foreground">{contrastPasses ? 'Text pairs pass AA' : 'Review text contrast'}</span></summary>
+        <div class="mt-4 space-y-3">{#each contrasts as contrast}<div class="flex justify-between text-xs"><span>{contrast.label}</span><span class="tabular-nums text-muted-foreground">{contrast.value.toFixed(2)}:1 {contrast.value >= 4.5 ? '· Pass' : '· Review'}</span></div>{/each}</div>
+        <p class="mt-4 text-xs leading-5 text-muted-foreground">Normal text needs 4.5:1 contrast for WCAG AA. You can still save a lower-contrast theme.</p>
+      </details>
     </aside>
   </div>
 </div>
+<style>
+  .studio-button { display: inline-flex; min-height: 2.5rem; align-items: center; justify-content: center; gap: .5rem; border-radius: .5rem; padding: .5rem .85rem; font-size: .75rem; font-weight: 600; transition: opacity 150ms; }
+  .studio-button:hover { opacity: .8; }
+  .studio-button:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+  .studio-ambience { position: absolute; inset: 0; background: radial-gradient(ellipse at 90% 10%, hsl(var(--theme)), transparent 70%); pointer-events: none; }
+  .studio-ambience[data-backdrop="spotlight"] { background: radial-gradient(circle at 50% 15%, hsl(var(--theme)), transparent 65%); }
+  .studio-ambience[data-backdrop="mesh"] { background: radial-gradient(at 0% 30%, hsl(var(--theme)), transparent 60%), radial-gradient(at 100% 80%, hsl(var(--ring)), transparent 60%); }
+</style>

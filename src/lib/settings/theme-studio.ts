@@ -127,7 +127,7 @@ export function saveStudioTheme(theme: StudioTheme): StudioTheme {
   return normalizedTheme
 }
 
-export function duplicateStudioTheme(source: StudioTheme, now = Date.now()): StudioTheme {
+export function duplicateStudioTheme(source: StudioTheme, now = Date.now(), activate = true): StudioTheme {
   const id = `theme-${now.toString(36)}-${Math.random().toString(36).slice(2, 7)}`
   const copy = normalizeStudioTheme({
     ...source,
@@ -138,7 +138,7 @@ export function duplicateStudioTheme(source: StudioTheme, now = Date.now()): Stu
     tokens: { ...source.tokens },
   })
   studioThemes.update((themes) => [...themes, copy])
-  activeStudioThemeId.set(copy.id)
+  if (activate) activeStudioThemeId.set(copy.id)
   return copy
 }
 
