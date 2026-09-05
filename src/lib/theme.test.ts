@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { resolvedThemeTokens } from './theme'
+import tailwindConfig from '../../tailwind.config'
 
 describe('theme presets', () => {
+  it('binds accent utilities to the editable theme token', () => {
+    expect(tailwindConfig.theme.extend.colors.theme).toContain('var(--theme,')
+    expect(tailwindConfig.theme.extend.colors.theme).toContain('<alpha-value>')
+  })
   const rgb = (hsl: string): [number, number, number] => {
     const [h, s0, l0] = hsl.match(/[\d.]+/g)!.map(Number)
     const s = s0 / 100, l = l0 / 100

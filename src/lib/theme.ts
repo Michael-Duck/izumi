@@ -18,8 +18,7 @@ function apply() {
   const preset = get(themePreset)
   const preview = get(themeStudioPreview)
   const studio = preview ?? get(activeStudioTheme)
-  // Studio drafts override the active preset for the duration of the editor, making every colour
-  // control a real whole-app preview before Save & Apply changes the persisted preset.
+  // Studio drafts only override the active preset when whole-app preview is explicitly enabled.
   const tokens = preview?.tokens ?? resolvedThemeTokens(preset, media.matches, preset === 'custom' ? studio.tokens : null)
   const root = document.documentElement
   const values: Record<string, string> = {
