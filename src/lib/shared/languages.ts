@@ -507,5 +507,6 @@ export const PLAYBACK_LANGUAGES = LANGUAGE_DATA
 
 export function playbackLanguageName(code: string): string {
   const normalized = code.trim().toLowerCase().split(/[-_]/)[0]
+  if (!normalized) return code
   return LANGUAGE_DATA.find(row => [row.code, row.terminology, row.iso1].includes(normalized))?.name ?? code
 }

@@ -14,6 +14,7 @@ describe('complete playback language registry', () => {
   })
   it('does not guess a language from an incidental new ISO token in a release label', () => {
     expect(normalizeLang('new release rip')).toBeUndefined()
+    expect(playbackLanguageName('')).toBe('')
     expect(playbackLanguageName('tam')).toBe('Tamil')
   })
 })

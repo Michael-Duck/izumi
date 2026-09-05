@@ -37,7 +37,8 @@ describe('Discovery Queue UI', () => {
     expect(page).toContain('$offlineMode')
     expect(page).toContain('{:else if loading}')
     expect(page).toContain('{:else if error && !pool.length}')
-    expect(page).toContain('needsConfiguration')
+    expect(page).toContain('Catalog settings')
+    expect(page).toContain('failedProviders')
     expect(page).toContain('You’re caught up')
   })
 
