@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { MediaQuery } from 'svelte/reactivity'
+  const mobile = new MediaQuery('(max-width: 767px), (max-height: 500px) and (pointer: coarse)')
   let { mode = 'both' }: { mode?: 'anime' | 'movies' | 'both' } = $props()
   const films = ['oYuLEt3zVCKq57qu2F8dT7NIa6f.jpg', 'gEU2QniE6E77NI6lCU6MxlNBvIx.jpg', '39wmItIWsg5sZMyRUHLkWBcuVCM.jpg', 'qJ2tW6WMUDux911r6m7haRef0WH.jpg', '8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg', 'd5NXSklXo0qyIYkgV94XAgMIckC.jpg']
     .map(path => 'https://image.tmdb.org/t/p/w342/' + path)
@@ -7,6 +9,23 @@
 </script>
 
 <div class="artwork-wall" data-mode={mode} aria-hidden="true">
+  {#if mobile.current}
+    <!-- Six portrait assets, no duplicate loop layers or hidden catalog downloads on phones. -->
+    <div class="mobile-posters">
+      {#each [0, 1] as column}
+        <div class="mobile-column">
+          {#each [0, 1, 2] as row}
+            {@const index = row * 2 + column}
+            {@const isAnime = mode === 'anime' || (mode === 'both' && (row + column) % 2 === 0)}
+            {@const src = isAnime ? anime[index] : films[index]}
+            <div class="poster">
+              <img {src} srcset={isAnime ? undefined : `${src.replace('/w342/', '/w185/')} 185w, ${src} 342w`} sizes="50vw" width="342" height="513" alt="" draggable="false" decoding="async" referrerpolicy="no-referrer" class="shown" onload={(event) => (event.currentTarget as HTMLImageElement).dataset.loaded = 'true'} onerror={(event) => delete (event.currentTarget as HTMLImageElement).dataset.loaded} />
+            </div>
+          {/each}
+        </div>
+      {/each}
+    </div>
+  {:else}
   <div class="poster-columns">
     {#each [0, 1, 2] as column}
       <div class="poster-column" class:reverse={column === 1}>
@@ -26,6 +45,7 @@
       </div>
     {/each}
   </div>
+  {/if}
 </div>
 
 <style>
@@ -39,6 +59,10 @@
   img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 650ms cubic-bezier(.2, .65, .3, 1); }
   img.shown:global([data-loaded]) { opacity: .88; }
   @keyframes drift { from { transform: translateY(0); } to { transform: translateY(-50%); } }
-  @media (max-width: 767px) { .poster-columns { --poster-gap: .65rem; inset: -130% -5%; } }
+  .mobile-posters { position: absolute; inset: -8% -7% auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; transform: rotate(-8deg); }
+  .mobile-column { display: grid; gap: .75rem; }
+  .mobile-column:nth-child(2) { margin-top: -35%; }
+  .mobile-posters .poster { border-radius: .5rem; box-shadow: none; }
+  .mobile-posters img { transition: none; }
   @media (prefers-reduced-motion: reduce) { .poster-column { animation: none; will-change: auto; } img { transition: none; } }
 </style>

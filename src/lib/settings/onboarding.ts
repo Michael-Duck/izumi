@@ -21,7 +21,8 @@ export function onboardingCatalogPlan(
 }
 
 export function onboardingSteps(focus: OnboardingFocus): number[] {
-  return focus === 'anime' ? [0, 1, 4, 5] : [0, 1, 2, 3, 4, 5]
+  // Stremio source sync is optional for every catalog, including anime.
+  return focus === 'anime' ? [0, 1, 2, 5, 6] : [0, 1, 2, 3, 4, 5, 6]
 }
 
 /** Versioned so a future materially different setup flow can be offered without losing history. */

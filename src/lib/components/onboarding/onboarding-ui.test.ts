@@ -18,13 +18,13 @@ describe('onboarding presentation contracts', () => {
   })
 
   it('keeps the chosen artwork through metadata, access and playback steps', () => {
-    expect(setup).toContain("<SetupArtwork mode={step === 0 ? 'both' : focus} />")
+    expect(setup).toContain("<SetupArtwork mode={step <= 1 ? 'both' : focus} />")
     expect(setup).not.toContain("step === 2 || step === 3 ? 'movies'")
     expect(setup.indexOf('<SetupArtwork')).toBeLessThan(setup.indexOf('{#key step}'))
   })
 
   it('does not repeat the Automatic anime label on the focus choice', () => {
-    const choices = setup.slice(setup.indexOf('{:else if step === 1}'), setup.indexOf('{:else if step === 2}'))
+    const choices = setup.slice(setup.indexOf('{:else if step === 2}'), setup.indexOf('{:else if step === 3}'))
     expect(choices).toContain('m.onboarding_automatic_body()')
     expect(choices).not.toContain('m.onboarding_automatic_anime()')
   })

@@ -14,8 +14,8 @@ describe('first-run catalog profile', () => {
   })
 
   it('only asks about film metadata and access when they are relevant', () => {
-    expect(onboardingSteps('anime')).toEqual([0, 1, 4, 5])
-    expect(onboardingSteps('movies')).toEqual([0, 1, 2, 3, 4, 5])
+    expect(onboardingSteps('anime')).toEqual([0, 1, 2, 5, 6])
+    expect(onboardingSteps('movies')).toEqual([0, 1, 2, 3, 4, 5, 6])
     expect(onboardingSteps('both')).toEqual(onboardingSteps('movies'))
   })
 
