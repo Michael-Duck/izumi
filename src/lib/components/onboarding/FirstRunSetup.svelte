@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Wordmark from '$lib/components/Wordmark.svelte'
+  import SetupArtwork from './SetupArtwork.svelte'
   import { goto } from '$app/navigation'
   import { onMount } from 'svelte'
   import { get } from 'svelte/store'
@@ -194,26 +196,21 @@
 {#if !$onboardingComplete}
   <div bind:this={root} role="dialog" aria-modal="true" aria-labelledby="setup-title" tabindex="-1" data-nav-trap class="onboarding-surface fixed inset-0 z-[160] flex h-[100dvh] w-screen flex-col overflow-hidden bg-background text-foreground" onkeydown={handleKeydown}>
     <header class="flex shrink-0 items-center justify-between gap-4 border-b border-border px-5 pb-4 pt-[max(1rem,env(safe-area-inset-top))] sm:px-10">
-      <span class="text-xl font-bold tracking-tight">izumi</span>
+      <Wordmark />
       <span class="text-xs text-muted-foreground">{m.onboarding_step_count({ current: String(stepIndex + 1), total: String(totalSteps) })}</span>
     </header>
-    <div class="flex min-h-0 flex-1">
-      <aside class="hidden w-60 shrink-0 border-r border-border px-5 py-10 lg:block">
-        <ol class="space-y-2" aria-label={m.onboarding_progress_label()}>
-          {#each steps as value, index}
-            <li class="flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm {value === step ? 'bg-secondary font-semibold' : 'text-muted-foreground'}" aria-current={value === step ? 'step' : undefined}>
-              <span class="grid size-6 shrink-0 place-items-center rounded-full border border-current text-xs">{#if index < stepIndex}<Check size={13} />{:else}{index + 1}{/if}</span>
-              {stepLabels[value]}
-            </li>
-          {/each}
-        </ol>
-        <p class="mt-10 px-3 text-xs leading-relaxed text-muted-foreground">{m.onboarding_change_later_hint()}</p>
+    <div class="setup-stage flex min-h-0 flex-1" class:preferences={step >= 4}>
+      <aside class="setup-art-panel" aria-hidden="true">
+        <SetupArtwork mode={step === 0 ? 'both' : step === 2 || step === 3 ? 'movies' : focus} />
+        <div class="art-caption"><Wordmark /><span>{focus === 'anime' && step > 0 ? m.onboarding_automatic_anime() : m.onboarding_both_title()}</span></div>
       </aside>
-      <main class="min-w-0 flex-1 overflow-y-auto overscroll-contain px-5 py-8 sm:px-10 sm:py-12">
-        <div class="mx-auto max-w-3xl">
+      <main class="setup-main min-w-0 flex-1 overflow-y-auto overscroll-contain px-5 py-8 sm:px-10 sm:py-12">
+        <div class="mx-auto max-w-3xl setup-step">
+          <div class="step-progress" aria-label={m.onboarding_progress_label()}>{#each steps as value}<span class:complete={steps.indexOf(value) <= stepIndex} aria-current={value === step ? 'step' : undefined} title={stepLabels[value]}></span>{/each}</div>
           {#if step === 0}
             {@render heading(m.onboarding_welcome_title(), m.onboarding_welcome_body())}
-            <p class="mt-8 border-t border-border pt-5 text-xs leading-relaxed text-muted-foreground">{m.onboarding_once_detail()}</p>
+            <div class="welcome-details"><span><Sparkles size={22} />{m.onboarding_automatic_anime()}</span><span><Film size={22} />{m.onboarding_movies_title()}</span><span><LibraryBig size={22} />{m.onboarding_change_later_hint()}</span></div>
+            <p class="mt-8 text-xs leading-relaxed text-muted-foreground">{m.onboarding_once_detail()}</p>
           {:else if step === 1}
             {@render heading(m.onboarding_focus_title(), m.onboarding_focus_body())}
             <div class="mt-7 space-y-3">
@@ -319,6 +316,27 @@
 {/if}
 
 <style>
+  .setup-stage { flex-direction: row-reverse; }
+  .setup-art-panel { position: relative; width: 38%; flex-shrink: 0; overflow: hidden; background: #111216; }
+  .art-caption { position: absolute; bottom: 3rem; left: 2.5rem; right: 2rem; display: flex; flex-direction: column; gap: 1rem; color: white; }
+  .art-caption > span { font-size: .9rem; opacity: .7; }
+  .setup-main { display: flex; align-items: safe center; }
+  .setup-step { width: 100%; }
+  .step-progress { display: flex; gap: .45rem; margin-bottom: 2.75rem; max-width: 15rem; }
+  .step-progress span { flex: 1; height: 3px; border-radius: 2px; background: hsl(var(--foreground) / .12); }
+  .step-progress span.complete { background: hsl(var(--foreground) / .8); }
+  .welcome-details { display: grid; gap: 1.75rem; margin-top: 2.75rem; }
+  .welcome-details span { display: flex; align-items: center; gap: 1rem; font-size: .9rem; }
+  @media (min-width: 1280px) { .setup-main { padding: 3rem 5vw; } }
+  @media (max-width: 767px) {
+    .setup-stage { flex-direction: column; }
+    .setup-art-panel { width: 100%; height: 9rem; }
+    .art-caption { display: none; }
+    .preferences .setup-art-panel { display: none; }
+    .step-progress { margin-bottom: 1.5rem; }
+    .setup-main { align-items: flex-start; }
+    .welcome-details { gap: 1rem; margin-top: 1.5rem; }
+  }
   .setup-choice { border: 1px solid hsl(var(--border)); border-radius: .75rem; transition: background 150ms, border-color 150ms; }
   .setup-choice:hover { background: hsl(var(--secondary)); }
   .setup-choice.selected { border-color: hsl(var(--foreground) / .6); background: hsl(var(--foreground) / .05); }

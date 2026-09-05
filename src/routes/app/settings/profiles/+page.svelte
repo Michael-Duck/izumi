@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Wordmark from '$lib/components/Wordmark.svelte'
   import { tick } from 'svelte'
   import { goto } from '$app/navigation'
   import ArrowLeft from '@lucide/svelte/icons/arrow-left'
@@ -113,7 +114,7 @@
   <button type="button" data-focusable onclick={back} aria-label="Back" class="back-button"><ArrowLeft size={24} /></button>
   <div class:overview={screen === 'overview'} class="profile-content">
     <header>
-      <p class="wordmark">izumi</p>
+      <div class="wordmark"><Wordmark /></div>
       <h1 id="manage-heading">{title}</h1>
       {#if screen === 'overview' && !$profilesEnabled}
         <p class="intro">A space for each person, with their own watchlist, history and account connections. Profiles are optional. Your existing library stays with you.</p>

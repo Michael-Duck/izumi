@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Wordmark from '$lib/components/Wordmark.svelte'
   import { tick } from 'svelte'
   import { goto } from '$app/navigation'
   import LockKeyhole from '@lucide/svelte/icons/lock-keyhole'
@@ -63,7 +64,7 @@
   <div bind:this={panel} role="dialog" aria-modal="true" aria-labelledby="profile-heading" tabindex="-1" data-nav-trap class="fixed inset-0 z-[90] flex flex-col overflow-y-auto bg-background px-6 py-12">
     {#if !$activeProfileLocked}<button type="button" data-focusable onclick={back} aria-label="Close profiles" class="absolute right-6 top-10 grid size-12 place-items-center rounded-full text-muted-foreground hover:bg-secondary focus-visible:ring-2 focus-visible:ring-theme"><X size={22} /></button>{/if}
     <div class="m-auto w-full max-w-5xl py-12 text-center">
-      <p class="mb-8 text-xl font-black tracking-tight text-muted-foreground">izumi</p>
+      <div class="mb-8"><Wordmark /></div>
       <h1 id="profile-heading" class="text-3xl font-bold tracking-tight sm:text-5xl">{pending ? 'Hello, ' + pending.name : 'Who’s watching?'}</h1>
       {#if pending}
         <img src={profileAvatarUrl(pending.avatar, pending.color)} alt="" class="mx-auto mt-9 size-28 rounded-3xl" />
