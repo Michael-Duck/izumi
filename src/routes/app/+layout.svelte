@@ -12,6 +12,8 @@
   // until playback/resolve starts. Loading them on demand
   // keeps first home paint off that code entirely. See Lazy.svelte.
   import Lazy from '$lib/components/Lazy.svelte'
+  import { themeStudioOpen } from '$lib/settings/theme-studio-session'
+  const loadThemeStudio = () => import('$lib/components/settings/ThemeStudio.svelte')
   import PlayFeedback from '$lib/components/PlayFeedback.svelte'
   import { title as mediaTitle, banner as mediaBanner, cover as mediaCover } from '$lib/anilist/media'
   const loadPlayerOverlay = () => import('$lib/components/player/PlayerOverlay.svelte')
@@ -543,3 +545,11 @@
 <FirstRunSetup />
 <UpNextOverlay />
 <ProfileSwitcher />
+{#if $themeStudioOpen}
+  <!-- Keep the draft mounted through navigation and playback; only hide the editor over video. -->
+  <div hidden={$playing || $androidMpvActive}>
+    <Lazy load={loadThemeStudio}>
+      {#snippet pending()}<div role="status" class="fixed bottom-20 left-20 z-40 rounded-lg bg-background px-4 py-3 text-sm shadow-lg">Opening Theme Studio…</div>{/snippet}
+    </Lazy>
+  </div>
+{/if}

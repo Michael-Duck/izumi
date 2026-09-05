@@ -6,7 +6,7 @@ import { torrentEngineNetworkOptions } from '$lib/player/direct-torrent'
 import { downloadDir, downloadConcurrency } from '$lib/settings/ui'
 import { downloads, speeds, keyFor, setItem, removeItem, setSpeed, setDownloadedMedia, type DownloadItem, type DownloadPreferences } from './state'
 import { getEpisodeMeta } from '$lib/anizip'
-import { isAndroid } from '$lib/platform'
+import { hasTauriRuntime, isAndroid } from '$lib/platform'
 import { downloadTaskbarProgress } from './taskbar'
 import { formatBytes, formatSpeed } from '$lib/util/format'
 import type { Media } from '$lib/anilist/types'
@@ -264,7 +264,9 @@ function syncDownloadTaskbar(snapshot: Record<string, DownloadItem>) {
 // events and resumes any download interrupted by an app kill.
 let attached = false
 export function attachDownloadEvents() {
-  if (attached) return
+  // A browser has no native download events or taskbar. Calling getCurrentWindow during its
+  // initial subscription throws synchronously and prevents the app shell from mounting cleanly.
+  if (attached || !hasTauriRuntime()) return
   attached = true
   downloads.subscribe((snapshot) => {
     syncDownloadForeground()

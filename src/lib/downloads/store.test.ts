@@ -28,7 +28,7 @@ vi.mock('$lib/player/direct-torrent', () => ({
 }))
 
 const { downloads } = await import('./state')
-const { enqueue, pauseDownload, resumeDownload, cancelDownload } = await import('./store')
+const { attachDownloadEvents, enqueue, pauseDownload, resumeDownload, cancelDownload } = await import('./store')
 
 const media = {
   id: 7,
@@ -68,6 +68,11 @@ afterEach(() => {
 })
 
 describe('download queue engine routing', () => {
+  it('leaves native download setup inactive outside the desktop/mobile runtime', () => {
+    expect(() => attachDownloadEvents()).not.toThrow()
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
   it('starts a real P2P download when the pick is a torrent and no debrid key exists', async () => {
     resolveDownloadUrl.mockResolvedValue(torrentResolution)
 
