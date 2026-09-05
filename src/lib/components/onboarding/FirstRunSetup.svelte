@@ -16,6 +16,7 @@
   import EyeOff from '@lucide/svelte/icons/eye-off'
   import ExternalLink from '@lucide/svelte/icons/external-link'
   import Film from '@lucide/svelte/icons/film'
+  import History from '@lucide/svelte/icons/history'
   import LibraryBig from '@lucide/svelte/icons/library-big'
   import Play from '@lucide/svelte/icons/play'
   import Sparkles from '@lucide/svelte/icons/sparkles'
@@ -25,8 +26,10 @@
   import { m } from '$lib/paraglide/messages.js'
   import {
     catalogDefaultProvider,
+    catalogLastScreen,
     catalogProviders,
     omdbApiKey,
+    resolveCatalogScreenStartup,
     selectCatalogScreen,
     tmdbReadToken,
   } from '$lib/settings/catalog'
@@ -37,6 +40,7 @@
     onboardingComplete,
     type OnboardingFocus,
     type OnboardingMovieMetadata,
+    type OnboardingStartupLibrary,
   } from '$lib/settings/onboarding'
   import { debridKey, extensionUrls, preferredAudioLang, preferredSubLang } from '$lib/settings/ui'
   import { fetchManifest } from '$lib/stremio/manifest'
@@ -52,13 +56,16 @@
   const tmdbSettingsUrl = 'https://www.themoviedb.org/settings/api'
   const omdbSettingsUrl = 'https://www.omdbapi.com/apikey.aspx'
   const initialProvider = get(catalogDefaultProvider)
+  const initialProviders = get(catalogProviders)
+  const initialBoth = initialProvider === 'merged' || (initialProviders.includes('auto') && initialProviders.some(provider => provider === 'tmdb' || provider === 'stremio'))
 
   let root = $state<HTMLElement>()
   let step = $state(0)
   let stremioBusy = $state(false)
   let keyboardOpen = $state(false)
-  let focus = $state<OnboardingFocus>(initialProvider === 'merged' ? 'both' : initialProvider === 'tmdb' || initialProvider === 'stremio' ? 'movies' : 'anime')
-  let movieMetadata = $state<OnboardingMovieMetadata>(initialProvider === 'stremio' ? 'stremio' : 'tmdb')
+  let focus = $state<OnboardingFocus>(initialBoth ? 'both' : initialProvider === 'tmdb' || initialProvider === 'stremio' ? 'movies' : 'anime')
+  let movieMetadata = $state<OnboardingMovieMetadata>(initialProvider === 'stremio' || (initialProviders.includes('stremio') && !initialProviders.includes('tmdb')) ? 'stremio' : 'tmdb')
+  let startupLibrary = $state<OnboardingStartupLibrary>(initialProvider === 'adaptive' ? 'adaptive' : initialBoth && initialProvider === 'auto' ? 'auto' : initialBoth && (initialProvider === 'tmdb' || initialProvider === 'stremio') ? 'movies' : 'merged')
   let tmdbToken = $state(get(tmdbReadToken))
   let ratingsKey = $state(get(omdbApiKey))
   let audioLanguage = $state(get(preferredAudioLang))
@@ -72,6 +79,13 @@
   const trackerReady = $derived(Boolean($anilistToken || $malToken || $kitsuToken || $simklToken))
   const debridReady = $derived(Boolean($debridKey))
   const selectedProvider = $derived(focus === 'anime' ? m.onboarding_automatic_anime() : (focus === 'both' ? m.onboarding_automatic_anime() + ' + ' : '') + (movieMetadata === 'tmdb' ? 'TMDB' : 'Stremio'))
+  const startupChoices = $derived([
+    { id: 'movies', title: movieMetadata === 'tmdb' ? 'TMDB' : 'Stremio', body: m.onboarding_startup_movies_body(), Icon: Film },
+    { id: 'auto', title: m.onboarding_automatic_anime(), body: m.onboarding_startup_anime_body(), Icon: Sparkles },
+    { id: 'merged', title: m.onboarding_startup_merged(), body: m.onboarding_startup_merged_body(), Icon: LibraryBig },
+    { id: 'adaptive', title: m.onboarding_startup_adaptive(), body: m.onboarding_startup_adaptive_body(), Icon: History },
+  ])
+  const selectedStartup = $derived(startupChoices.find(choice => choice.id === startupLibrary)?.title)
   const steps = $derived(onboardingSteps(focus))
   const totalSteps = $derived(steps.length)
   const stepIndex = $derived(steps.indexOf(step))
@@ -93,7 +107,13 @@
     if (event.key !== 'Tab' || !root) return
     const focusable = [...root.querySelectorAll<HTMLElement>(
       'button:not([disabled]), input:not([disabled]), select:not([disabled]), summary, [href], [tabindex]:not([tabindex="-1"])',
-    )].filter((element) => element.offsetParent !== null)
+    )].filter((element) => element.offsetParent !== null).filter((element, _, candidates) => {
+      // Native radio groups have one tab stop: the checked radio (or the first when unset).
+      if (!(element instanceof HTMLInputElement) || element.type !== 'radio' || !element.name) return true
+      const group = candidates.filter((candidate): candidate is HTMLInputElement =>
+        candidate instanceof HTMLInputElement && candidate.type === 'radio' && candidate.name === element.name)
+      return element === (group.find(radio => radio.checked) ?? group[0])
+    })
     if (!focusable.length) {
       event.preventDefault()
       return
@@ -137,10 +157,10 @@
   function applyProfile() {
     preferredAudioLang.set(audioLanguage)
     preferredSubLang.set(subtitleLanguage)
-    const plan = onboardingCatalogPlan(focus, movieMetadata)
+    const plan = onboardingCatalogPlan(focus, movieMetadata, startupLibrary)
     catalogProviders.set(plan.providers)
     catalogDefaultProvider.set(plan.defaultProvider)
-    selectCatalogScreen(plan.defaultProvider)
+    selectCatalogScreen(resolveCatalogScreenStartup(plan.defaultProvider, get(catalogLastScreen), plan.providers))
 
     if (focus !== 'anime' && movieMetadata === 'tmdb') {
       tmdbReadToken.set(tmdbToken.trim())
@@ -168,7 +188,7 @@
   }
 
   $effect(() => {
-    if (step === 5) void checkSources([...$addonUrls], [...$extensionUrls])
+    if (step === 6) void checkSources([...$addonUrls], [...$extensionUrls])
   })
 
   $effect(() => {
@@ -302,6 +322,22 @@
                 <h2 class="mt-6 text-sm font-semibold">{m.onboarding_stremio_limit_title()}</h2><p class="mt-2 text-sm leading-relaxed text-muted-foreground">{m.onboarding_stremio_limit_body()}</p>
               {/if}
             {:else if step === 5}
+              {@render heading(m.onboarding_startup_title(), m.onboarding_startup_body())}
+              <fieldset class="mt-7 grid gap-3 sm:grid-cols-2">
+                <legend class="sr-only">{m.onboarding_startup_title()}</legend>
+                {#each startupChoices as choice}
+                  <label class="setup-choice startup-choice flex items-center gap-3 cursor-pointer p-4 {startupLibrary === choice.id ? 'selected' : ''}">
+                    <input type="radio" name="startup-library" value={choice.id} bind:group={startupLibrary} data-focusable class="sr-only" />
+                    <choice.Icon size={22} class="shrink-0 text-muted-foreground" />
+                    <span class="min-w-0 flex-1">
+                      <span class="block text-base font-semibold">{choice.title}</span>
+                      <span class="mt-1 block text-sm leading-relaxed text-muted-foreground">{choice.body}</span>
+                    </span>
+                    <span class="grid size-5 shrink-0 place-items-center rounded-full border border-foreground/40">{#if startupLibrary === choice.id}<Check size={13} />{/if}</span>
+                  </label>
+                {/each}
+              </fieldset>
+            {:else if step === 6}
               {@render heading(m.onboarding_preferences_title(), m.onboarding_preferences_body())}
               <div class="mt-7 grid gap-4 sm:grid-cols-2">
                 <label class="grid gap-2 text-sm font-semibold">{m.player_audio_language()}<SelectMenu bind:value={audioLanguage} ariaLabel={m.player_audio_language()} searchable options={PLAYBACK_LANGUAGES} /></label>
@@ -323,6 +359,7 @@
               <dl class="mt-7 divide-y divide-border border-y border-border">
                 <div class="py-5"><dt class="text-xs text-muted-foreground">{m.onboarding_focus_summary()}</dt><dd class="mt-1 text-lg font-semibold">{focus === 'both' ? m.onboarding_both_title() : focus === 'anime' ? m.onboarding_anime_title() : m.onboarding_movies_title()}</dd></div>
                 <div class="py-5"><dt class="text-xs text-muted-foreground">{m.onboarding_catalog_summary()}</dt><dd class="mt-1 text-lg font-semibold">{selectedProvider}</dd></div>
+                {#if focus === 'both'}<div class="py-5"><dt class="text-xs text-muted-foreground">{m.onboarding_startup_summary()}</dt><dd class="mt-1 text-lg font-semibold">{selectedStartup}</dd>{#if startupLibrary === 'adaptive'}<dd class="mt-1 text-sm text-muted-foreground">{m.onboarding_startup_adaptive_body()}</dd>{/if}</div>{/if}
                 {#if focus !== 'anime' && movieMetadata === 'tmdb'}<div class="py-5"><dt class="text-xs text-muted-foreground">{m.onboarding_optional_access_summary()}</dt><dd class="mt-1 text-sm">{tmdbToken.trim() ? m.onboarding_tmdb_token_saved() : m.onboarding_add_later()}</dd></div>{/if}
                 <div class="py-5"><dt class="text-xs text-muted-foreground">{m.onboarding_stremio_sources_summary()}</dt><dd class="mt-1 text-sm">{$stremioAddonSyncState.state === 'synced' ? m.onboarding_stremio_synced({ count: String($stremioAddonSyncState.count) }) : $stremioAuthKey ? m.onboarding_stremio_sync_pending() : m.onboarding_stremio_skipped()}</dd></div>
               </dl>
@@ -334,7 +371,7 @@
         <footer class="setup-actions flex items-center justify-between gap-3">
           {#if step === 0}<button type="button" data-focusable onclick={skip} class="setup-button text-muted-foreground hover:bg-secondary">{m.onboarding_skip()}</button>
           {:else}<button type="button" data-focusable onclick={goBack} disabled={stremioBusy} class="setup-button hover:bg-secondary"><ChevronLeft size={17} />{m.onboarding_back()}</button>{/if}
-          {#if step < 6}<button type="button" data-focusable onclick={goNext} disabled={stremioBusy} class="setup-button bg-foreground text-background">{step === 0 ? m.onboarding_start() : step === 1 && !$stremioAuthKey ? m.onboarding_stremio_continue_without() : m.onboarding_next()}<ArrowRight size={17} /></button>
+          {#if step < 7}<button type="button" data-focusable onclick={goNext} disabled={stremioBusy} class="setup-button bg-foreground text-background">{step === 0 ? m.onboarding_start() : step === 1 && !$stremioAuthKey ? m.onboarding_stremio_continue_without() : m.onboarding_next()}<ArrowRight size={17} /></button>
           {:else}<button type="button" data-focusable onclick={complete} class="setup-button bg-foreground text-background"><Check size={17} />{m.onboarding_finish()}</button>{/if}
         </footer>
       </main>
@@ -384,6 +421,7 @@
     .setup-actions { padding-top: .6rem; }
   }
   .setup-choice { border: 1px solid hsl(var(--border)); border-radius: .75rem; transition: background 150ms, border-color 150ms; }
+  .startup-choice:has(input:focus-visible) { outline: 2px solid hsl(var(--foreground)); outline-offset: 3px; }
   .setup-choice:hover { background: hsl(var(--secondary)); }
   .setup-choice.selected { border-color: hsl(var(--foreground) / .6); background: hsl(var(--foreground) / .05); }
   .setup-button { display: inline-flex; min-height: 2.75rem; align-items: center; justify-content: center; gap: .5rem; border-radius: .5rem; padding: .65rem 1rem; font-size: .85rem; font-weight: 600; transition: background 180ms, transform 180ms; }
