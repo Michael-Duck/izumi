@@ -1,13 +1,23 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { invoke } from '@tauri-apps/api/core'
 import {
   UNKNOWN_DOLBY_CAPABILITIES,
   classifyAudioOutput,
   classifyVideoOutput,
   dolbyVisionOpts,
+  dolbyCapabilities,
+  refreshDolbyCapabilities,
   resolveAudioPassthrough,
   type AudioOutputSettings,
   type DolbyCapabilities,
 } from './dolby'
+
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(), addPluginListener: vi.fn() }))
+
+afterEach(() => {
+  vi.resetAllMocks()
+  dolbyCapabilities.set(UNKNOWN_DOLBY_CAPABILITIES)
+})
 
 const base: AudioOutputSettings = {
   mode: 'pcm', device: 'auto', exclusive: false,
@@ -57,11 +67,23 @@ describe('Dolby audio output policy', () => {
     expect(decision.blockedBy.join(' ')).toContain('speed')
   })
 
-  it('uses reported route capabilities in Auto and accepts MAT for TrueHD', () => {
+  it('requires TrueHD specifically rather than a MAT-only route in Auto', () => {
     expect(resolveAudioPassthrough({ ...base, mode: 'auto' }, reported).codecs)
-      .toEqual(['ac3', 'eac3', 'truehd', 'dts-hd'])
+      .toEqual(['ac3', 'eac3', 'dts-hd'])
+    expect(resolveAudioPassthrough({ ...base, mode: 'auto' }, {
+      ...reported, audio: { ...reported.audio, truehd: true, mat: false },
+    }).codecs).toContain('truehd')
     expect(resolveAudioPassthrough({ ...base, mode: 'auto' }, UNKNOWN_DOLBY_CAPABILITIES).codecs)
       .toEqual([])
+  })
+
+  it('drops stale receiver formats when both platform probes fail', async () => {
+    dolbyCapabilities.set(reported)
+    vi.mocked(invoke).mockRejectedValue(new Error('route unavailable'))
+    const current = await refreshDolbyCapabilities()
+    expect(current.audioConfidence).toBe('unknown')
+    expect(current.receiverDetected).toBe(false)
+    expect(resolveAudioPassthrough({ ...base, mode: 'auto' }, current).codecs).toEqual([])
   })
 
   it('does not treat DTS-UHD/DTS:X as mpv DTS-HD capability', () => {
@@ -113,10 +135,37 @@ describe('live output classification', () => {
     expect(classifyAudioOutput(current)).toBe('unknown')
   })
 
-  it('reports PQ/BT.2020 as HDR10 output, not Dolby Vision output', () => {
-    const current = { ...UNKNOWN_DOLBY_CAPABILITIES.current, videoTransfer: 'pq', videoPrimaries: 'bt.2020' }
+  it('reports the VO target rather than treating HDR input as HDR output', () => {
+    const current = {
+      ...UNKNOWN_DOLBY_CAPABILITIES.current,
+      videoTransfer: 'pq', videoPrimaries: 'bt.2020',
+      videoTargetTransfer: 'pq', videoTargetPrimaries: 'bt.2020',
+    }
     expect(classifyVideoOutput(current)).toBe('hdr10')
     expect(classifyVideoOutput(current, 'hdr10-plus')).toBe('hdr10-plus')
     expect(classifyVideoOutput({ ...current, videoTransfer: 'arib-std-b67' }, 'hlg')).toBe('hlg')
+    expect(classifyVideoOutput({ ...current, videoTargetTransfer: 'bt.1886', videoTargetPrimaries: 'bt.709' })).toBe('sdr')
+    expect(classifyVideoOutput({ ...current, videoTargetTransfer: '', videoTargetPrimaries: '' })).toBe('unknown')
+    expect(classifyVideoOutput({ ...current, videoTargetTransfer: 'linear', videoTargetPrimaries: 'bt.2020' })).toBe('unknown')
+  })
+
+  it('does not label a requested native HDR route as active for another source', () => {
+    const current = { ...UNKNOWN_DOLBY_CAPABILITIES.current, videoTransfer: 'bt.1886' }
+    expect(classifyVideoOutput(current, 'hdr10-plus')).toBe('unknown')
+    expect(classifyVideoOutput(current, 'hlg')).toBe('unknown')
+  })
+
+  it('keeps an absent or unrecognized audio output unknown even with a Dolby source', () => {
+    const current = { ...UNKNOWN_DOLBY_CAPABILITIES.current, audioCodec: 'eac3' }
+    expect(classifyAudioOutput(current)).toBe('unknown')
+    expect(classifyAudioOutput({ ...current, audioFormat: 'spdif-unknown' })).toBe('unknown')
+    expect(classifyAudioOutput({ ...current, audioFormat: 's32' })).toBe('pcm')
+    expect(classifyAudioOutput({ ...current, audioCodec: 'truehd', audioFormat: 'spdif-eac3' })).toBe('eac3')
+  })
+
+  it('does not fall back to source properties when an older backend omits the target', async () => {
+    vi.mocked(invoke).mockResolvedValue({ current: { videoTransfer: 'pq', videoPrimaries: 'bt.2020' } })
+    const result = await refreshDolbyCapabilities()
+    expect(classifyVideoOutput(result.current)).toBe('unknown')
   })
 })

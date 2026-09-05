@@ -1,6 +1,9 @@
 # Dolby playback implementation and validation
 
-Last validated: 2026-08-29
+Last software validation: 2026-09-05. Hardware acceptance remains separate.
+
+See [the September research audit](DOLBY_RESEARCH.md) for verified claims, local engine evidence,
+and proposed improvements, including upstream Profile 7 FEL support.
 
 ## What Izumi supports
 
@@ -18,11 +21,15 @@ Last validated: 2026-08-29
 
 - Decoded PCM is the default.
 - Auto passthrough enables only formats reported for Android's predicted media route. API 33+ additionally requires Android's direct bitstream flag; older Android exposes no predicted-route API, so Izumi conservatively infers only from connected HDMI/USB digital endpoint encodings and labels the result `inferred`. Desktop probing remains conservative because its OS backends do not expose one portable, trustworthy sink-format API; a user can explicitly choose HDMI after checking the receiver.
-- Optical/S/PDIF is restricted to AC-3. E-AC3/TrueHD Atmos requires a suitable HDMI path; TrueHD normally requires direct HDMI or eARC.
+- Optical/S/PDIF is restricted to AC-3 and DTS core. E-AC3/TrueHD Atmos requires a suitable HDMI path; TrueHD normally requires direct HDMI or eARC.
+- MAT is reported separately; a MAT-only report does not enable TrueHD in Auto. A failed capability refresh clears the previous receiver's encoded formats. Android device IDs are diagnostics, not selectable mpv audio-device names.
+- Android's format probes sample 48 kHz stereo/5.1/7.1. They do not prove support for every source sample rate/channel layout, or that libmpv's IEC-61937 output successfully opened.
 - Any audio filter or a playback speed other than 1× disables passthrough before the operation reaches the player. Returning to 1× or disabling the filter reapplies the selected transport policy.
 - Route changes trigger a fresh Android capability probe. A ten-second refresh also updates actual output diagnostics.
 - A native Android DV decoder failure automatically tears down the native route and reloads the same item with libmpv.
 - Native DV is reported only after Media3 exposes `video/dolby-vision` for the active video format. Profile 7 FEL processing is not claimed.
+- Audio diagnostics use `audio-out-params/format`; video diagnostics use `video-target-params`. Decoder/source properties remain separate. Missing target data stays unknown, including Media3 paths that do not expose their final sink/compositor format. Native HDR labels require the verified active track, not just a requested route.
+- Diagnostics include FFmpeg/libplacebo versions and the container's DV profile/level when available. Profile 7 alone does not distinguish MEL from FEL; Profile 8 alone does not distinguish HDR10-compatible 8.1 from HLG-compatible 8.4.
 
 ## Automated validation
 
@@ -38,7 +45,7 @@ Set-Location src-tauri\gen\android
 .\gradlew.bat :app:compileArm64DebugKotlin --console=plain
 ```
 
-The policy tests cover PCM-safe defaults, optical restrictions, AC-3/E-AC3/TrueHD HDMI selection, Android routed-format gating, MAT as a TrueHD-compatible route, filter and speed interlocks, exact DV codec recognition, DRM robustness queries and compatible fallback selection. The Rust source contract prevents either backend from silently dropping the options/probes. Kotlin compilation verifies the Media3, MediaCodec and Android audio APIs together.
+The policy tests cover PCM-safe defaults, optical restrictions, AC-3/E-AC3/TrueHD HDMI selection, Android routed-format gating, rejection of MAT-only TrueHD inference, failed-probe recovery, source-versus-target classification, filter and speed interlocks, exact DV codec recognition, DRM robustness queries and compatible fallback selection. The Rust source contract prevents either backend from silently dropping the options/probes. Kotlin compilation verifies the Media3, MediaCodec and Android audio APIs together.
 
 Release builds use mpv 0.41.0 on Linux/Flatpak, a SHA-256-pinned 2026-08-29 Windows libmpv snapshot, and Media3 1.11.0 on Android. This removes distro-old player behavior from the support floor.
 
@@ -51,13 +58,13 @@ Software-only CI cannot verify an HDMI handshake, an AVR decoder lock, speaker p
 | AC-3 5.1 baseline | HDMI, AC-3 on | Stats says `AC3`; receiver says Dolby Digital, with stable 5.1 channel mapping |
 | E-AC3-JOC Atmos | HDMI, E-AC3 on | Stats says `EAC3`; receiver information screen explicitly says Dolby Atmos/Dolby Digital Plus |
 | TrueHD Atmos | direct HDMI/eARC, TrueHD on | Stats says `TRUEHD`; receiver explicitly says Dolby Atmos/TrueHD and playback is gap/error free |
-| Optical negative case | Optical, all format toggles on | Izumi sends AC-3 only; E-AC3 and TrueHD are not bitstreamed |
+| Optical negative case | Optical, all format toggles on | Izumi allows AC-3 and DTS core only; E-AC3 and TrueHD are not bitstreamed |
 | Processing interlock | Start a verified Atmos stream, enable Dialogue boost | Output changes to PCM and remains audible; disabling the filter at 1× restores the selected encoded route |
 | Speed interlock | Start a verified Atmos stream, select 1.25×, then 1× | Encoded output drops before time stretching and returns only at 1×; no burst/noise occurs |
 | Hot-plug/route change | Auto mode, disconnect/reconnect HDMI | Capability diagnostics change and unsupported bitstreams are not retained |
 | Android native DV | DV-capable Android device and display, known Profile 5/8 sample | Diagnostics say display `yes`, decoder `yes`, native path `yes`; the TV information screen enters Dolby Vision and colors are correct |
 | Android DV fallback | Unsupported DV profile or forced decoder failure | Native path is not claimed; playback automatically continues through libmpv without a purple/green image |
-| Desktop DV conversion | Known DV source, test Auto, HDR10, SDR | Stats reports actual HDR10 only for BT.2020/PQ; SDR reports SDR; neither mode falsely reports native DV |
+| Desktop DV conversion | Known DV source, test Auto, HDR10, SDR | Stats reports HDR10 only for a BT.2020/PQ VO target; SDR reports SDR when the target confirms it; absent target data stays unknown. Confirm the physical signal on the display separately |
 | DRM Dolby | Authorized DV/Atmos service asset | Diagnostics show the exact carrier/path result; a rejected representation changes to a playable compatible variant |
 
 Record the client version, OS/device, GPU/driver, connection topology, TV/AVR model and firmware, source container/codec/profile, and photographs of the TV and receiver information screens. Those receiver/TV observations are the acceptance evidence for Atmos/native DV, not a filename badge or Izumi's source label.

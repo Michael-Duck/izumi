@@ -40,7 +40,7 @@
   const dolbyAudio = $derived(classifyAudioOutput($dolbyCapabilities.current))
   const dolbyVideo = $derived(classifyVideoOutput(
     $dolbyCapabilities.current,
-    $dolbyCapabilities.video.dolbyVisionNativePath,
+    $dolbyCapabilities.video.nativeHdrType || $dolbyCapabilities.video.dolbyVisionNativePath,
   ))
 </script>
 
@@ -52,6 +52,9 @@
   <div class="mt-2 border-t border-white/15 pt-2">
     <div class="flex justify-between gap-3 py-0.5"><span class="text-white/55">Audio output</span><span class="truncate text-right">{dolbyAudio}</span></div>
     <div class="flex justify-between gap-3 py-0.5"><span class="text-white/55">Video output</span><span class="truncate text-right">{dolbyVideo}</span></div>
+    {#if $dolbyCapabilities.current.dolbyVisionProfile}
+      <div class="flex justify-between gap-3 py-0.5"><span class="text-white/55">DV source</span><span class="truncate text-right">P{$dolbyCapabilities.current.dolbyVisionProfile} · L{$dolbyCapabilities.current.dolbyVisionLevel || '?'}</span></div>
+    {/if}
     <div class="flex justify-between gap-3 py-0.5"><span class="text-white/55">VO / AO</span><span class="truncate text-right">{$dolbyCapabilities.current.vo || '—'} / {$dolbyCapabilities.current.ao || '—'}</span></div>
   </div>
 

@@ -15,7 +15,7 @@
   import { qualityNotice, qualityFailedKeys } from '$lib/player/quality'
   import {
     classifyAudioOutput, classifyVideoOutput, dolbyCapabilities, dolbyCapabilityError,
-    refreshDolbyCapabilities,
+    refreshDolbyCapabilities, applyDolbySettings,
   } from '$lib/player/dolby'
   import { drmDolbyStatus } from '$lib/player/drm-dolby'
   import Toggle from '$lib/components/settings/Toggle.svelte'
@@ -294,7 +294,7 @@
         <h3 class="font-bold">Home-theatre audio</h3>
         <p class="mt-1 text-xs text-muted-foreground">Atmos and DTS:X are preserved by sending their original carrier to a compatible receiver. Izumi does not perform object rendering itself.</p>
       </div>
-      <button data-focusable class="shrink-0 rounded bg-secondary px-2 py-1 text-xs font-bold hover:bg-accent" onclick={() => void refreshDolbyCapabilities()}>Recheck</button>
+      <button data-focusable class="shrink-0 rounded bg-secondary px-2 py-1 text-xs font-bold hover:bg-accent" onclick={() => void refreshDolbyCapabilities().then(() => applyDolbySettings())}>Recheck</button>
     </div>
     <label class="mt-3 flex flex-col gap-1">
       <span class="text-sm font-bold">Audio output</span>
@@ -354,8 +354,11 @@
     </div>
     <div class="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3">
       <span class="text-muted-foreground">mpv</span><span class="col-span-1 truncate font-mono sm:col-span-2">{$dolbyCapabilities.mpvVersion || 'not running'}</span>
+      <span class="text-muted-foreground">FFmpeg / libplacebo</span><span class="col-span-1 break-words font-mono sm:col-span-2">{$dolbyCapabilities.ffmpegVersion || 'unknown'} / {$dolbyCapabilities.libplaceboVersion || 'unknown'}</span>
       <span class="text-muted-foreground">Audio output</span><span class="col-span-1 font-mono sm:col-span-2">{audioOutput}</span>
       <span class="text-muted-foreground">Video output</span><span class="col-span-1 font-mono sm:col-span-2">{videoOutput}</span>
+      <span class="text-muted-foreground">Source / target colour</span><span class="col-span-1 font-mono sm:col-span-2">{$dolbyCapabilities.current.videoPrimaries || '?'} / {$dolbyCapabilities.current.videoTransfer || '?'} → {$dolbyCapabilities.current.videoTargetPrimaries || '?'} / {$dolbyCapabilities.current.videoTargetTransfer || '?'}</span>
+      <span class="text-muted-foreground">DV source profile</span><span class="col-span-1 font-mono sm:col-span-2">{$dolbyCapabilities.current.dolbyVisionProfile || 'unknown'} · level {$dolbyCapabilities.current.dolbyVisionLevel || 'unknown'}{#if $dolbyCapabilities.current.dolbyVisionProfile === '7'} · MEL/FEL not determined{/if}</span>
       <span class="text-muted-foreground">Route probe</span><span class="col-span-1 font-mono sm:col-span-2">{$dolbyCapabilities.audioConfidence}</span>
       <span class="text-muted-foreground">Atmos formats</span><span class="col-span-1 font-mono sm:col-span-2">E-AC3 JOC {$dolbyCapabilities.audio.eac3Joc ? 'yes' : 'no'} · TrueHD {$dolbyCapabilities.audio.truehd ? 'yes' : 'no'} · MAT {$dolbyCapabilities.audio.mat ? 'yes' : 'no'}</span>
       <span class="text-muted-foreground">DTS formats</span><span class="col-span-1 font-mono sm:col-span-2">core {$dolbyCapabilities.audio.dts ? 'yes' : 'no'} · HD {$dolbyCapabilities.audio.dtsHd ? 'yes' : 'no'} · MA {$dolbyCapabilities.audio.dtsHdMa ? 'yes' : 'no'} · X/UHD {$dolbyCapabilities.audio.dtsX ? 'yes' : 'no'}</span>

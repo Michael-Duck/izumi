@@ -24,6 +24,8 @@ export interface DolbyCapabilities {
   platform: string
   engine: string
   mpvVersion: string
+  ffmpegVersion: string
+  libplaceboVersion: string
   audioConfidence: CapabilityConfidence
   audio: {
     ac3: boolean
@@ -80,6 +82,10 @@ export interface DolbyCapabilities {
     videoProfile: string
     videoPrimaries: string
     videoTransfer: string
+    videoTargetPrimaries: string
+    videoTargetTransfer: string
+    dolbyVisionProfile: string
+    dolbyVisionLevel: string
   }
   limitations: string[]
 }
@@ -88,6 +94,8 @@ export const UNKNOWN_DOLBY_CAPABILITIES: DolbyCapabilities = {
   platform: 'unknown',
   engine: 'unknown',
   mpvVersion: '',
+  ffmpegVersion: '',
+  libplaceboVersion: '',
   audioConfidence: 'unknown',
   audio: {
     ac3: false, eac3: false, eac3Joc: false, truehd: false, mat: false,
@@ -116,6 +124,7 @@ export const UNKNOWN_DOLBY_CAPABILITIES: DolbyCapabilities = {
   current: {
     ao: '', vo: '', audioDevice: '', audioCodec: '', audioFormat: '',
     videoFormat: '', videoProfile: '', videoPrimaries: '', videoTransfer: '',
+    videoTargetPrimaries: '', videoTargetTransfer: '', dolbyVisionProfile: '', dolbyVisionLevel: '',
   },
   limitations: ['Playback capabilities have not been probed yet.'],
 }
@@ -143,7 +152,7 @@ export interface AudioPassthroughDecision {
 }
 
 /** Resolve the user-facing transport into mpv options. Optical is intentionally restricted to
- * AC-3 and DTS core; lossless E-AC3/TrueHD/DTS-HD need HDMI/eARC. Auto is conservative when a platform cannot report the
+ * AC-3 and DTS core; E-AC3/TrueHD/DTS-HD need a suitable HDMI path. Auto is conservative when a platform cannot report the
  * routed sink — users can explicitly select HDMI after verifying their receiver. */
 export function resolveAudioPassthrough(
   settings: AudioOutputSettings,
@@ -172,7 +181,9 @@ export function resolveAudioPassthrough(
       } else {
         if (settings.ac3 && capabilities.audio.ac3) codecs.push('ac3')
         if (settings.eac3 && (capabilities.audio.eac3 || capabilities.audio.eac3Joc)) codecs.push('eac3')
-        if (settings.truehd && (capabilities.audio.truehd || capabilities.audio.mat)) codecs.push('truehd')
+        // MAT can carry PCM/object audio as well as TrueHD. A MAT-only route report does not
+        // establish that this backend can send TrueHD; require the actual encoded format.
+        if (settings.truehd && capabilities.audio.truehd) codecs.push('truehd')
         if (settings.dtsHd && (capabilities.audio.dtsHd || capabilities.audio.dtsHdMa)) {
           codecs.push('dts-hd')
         } else if (settings.dts && capabilities.audio.dts) {
@@ -304,7 +315,15 @@ export async function refreshDolbyCapabilities(): Promise<DolbyCapabilities> {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     dolbyCapabilityError.set(message)
-    return get(dolbyCapabilities)
+    // A failed re-probe must not keep a disconnected receiver's formats enabled in Auto.
+    const unknownRoute = {
+      ...get(dolbyCapabilities),
+      audioConfidence: 'unknown' as const,
+      audio: { ...UNKNOWN_DOLBY_CAPABILITIES.audio },
+      audioDevices: [], receiverDetected: false, recommendedAudioDevice: '',
+    }
+    dolbyCapabilities.set(unknownRoute)
+    return unknownRoute
   }
 }
 
@@ -357,17 +376,19 @@ export type DolbyAudioOutput = 'pcm' | 'ac3' | 'eac3' | 'truehd' | 'dts' | 'dts-
 export type DolbyVideoOutput = 'sdr' | 'hlg' | 'hdr10' | 'hdr10-plus' | 'dolby-vision' | 'unknown'
 
 export function classifyAudioOutput(current: DolbyCapabilities['current']): DolbyAudioOutput {
-  const value = `${current.audioFormat} ${current.audioCodec}`.toLowerCase()
-  if (/spdif.*dts.?hd|dts.?hd.*spdif/.test(value)) return 'dts-hd'
-  if (/spdif.*dts|dts.*spdif/.test(value)) return 'dts'
-  if (/spdif.*truehd|truehd.*spdif/.test(value)) return 'truehd'
-  if (/spdif.*eac3|eac3.*spdif|e-ac-3.*spdif/.test(value)) return 'eac3'
-  if (/spdif.*ac3|ac3.*spdif/.test(value)) return 'ac3'
+  // This is audio-out-params/format, not the source codec or decoder format. Missing output
+  // evidence must stay unknown, including while the audio device is being reopened.
+  const value = current.audioFormat.trim().toLowerCase()
+  if (/^spdif-dts-?hd$/.test(value)) return 'dts-hd'
+  if (value === 'spdif-dts') return 'dts'
+  if (value === 'spdif-truehd') return 'truehd'
+  if (value === 'spdif-eac3') return 'eac3'
+  if (value === 'spdif-ac3') return 'ac3'
   // Media3 exposes the source MIME but not whether its internal AudioSink opened an encoded or
   // PCM AudioTrack. Leave this unknown; only the receiver or an explicit sink callback can prove
   // passthrough. libmpv's Android path still reports spdif-* above when it is encoded.
   if (/audiotrack/i.test(current.ao) && /^audio\//i.test(current.audioFormat)) return 'unknown'
-  if (value.trim()) return 'pcm'
+  if (/^(?:u8|s16|s32|s64|float|double)p?$/.test(value)) return 'pcm'
   return 'unknown'
 }
 
@@ -375,14 +396,16 @@ export function classifyVideoOutput(
   current: DolbyCapabilities['current'],
   nativeHdrPath: boolean | string = false,
 ): DolbyVideoOutput {
-  if (nativeHdrPath === 'hdr10-plus') return 'hdr10-plus'
-  if (nativeHdrPath === 'hlg') return 'hlg'
+  if (nativeHdrPath === 'hdr10-plus' && /pq|smpte2084/i.test(current.videoTransfer)) return 'hdr10-plus'
+  if (nativeHdrPath === 'hlg' && /arib-std-b67|\bhlg\b/i.test(current.videoTransfer)) return 'hlg'
   if ((nativeHdrPath === true || nativeHdrPath === 'dolby-vision')
     && /dolby|dovi|dvhe/i.test(`${current.videoFormat} ${current.videoProfile}`)) {
     return 'dolby-vision'
   }
-  if (/arib-std-b67|\bhlg\b/i.test(current.videoTransfer)) return 'hlg'
-  if (/pq|smpte2084/i.test(current.videoTransfer) && /2020/i.test(current.videoPrimaries)) return 'hdr10'
-  if (current.videoTransfer || current.videoPrimaries) return 'sdr'
+  // An HDR source can be tone-mapped to SDR. Only the VO target describes rendered output;
+  // neither decoder parameters nor the requested target options establish the actual target.
+  if (/arib-std-b67|\bhlg\b/i.test(current.videoTargetTransfer)) return 'hlg'
+  if (/pq|smpte2084/i.test(current.videoTargetTransfer) && /2020/i.test(current.videoTargetPrimaries)) return 'hdr10'
+  if (/^(?:bt\.1886|srgb|gamma(?:1\.8|2\.0|2\.2|2\.4|2\.6|2\.8)|bt\.709)$/i.test(current.videoTargetTransfer)) return 'sdr'
   return 'unknown'
 }

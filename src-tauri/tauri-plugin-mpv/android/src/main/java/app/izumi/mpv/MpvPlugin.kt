@@ -1820,6 +1820,15 @@ class MpvPlugin(private val activity: Activity) : Plugin(activity), MPVLib.Event
             }
             "audio-codec-name" -> audio?.sampleMimeType.orEmpty()
             "audio-params/format" -> audio?.sampleMimeType.orEmpty()
+            // Media3's source MIME does not reveal its AudioSink's PCM/encoded output. Nor does
+            // input ColorInfo establish the compositor/display target. Keep these unknown.
+            "audio-out-params/format", "video-target-params/primaries", "video-target-params/gamma" -> ""
+            "current-tracks/video/dolby-vision-profile", "current-tracks/video/dolby-vision-level" -> {
+                val match = Regex("(?:^|,)(?:dvhe|dvh1|dvav|dva1|dav1)\\.(\\d{2})\\.(\\d{2})(?:\\.|$)", RegexOption.IGNORE_CASE)
+                    .find(video?.codecs.orEmpty().replace(" ", ""))
+                val part = if (name.endsWith("profile")) 1 else 2
+                match?.groupValues?.get(part)?.toIntOrNull()?.toString().orEmpty()
+            }
             "current-vo" -> "mediacodec-surface"
             "current-ao" -> "audiotrack"
             "audio-device" -> "android-routed"
@@ -2158,11 +2167,14 @@ class MpvPlugin(private val activity: Activity) : Plugin(activity), MPVLib.Event
         }
     }
 
-    private fun directAudioSupported(manager: AudioManager, encoding: Int): Boolean {
-        val routed = routedAudioDevices(manager)
+    private fun directAudioSupported(
+        manager: AudioManager,
+        encoding: Int,
+        routed: List<AudioDeviceInfo> = routedAudioDevices(manager),
+    ): Boolean {
         if (routed.none { encoding in it.encodings }) return false
         if (Build.VERSION.SDK_INT < 33) return true
-        val attributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).build()
+        val attributes = mediaAudioAttributes()
         return listOf(
             AudioFormat.CHANNEL_OUT_STEREO,
             AudioFormat.CHANNEL_OUT_5POINT1,
@@ -2234,23 +2246,24 @@ class MpvPlugin(private val activity: Activity) : Plugin(activity), MPVLib.Event
             deviceJson.put(JSObject()
                 .put("id", device.id.toString())
                 .put("name", device.productName?.toString() ?: "Android output")
+                .put("selectable", false)
                 .put("encodings", encodings))
         }
-        val ac3 = directAudioSupported(manager, AudioFormat.ENCODING_AC3)
-        val eac3 = directAudioSupported(manager, AudioFormat.ENCODING_E_AC3)
+        val ac3 = directAudioSupported(manager, AudioFormat.ENCODING_AC3, devices)
+        val eac3 = directAudioSupported(manager, AudioFormat.ENCODING_E_AC3, devices)
         val joc = Build.VERSION.SDK_INT >= 28 &&
-            directAudioSupported(manager, AudioFormat.ENCODING_E_AC3_JOC)
-        val truehd = directAudioSupported(manager, AudioFormat.ENCODING_DOLBY_TRUEHD)
+            directAudioSupported(manager, AudioFormat.ENCODING_E_AC3_JOC, devices)
+        val truehd = directAudioSupported(manager, AudioFormat.ENCODING_DOLBY_TRUEHD, devices)
         val mat = Build.VERSION.SDK_INT >= 29 &&
-            directAudioSupported(manager, AudioFormat.ENCODING_DOLBY_MAT)
-        val dts = directAudioSupported(manager, AudioFormat.ENCODING_DTS)
-        val dtsHd = directAudioSupported(manager, AudioFormat.ENCODING_DTS_HD)
+            directAudioSupported(manager, AudioFormat.ENCODING_DOLBY_MAT, devices)
+        val dts = directAudioSupported(manager, AudioFormat.ENCODING_DTS, devices)
+        val dtsHd = directAudioSupported(manager, AudioFormat.ENCODING_DTS_HD, devices)
         val dtsHdMa = Build.VERSION.SDK_INT >= 35 &&
-            directAudioSupported(manager, AudioFormat.ENCODING_DTS_HD_MA)
+            directAudioSupported(manager, AudioFormat.ENCODING_DTS_HD_MA, devices)
         val dtsUhdP1 = Build.VERSION.SDK_INT >= 34 &&
-            directAudioSupported(manager, AudioFormat.ENCODING_DTS_UHD_P1)
+            directAudioSupported(manager, AudioFormat.ENCODING_DTS_UHD_P1, devices)
         val dtsUhdP2 = Build.VERSION.SDK_INT >= 36 &&
-            directAudioSupported(manager, AudioFormat.ENCODING_DTS_UHD_P2)
+            directAudioSupported(manager, AudioFormat.ENCODING_DTS_UHD_P2, devices)
         val hdrTypes = if (Build.VERSION.SDK_INT >= 24) supportedHdrTypes() else intArrayOf()
         val dvDisplay = Build.VERSION.SDK_INT >= 24 &&
             hdrTypes.contains(Display.HdrCapabilities.HDR_TYPE_DOLBY_VISION)
@@ -2269,6 +2282,12 @@ class MpvPlugin(private val activity: Activity) : Plugin(activity), MPVLib.Event
             nativeVideo?.colorInfo?.colorTransfer == C.COLOR_TRANSFER_ST2084 && currentSupported == true
         val nativeHlgActive = nativeRouteType == "hlg" && nativeDvPlayer != null &&
             nativeVideo?.colorInfo?.colorTransfer == C.COLOR_TRANSFER_HLG && currentSupported == true
+        val verifiedNativeHdrType = when {
+            nativeDvActive -> "dolby-vision"
+            nativeHdr10PlusActive -> "hdr10-plus"
+            nativeHlgActive -> "hlg"
+            else -> ""
+        }
         val dvProfiles = decoderProfiles(MediaFormat.MIMETYPE_VIDEO_DOLBY_VISION)
             .mapNotNull { dolbyVisionProfileName(it.profile) }.distinct().sorted()
         val hevcMain10 = decoderProfiles(MediaFormat.MIMETYPE_VIDEO_HEVC).any { it.profile in setOf(
@@ -2288,7 +2307,8 @@ class MpvPlugin(private val activity: Activity) : Plugin(activity), MPVLib.Event
         ) }
         val currentVo = nativeProperty("current-vo") ?: mpv?.getPropertyString("current-vo").orEmpty()
         val limitations = JSONArray()
-            .put("Android Atmos is IEC-61937 passthrough; the connected receiver performs object rendering.")
+            .put("Encoded route support does not prove Atmos metadata or receiver object rendering. Media3 may also use platform decoding/spatialization.")
+            .put("Direct format probes test 48 kHz stereo/5.1/7.1; they do not verify every source rate or layout. MAT alone does not enable TrueHD passthrough.")
         if (nativeDvActive) {
             limitations.put("Native Dolby Vision is device/profile dependent; Profile 7 FEL is not claimed without hardware validation.")
         } else {
@@ -2298,6 +2318,8 @@ class MpvPlugin(private val activity: Activity) : Plugin(activity), MPVLib.Event
             .put("platform", "android")
             .put("engine", if (nativeDvPlayer != null) "Media3/MediaCodec" else "libmpv/AudioTrack")
             .put("mpvVersion", mpv?.getPropertyString("mpv-version").orEmpty())
+            .put("ffmpegVersion", mpv?.getPropertyString("ffmpeg-version").orEmpty())
+            .put("libplaceboVersion", mpv?.getPropertyString("libplacebo-version").orEmpty())
             .put("audioConfidence", if (Build.VERSION.SDK_INT >= 33) "reported" else "inferred")
             .put("audio", JSObject()
                 .put("ac3", ac3).put("eac3", eac3).put("eac3Joc", joc)
@@ -2305,8 +2327,9 @@ class MpvPlugin(private val activity: Activity) : Plugin(activity), MPVLib.Event
                 .put("dts", dts).put("dtsHd", dtsHd).put("dtsHdMa", dtsHdMa)
                 .put("dtsX", dtsUhdP1 || dtsUhdP2))
             .put("audioDevices", deviceJson)
-            .put("receiverDetected", devices.isNotEmpty())
-            .put("recommendedAudioDevice", devices.firstOrNull()?.id?.toString().orEmpty())
+            .put("receiverDetected", ac3 || eac3 || joc || truehd || mat || dts || dtsHd || dtsHdMa)
+            // Android device IDs are not mpv audio-device names; output is managed by Android.
+            .put("recommendedAudioDevice", "")
             .put("displays", JSONArray().put(JSObject()
                 .put("id", activity.display?.displayId?.toString() ?: "android-display")
                 .put("name", "Android display")
@@ -2324,7 +2347,7 @@ class MpvPlugin(private val activity: Activity) : Plugin(activity), MPVLib.Event
                 .put("dolbyVisionNativePath", nativeDvActive)
                 .put("hdr10PlusNativePath", nativeHdr10PlusActive)
                 .put("hlgNativePath", nativeHlgActive)
-                .put("nativeHdrType", nativeRouteType?.takeUnless { it.startsWith("audio-") }.orEmpty())
+                .put("nativeHdrType", verifiedNativeHdrType)
                 .put("nativeRouteType", nativeRouteType.orEmpty())
                 .put("dolbyVisionAwareRenderer", currentVo == "gpu-next" || nativeDvActive))
             .put("codecs", JSObject()
@@ -2342,11 +2365,15 @@ class MpvPlugin(private val activity: Activity) : Plugin(activity), MPVLib.Event
                 .put("vo", currentVo)
                 .put("audioDevice", nativeProperty("audio-device") ?: mpv?.getPropertyString("audio-device").orEmpty())
                 .put("audioCodec", nativeProperty("audio-codec-name") ?: mpv?.getPropertyString("audio-codec-name").orEmpty())
-                .put("audioFormat", nativeProperty("audio-params/format") ?: mpv?.getPropertyString("audio-params/format").orEmpty())
+                .put("audioFormat", nativeProperty("audio-out-params/format") ?: mpv?.getPropertyString("audio-out-params/format").orEmpty())
                 .put("videoFormat", nativeProperty("video-format") ?: mpv?.getPropertyString("video-format").orEmpty())
                 .put("videoProfile", nativeProperty("video-params/codec-profile") ?: mpv?.getPropertyString("video-params/codec-profile").orEmpty())
                 .put("videoPrimaries", nativeProperty("video-params/primaries") ?: mpv?.getPropertyString("video-params/primaries").orEmpty())
-                .put("videoTransfer", nativeProperty("video-params/gamma") ?: mpv?.getPropertyString("video-params/gamma").orEmpty()))
+                .put("videoTransfer", nativeProperty("video-params/gamma") ?: mpv?.getPropertyString("video-params/gamma").orEmpty())
+                .put("videoTargetPrimaries", nativeProperty("video-target-params/primaries") ?: mpv?.getPropertyString("video-target-params/primaries").orEmpty())
+                .put("videoTargetTransfer", nativeProperty("video-target-params/gamma") ?: mpv?.getPropertyString("video-target-params/gamma").orEmpty())
+                .put("dolbyVisionProfile", nativeProperty("current-tracks/video/dolby-vision-profile") ?: mpv?.getPropertyString("current-tracks/video/dolby-vision-profile").orEmpty())
+                .put("dolbyVisionLevel", nativeProperty("current-tracks/video/dolby-vision-level") ?: mpv?.getPropertyString("current-tracks/video/dolby-vision-level").orEmpty()))
             .put("limitations", limitations)
     }
 

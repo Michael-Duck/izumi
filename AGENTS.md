@@ -7,3 +7,8 @@
   affects both clients, make the TV-side change in the standalone repository and commit each
   repository independently.
 - Build and physical-TV deployment instructions live in the standalone repository's `AGENTS.md`.
+
+# Documentation
+
+- Put research, audit, and implementation notes in `docs/`, not the repository root.
+- Keep repository entry points and policies (README, CONTRIBUTING, RELEASING, AGENTS, and third-party notices) in the root.
