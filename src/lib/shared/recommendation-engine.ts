@@ -1,0 +1,168 @@
+/**
+ * Izumi recommendation engine v2. Pure, deterministic and runtime-independent.
+ * No Svelte, network, storage, account tokens or global clock. TV vendors this exact file.
+ * Scores express ordering, NOT a probability that someone will like a title.
+ */
+export interface TasteItem {
+  key: string
+  aliases?: string[]
+  title: string
+  provider: string
+  kind?: string
+  genres?: string[]
+  tags?: string[]
+  people?: string[]
+  studios?: string[]
+  language?: string
+  country?: string
+  year?: number
+  quality?: number
+  votes?: number
+}
+export interface TasteSignal {
+  item: TasteItem
+  weight: number
+  at?: number
+  /** Explicit feedback > library tracking > incidental viewing. */
+  priority?: number
+  source?: string
+}
+export interface Recommendation {
+  key: string
+  score: number
+  reason: string
+  evidence: string[]
+  exploration: boolean
+}
+export interface RecommendationOptions {
+  now: number
+  limit?: number
+  excluded?: string[]
+  exploration?: boolean
+}
+
+const DAY = 86_400_000
+const clean = (value: string) => value.trim().toLowerCase().replace(/[ _-]+/g, ' ')
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, Number.isFinite(value) ? value : 0))
+const identity = (item: TasteItem) => [item.key, ...(item.aliases ?? [])]
+const genreName = (value: string) => {
+  const key = clean(value)
+  return ['science fiction', 'sci fi', 'scifi'].includes(key) ? 'science fiction' : key
+}
+
+function features(item: TasteItem): Map<string, { weight: number; label: string }> {
+  const result = new Map<string, { weight: number; label: string }>()
+  const add = (prefix: string, values: string[], weight: number) => {
+    for (const value of values.filter(Boolean).slice(0, 12)) {
+      result.set(prefix + ':' + (prefix === 'genre' ? genreName(value) : clean(value)), { weight, label: value })
+    }
+  }
+  add('genre', item.genres ?? [], 1)
+  add('tag', item.tags ?? [], .7)
+  add('person', item.people ?? [], 1.3)
+  add('studio', item.studios ?? [], .65)
+  add('language', item.language ? [item.language] : [], .3)
+  add('country', item.country ? [item.country] : [], .2)
+  add('kind', item.kind ? [item.kind] : [], .15)
+  if (item.year) add('decade', [String(Math.floor(item.year / 10) * 10)], .15)
+  return result
+}
+
+function fraction(value: string): number {
+  let hash = 2166136261
+  for (let index = 0; index < value.length; index++) hash = Math.imul(hash ^ value.charCodeAt(index), 16777619)
+  return (hash >>> 0) / 4294967295
+}
+
+/** Cross-provider duplicates use verified IDs, never fuzzy title matching (remakes stay distinct).
+ * Union all aliases first so a later bridging record also deduplicates earlier candidates. */
+export function rankRecommendations(candidates: TasteItem[], signals: TasteSignal[], options: RecommendationOptions): Recommendation[] {
+  const parent = new Map<string, string>()
+  const root = (key: string): string => {
+    const next = parent.get(key)
+    if (!next) { parent.set(key, key); return key }
+    if (next === key) return key
+    const result = root(next)
+    parent.set(key, result)
+    return result
+  }
+  for (const item of [...candidates, ...signals.map(signal => signal.item)]) {
+    for (const alias of identity(item)) parent.set(root(alias), root(item.key))
+  }
+  const excluded = new Set((options.excluded ?? []).map(root))
+  const unique = new Map<string, TasteItem>()
+  for (const item of candidates) {
+    const key = root(item.key)
+    if (!excluded.has(key) && !unique.has(key)) unique.set(key, item)
+  }
+  // One title cannot multiply its influence by being present in history, library and two catalogs.
+  const strongest = new Map<string, TasteSignal>()
+  for (const signal of signals) {
+    if (!Number.isFinite(signal.weight) || !signal.weight) continue
+    const key = root(signal.item.key)
+    const prior = strongest.get(key)
+    if (!prior || (signal.priority ?? 0) > (prior.priority ?? 0)
+      || (signal.priority ?? 0) === (prior.priority ?? 0) && Math.abs(signal.weight) > Math.abs(prior.weight)) strongest.set(key, signal)
+  }
+  const seeds = [...strongest.values()].map(signal => ({
+    ...signal,
+    features: features(signal.item),
+    weight: clamp(signal.weight, -3, 3) * (signal.at ? Math.pow(.5, Math.max(0, options.now - signal.at) / (180 * DAY)) : 1),
+  }))
+  const affinity = new Map<string, number>()
+  for (const seed of seeds) for (const [key, feature] of seed.features) {
+    affinity.set(key, (affinity.get(key) ?? 0) + seed.weight * feature.weight)
+  }
+  // Saturation prevents a thousand action titles from making every other genre unreachable.
+  for (const [key, weight] of affinity) affinity.set(key, weight / (2 + Math.abs(weight)))
+  const hasTaste = seeds.some(seed => seed.weight > .05)
+  const scored = [...unique.values()].map(item => {
+    const own = features(item)
+    let affinityScore = 0
+    for (const [key, feature] of own) affinityScore += (affinity.get(key) ?? 0) * feature.weight
+    affinityScore /= Math.sqrt(Math.max(1, (item.genres?.length ?? 0) + (item.tags?.length ?? 0) * .4))
+    const matches = seeds.filter(seed => seed.weight > .05).map(seed => {
+      const shared = [...own.keys()].filter(key => seed.features.has(key) && !/^(kind|decade|country|language):/.test(key))
+      const value = shared.reduce((sum, key) => sum + (own.get(key)?.weight ?? 0), 0) * seed.weight
+      return { seed, shared, value }
+    }).sort((a, b) => b.value - a.value)
+    const best = matches[0]?.value > 0 ? matches[0] : undefined
+    const sharedLabels = best?.shared.filter(key => key.startsWith('genre:') || key.startsWith('tag:')).slice(0, 3).map(key => own.get(key)!.label) ?? []
+    const evidence: string[] = []
+    if (best) {
+      evidence.push(`Connected to “${best.seed.item.title}” in your ${best.seed.source ?? 'viewing activity'}.`)
+      evidence.push(sharedLabels.length ? `Shared interests: ${sharedLabels.join(', ')}.` : 'Shares a credited contributor or studio.')
+    }
+    const quality = item.quality == null ? .55 : clamp(item.quality, 0, 1)
+    const confidence = item.votes == null ? .45 : clamp(Math.log1p(Math.max(0, item.votes)) / 9, .1, 1)
+    const reliableQuality = .55 + (quality - .55) * confidence
+    const score = affinityScore * 2.4 + reliableQuality * .7
+      + fraction(`${Math.floor(options.now / DAY)}:${root(item.key)}`) * .08
+    const reason = best
+      ? sharedLabels.length ? `${sharedLabels.slice(0, 2).join(' + ')} · inspired by ${best.seed.item.title}` : `A creative connection to ${best.seed.item.title}`
+      : hasTaste ? 'Something outside your usual picks' : 'A starting point from your catalogs'
+    if (!best) evidence.push(hasTaste ? 'An exploration pick, not a claimed taste match.' : 'No strong taste match yet. Save titles or mark them not for you to shape future picks.')
+    evidence.push('Ratings are a small tie-breaker, not a predicted match percentage.')
+    return { key: item.key, score, reason, evidence, exploration: !best, item }
+  }).sort((a, b) => b.score - a.score || a.key.localeCompare(b.key))
+  const selected: typeof scored = []
+  const providers = new Map<string, number>()
+  while (scored.length && selected.length < (options.limit ?? 60)) {
+    let bestIndex = 0, bestScore = -Infinity
+    for (let index = 0; index < scored.length; index++) {
+      const candidate = scored[index]
+      const genreSet = new Set((candidate.item.genres ?? []).map(genreName))
+      const repetition = selected.slice(-4).reduce((sum, prior) => {
+        const overlap = (prior.item.genres ?? []).filter(genre => genreSet.has(genreName(genre))).length
+        return sum + overlap / Math.max(1, genreSet.size)
+      }, 0)
+      const variety = options.exploration === false ? 0 : repetition * .2 + (providers.get(candidate.item.provider) ?? 0) * .09
+      const score = candidate.score - variety
+      if (score > bestScore) { bestScore = score; bestIndex = index }
+    }
+    const [picked] = scored.splice(bestIndex, 1)
+    selected.push(picked)
+    providers.set(picked.item.provider, (providers.get(picked.item.provider) ?? 0) + 1)
+  }
+  return selected.map(({ item: _item, ...recommendation }) => recommendation)
+}

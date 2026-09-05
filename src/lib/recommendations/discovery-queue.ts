@@ -1,5 +1,7 @@
 import type { Media } from '$lib/anilist/types'
-import { mediaKey } from '$lib/catalog/identity'
+import { rankRecommendations, type TasteItem } from '$lib/shared/recommendation-engine'
+import { normalizeLang } from '$lib/stremio/sublang'
+import { mediaKey, externalIdsOf } from '$lib/catalog/identity'
 import type { LocalLibraryState } from '$lib/library/local-lists'
 import type { HistoryEntry } from '$lib/player/history'
 import { profiledPersisted } from '$lib/profiles/store'
@@ -9,7 +11,7 @@ const MAX_RECORDS = 500
 
 export type DiscoveryQueueAction = 'skip' | 'dismiss' | 'save'
 
-interface DiscoveryTasteMedia {
+export interface DiscoveryTasteMedia {
   id: number
   catalog?: Media['catalog']
   type?: Media['type']
@@ -17,6 +19,14 @@ interface DiscoveryTasteMedia {
   title: Media['title']
   genres?: string[]
   originalLanguage?: string
+  externalIds?: Media['externalIds']
+  idMal?: number
+  countryOfOrigin?: string
+  startDate?: Media['startDate']
+  tags?: Media['tags']
+  studios?: Media['studios']
+  creators?: Media['creators']
+  staff?: Media['staff']
 }
 
 export interface DiscoveryQueueDecision {
@@ -33,12 +43,17 @@ export interface DiscoveryQueueFeedbackState {
 export interface DiscoveryTasteSeed {
   media: DiscoveryTasteMedia
   weight: number
+  at?: number
+  priority?: number
+  source?: string
 }
 
 export interface DiscoveryQueueItem {
   media: Media
   score: number
   reason: string
+  evidence: string[]
+  exploration: boolean
 }
 
 export const discoveryQueueFeedback = profiledPersisted<DiscoveryQueueFeedbackState>(
@@ -55,6 +70,13 @@ function tasteSnapshot(media: Media): DiscoveryTasteMedia {
     title: media.title,
     genres: media.genres?.slice(0, 12),
     originalLanguage: media.originalLanguage,
+    externalIds: externalIdsOf(media),
+    countryOfOrigin: media.countryOfOrigin,
+    startDate: media.startDate,
+    tags: media.tags?.filter(tag => !tag.isGeneralSpoiler && !tag.isMediaSpoiler).slice(0, 8),
+    studios: media.studios,
+    creators: media.creators?.slice(0, 6),
+    staff: media.staff ? { edges: media.staff.edges.slice(0, 8) } : undefined,
   }
 }
 
@@ -105,7 +127,7 @@ export function libraryTasteSeeds(state: LocalLibraryState): DiscoveryTasteSeed[
     else if (status === 'REPEATING') weight += 0.8
     else if (status === 'DROPPED') weight -= 1.15
     if (score != null && score > 0) weight += (score - 60) / 45
-    return Math.abs(weight) < 0.05 ? [] : [{ media: tasteSnapshot(entry.media), weight }]
+    return Math.abs(weight) < 0.05 ? [] : [{ media: tasteSnapshot(entry.media), weight, at: entry.updatedAt, priority: 2, source: 'library' }]
   })
 }
 
@@ -115,14 +137,14 @@ export function historyTasteSeeds(history: Record<number, HistoryEntry>, now = D
     const recency = Math.exp(-ageDays / 180)
     const total = Math.max(1, entry.media.episodes ?? entry.progress ?? 1)
     const completion = Math.min(1, Math.max(entry.progress, entry.episode * 0.35) / total)
-    return { media: tasteSnapshot(entry.media), weight: 0.35 + recency * 0.3 + completion * 0.35 }
+    return { media: tasteSnapshot(entry.media), weight: 0.35 + recency * 0.3 + completion * 0.35, at: entry.updatedAt, priority: 1, source: 'watch history' }
   })
 }
 
 export function feedbackTasteSeeds(state: DiscoveryQueueFeedbackState): DiscoveryTasteSeed[] {
   return Object.values(state?.records ?? {}).flatMap((record) => {
     if (record.action === 'skip') return []
-    return [{ media: record.media, weight: record.action === 'save' ? 1.1 : -0.85 }]
+    return [{ media: record.media, weight: record.action === 'save' ? 1.1 : -1.4, at: record.at, priority: 3, source: 'discovery choices' }]
   })
 }
 
@@ -132,11 +154,34 @@ interface RankOptions {
   limit?: number
 }
 
-/**
- * Small, local affinity ranker used by the Discovery Queue. It learns only broad genres,
- * languages and formats, so every reason shown to the viewer is truthful and understandable.
- * A future collaborative service can replace the candidate score without changing queue actions.
- */
+/** Provider-neutral features for the shared engine and TV snapshot protocol. */
+export function discoveryTasteItem(media: DiscoveryTasteMedia & Partial<Pick<Media, 'averageScore' | 'ratings'>>): TasteItem {
+  const ids = externalIdsOf(media)
+  const kind = media.format === 'MOVIE' || media.catalog?.type === 'movie' ? 'movie'
+    : media.type === 'MANGA' || media.catalog?.type === 'manga' ? 'manga' : 'show'
+  const provider = media.catalog?.provider ?? 'anilist'
+  return {
+    key: mediaKey(media),
+    aliases: Object.entries(ids).filter(([, value]) => value != null).map(([provider, value]) => `external:${provider}:${provider === 'tmdb' || provider === 'tvdb' ? kind + ':' : ''}${value}`),
+    title: media.title.userPreferred || media.title.english || media.title.romaji || media.title.native || 'Untitled',
+    provider: media.catalog?.sourceName ? provider + ':' + media.catalog.sourceName : provider,
+    kind,
+    genres: media.genres,
+    language: normalizeLang(media.originalLanguage),
+    country: media.countryOfOrigin,
+    year: media.startDate?.year,
+    tags: media.tags?.filter(tag => !tag.isGeneralSpoiler && !tag.isMediaSpoiler && (tag.rank ?? 100) >= 60).map(tag => tag.name),
+    people: [
+      ...(media.creators ?? []).map(name => 'creator:' + name),
+      ...(media.staff?.edges ?? []).filter(edge => /director|creator|original|screenplay/i.test(edge.role))
+        .map(edge => provider + ':' + edge.node.id),
+    ],
+    studios: media.studios?.nodes?.map(studio => studio.name),
+    quality: media.averageScore == null ? undefined : media.averageScore / 100,
+    votes: media.ratings?.find(rating => rating.votes != null)?.votes,
+  }
+}
+
 export function rankDiscoveryQueue(
   candidates: Media[],
   seeds: DiscoveryTasteSeed[],
@@ -144,81 +189,14 @@ export function rankDiscoveryQueue(
   options: RankOptions = {},
 ): DiscoveryQueueItem[] {
   const now = options.now ?? Date.now()
-  const excluded = new Set(options.excludedKeys ?? [])
-  const unique = new Map<string, Media>()
-  for (const media of candidates) {
-    const key = mediaKey(media)
-    if (!excluded.has(key) && !discoveryDecisionHides(feedback?.records?.[key], now)) unique.set(key, media)
-  }
-
-  const genres = affinityMap(seeds.flatMap((seed) => (seed.media.genres ?? []).map((genre) => [genre, seed.weight] as const)))
-  const languages = affinityMap(seeds.flatMap((seed) => seed.media.originalLanguage
-    ? [[seed.media.originalLanguage, seed.weight] as const] : []))
-  const formats = affinityMap(seeds.map((seed) => [seed.media.type ?? seed.media.format ?? '', seed.weight] as const))
-  const hasPositiveTaste = [...genres.values(), ...languages.values(), ...formats.values()].some((value) => value > 0)
-  const day = Math.floor(now / DAY)
-
-  const scored = [...unique.values()].map((media): DiscoveryQueueItem => {
-    const matchingGenres = (media.genres ?? [])
-      .map((genre) => ({ genre, affinity: genres.get(genre) ?? 0 }))
-      .filter((match) => match.affinity > 0)
-      .sort((left, right) => right.affinity - left.affinity)
-    const genreAffinity = matchingGenres.slice(0, 3).reduce((sum, match) => sum + match.affinity, 0)
-    const languageAffinity = languages.get(media.originalLanguage ?? '') ?? 0
-    const formatAffinity = formats.get(media.type ?? media.format ?? '') ?? 0
-    const quality = Math.max(0, Math.min(1, (media.averageScore ?? 65) / 100))
-    const popularity = Math.log1p(Math.max(0, media.popularity ?? 0)) / 12
-    const dailyVariance = stableFraction(`${day}:${mediaKey(media)}`) * 0.16
-    const score = genreAffinity * 1.55 + languageAffinity * 0.55 + formatAffinity * 0.18
-      + quality * 0.72 + popularity * 0.32 + dailyVariance
-    const reason = matchingGenres.length
-      ? `Matches your ${matchingGenres.slice(0, 2).map((match) => match.genre).join(' + ')} taste`
-      : languageAffinity > 0 && media.originalLanguage
-        ? `More from your ${languageName(media.originalLanguage)} picks`
-        : hasPositiveTaste
-          ? 'A fresh turn from your usual picks'
-          : (media.averageScore ?? 0) >= 75
-            ? 'Acclaimed and popular on TMDB'
-            : 'Popular this week on TMDB'
-    return { media, score, reason }
-  }).sort((left, right) => right.score - left.score || mediaKey(left.media).localeCompare(mediaKey(right.media)))
-
-  // Greedy diversity keeps one dominant genre from swallowing the deck while retaining relevance.
-  const result: DiscoveryQueueItem[] = []
-  const remaining = [...scored]
-  const genreUses = new Map<string, number>()
-  while (remaining.length && result.length < (options.limit ?? 60)) {
-    let bestIndex = 0
-    let bestScore = Number.NEGATIVE_INFINITY
-    for (let index = 0; index < remaining.length; index++) {
-      const item = remaining[index]
-      const repetition = (item.media.genres ?? []).slice(0, 3)
-        .reduce((sum, genre) => sum + (genreUses.get(genre) ?? 0), 0) * 0.13
-      if (item.score - repetition > bestScore) {
-        bestScore = item.score - repetition
-        bestIndex = index
-      }
-    }
-    const [picked] = remaining.splice(bestIndex, 1)
-    result.push(picked)
-    for (const genre of (picked.media.genres ?? []).slice(0, 3)) genreUses.set(genre, (genreUses.get(genre) ?? 0) + 1)
-  }
-  return result
-}
-
-function affinityMap(entries: ReadonlyArray<readonly [string, number]>): Map<string, number> {
-  const result = new Map<string, number>()
-  for (const [key, weight] of entries) if (key) result.set(key, (result.get(key) ?? 0) + weight)
-  return result
-}
-
-function stableFraction(value: string): number {
-  let hash = 0x811c9dc5
-  for (let index = 0; index < value.length; index++) hash = Math.imul(hash ^ value.charCodeAt(index), 0x01000193)
-  return (hash >>> 0) / 0xffffffff
-}
-
-function languageName(code: string): string {
-  try { return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) ?? code.toUpperCase() }
-  catch { return code.toUpperCase() }
+  const hidden = Object.entries(feedback?.records ?? {}).filter(([, value]) => discoveryDecisionHides(value, now))
+  const excluded = [
+    ...options.excludedKeys ?? [],
+    ...hidden.flatMap(([key, value]) => [key, ...(discoveryTasteItem(value.media).aliases ?? [])]),
+  ]
+  const byKey = new Map(candidates.map(media => [mediaKey(media), media]))
+  return rankRecommendations(candidates.map(discoveryTasteItem), seeds.map(seed => ({
+    item: discoveryTasteItem(seed.media), weight: seed.weight, at: seed.at, priority: seed.priority, source: seed.source,
+  })), { now, excluded, limit: options.limit })
+    .map(item => ({ ...item, media: byKey.get(item.key)! }))
 }
