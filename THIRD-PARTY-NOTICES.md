@@ -61,6 +61,13 @@ https://github.com/lucide-icons/lucide/blob/main/LICENSE.
 All remaining npm and Cargo dependencies are permissively licensed (MIT, Apache-2.0,
 BSD-3-Clause, ISC). Refer to each package for its full license text.
 
+## Trakt logo — MIT
+
+The Trakt logo mark in `static/brand/trakt.svg` is adapted from the official
+[Trakt API repository](https://github.com/trakt/trakt-api).
+
+Copyright (c) 2024 Trakt Inc. Licensed under the MIT License.
+
 ## Harbor subtitle synchronizer — MIT
 
 Izumi's speech-interval subtitle alignment is adapted from Harbor:

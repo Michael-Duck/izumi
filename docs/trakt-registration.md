@@ -9,7 +9,11 @@ For the desktop/mobile browser connection, register the website callback exactly
 | Redirect URIs | `https://izumi.watch/link/trakt` |
 | JavaScript (CORS) origins | Leave empty; requests use Izumi's native HTTP transport. |
 
-Paste the issued Client ID and Client secret into Settings → Accounts → Trakt. Do not commit either credential. They are stored locally per profile, not distributed with the application or included in device sync. An installed application cannot keep an embedded app secret confidential.
+Official builds supply their public Client ID through the `TRAKT_CLIENT_ID` GitHub Actions
+repository variable (`PUBLIC_TRAKT_CLIENT_ID` inside the frontend build). The Accounts screen uses
+that value by default and still permits replacing it when testing a separately registered Trakt
+application. The matching Client secret remains device-local per profile and is never included in
+the build or device sync; an installed application cannot keep an embedded app secret confidential.
 
 ## How the connection works
 
@@ -24,7 +28,7 @@ The registered URI is the HTTPS site URL, **not** the internal `izumi://` handof
 ## Rollout
 
 - Deploy the sibling `anAnimeThemeForStremio-site` repository to the Cloudflare Pages project serving `izumi.watch`. Check `/link/trakt` returns the connection page with `Cache-Control: no-store` and `Referrer-Policy: no-referrer`.
-- Install an updated native Izumi build, enter the Trakt app credentials in the desired profile, and run a real approval/return test. Existing installed builds only support device authorization and cannot complete this new handoff.
+- Install an updated native Izumi build, enter the matching Trakt app secret in the desired profile (or replace both fields for a separate app), and run a real approval/return test. Existing installed builds only support device authorization and cannot complete this new handoff.
 - The static site needs no secrets or environment variables. Do not deploy the client secret into JavaScript or commit it to either repository. This implementation retains user-supplied, device-local credentials; a centrally managed client credential would require a separate server-side design.
 - Existing device-code sessions keep their saved redirect for refresh until they reconnect with the browser flow. Keep `urn:ietf:wg:oauth:2.0:oob` as a second registered URI if this same Trakt application still serves device authentication or older clients. TV device authorization is unchanged.
 - Automated tests cover local request validation and mocked exchanges. A deployed website and real Trakt credentials are required to verify the provider/OS handoff end to end.

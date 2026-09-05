@@ -126,6 +126,7 @@ modules:
         - PUBLIC_ANILIST_CLIENT_ID
         - PUBLIC_MAL_CLIENT_ID
         - PUBLIC_SIMKL_CLIENT_ID
+        - PUBLIC_TRAKT_CLIENT_ID
         - PUBLIC_OAUTH_REDIRECT_URI
       env:
         CARGO_HOME: /run/build/izumi/cargo

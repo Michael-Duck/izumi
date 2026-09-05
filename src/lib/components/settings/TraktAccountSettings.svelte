@@ -7,6 +7,7 @@
   import {
     traktClientId,
     traktClientSecret,
+    traktAppClientId,
     traktToken,
     traktUserName,
     traktUserSlug,
@@ -15,7 +16,7 @@
   import { cancelTraktBrowserAuth, completeTraktBrowserAuth, startTraktBrowserAuth, traktBrowserAuth } from '$lib/trakt/browser-auth'
 
   let formOpen = $state(false)
-  let clientIdInput = $state($traktClientId)
+  let clientIdInput = $state($traktClientId || traktAppClientId)
   let clientSecretInput = $state($traktClientSecret)
   let busy = $state(false)
   let error = $state('')
@@ -78,7 +79,7 @@
 </script>
 
 {#snippet leading()}
-  <span class="grid size-10 shrink-0 place-items-center rounded-xl bg-[#ed1c24] text-[11px] font-black tracking-[-0.04em] text-white" aria-hidden="true">TRAKT</span>
+  <img src="/brand/trakt.svg" alt="" class="size-10 shrink-0 rounded-xl" aria-hidden="true" />
 {/snippet}
 {#snippet meta()}
   <span class="inline-flex min-w-0 items-center gap-1.5">

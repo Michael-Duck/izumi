@@ -3,6 +3,7 @@ import { trackerHttpFetch } from '$lib/trackers/tracker-http'
 import {
   traktClientId,
   traktClientSecret,
+  traktAppClientId,
   traktRedirectUri,
   traktRefreshToken,
   traktToken,
@@ -22,7 +23,7 @@ let refreshInFlight: Promise<string> | null = null
 
 export function traktCredentials() {
   return {
-    clientId: get(traktClientId).trim(),
+    clientId: get(traktClientId).trim() || traktAppClientId,
     clientSecret: get(traktClientSecret).trim(),
     redirectUri: get(traktRedirectUri).trim() || TRAKT_DEVICE_REDIRECT_URI,
   }

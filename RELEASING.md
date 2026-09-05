@@ -69,8 +69,10 @@ ignores them; the Worker returns `403` if they're missing/wrong.
    curl -H 'repository: izumi' -H 'key: stable' https://anmw-prod-distnet.quack.si/stable/latest.json
    ```
 
-5. **Commit `.env`** (public OAuth client IDs) so the CI frontend build has the
-   `PUBLIC_*` vars — they are not secrets.
+5. **Set repository Actions variables** for the public OAuth configuration used by every CI,
+   preview and release build: `ANILIST_CLIENT_ID`, `MAL_CLIENT_ID`, `SIMKL_CLIENT_ID`,
+   `TRAKT_CLIENT_ID`, and `OAUTH_REDIRECT_URI`. These values identify public applications; do not
+   put any OAuth client secret in a workflow or frontend build.
 
 6. **Windows libmpv in CI**: the `.github/workflows/release.yml` Windows step downloads a
    libmpv dev build, generates `mpv.lib`, and bundles `libmpv-2.dll`. Pin it to the exact

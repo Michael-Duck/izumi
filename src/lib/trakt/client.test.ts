@@ -13,7 +13,7 @@ import {
   traktToken,
   traktTokenExpiry,
 } from './config'
-import { resetTraktClientForTests, traktFetch } from './client'
+import { resetTraktClientForTests, traktCredentials, traktFetch } from './client'
 
 describe('Trakt API client', () => {
   beforeEach(() => {
@@ -39,6 +39,11 @@ describe('Trakt API client', () => {
       'trakt-api-key': 'client-id',
       'trakt-api-version': '2',
     })
+  })
+
+  it('falls back to the public build client ID when the profile has no override', () => {
+    traktClientId.set('')
+    expect(traktCredentials().clientId).toBe('trakt-test-client-id')
   })
 
   it('refreshes an expired token and persists Trakt’s single-use replacement refresh token', async () => {

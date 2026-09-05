@@ -1,11 +1,15 @@
 import { profiledPersisted } from '$lib/profiles/store'
+import * as publicEnv from '$env/static/public'
 import type { TraktQueuedAction } from './types'
 import { TRAKT_SITE_REDIRECT_URI } from './oauth'
 export { TRAKT_SITE_REDIRECT_URI } from './oauth'
 
-/** The registered Trakt application credentials are supplied by the user on this device.
- * These credentials stay in the active Izumi profile's local storage and are never synced. */
-export const traktClientId = profiledPersisted('trakt-client-id', '')
+/** Official builds provide their public application ID at build time. A profile can still replace
+ * it together with the matching secret when using a separately registered Trakt application. */
+export const traktAppClientId = (publicEnv as Record<string, string | undefined>).PUBLIC_TRAKT_CLIENT_ID?.trim() ?? ''
+export const traktClientId = profiledPersisted('trakt-client-id', traktAppClientId)
+/** Trakt currently requires the matching secret for token exchange and refresh. Unlike the public
+ * client ID, it stays in the active profile's local storage and is never built in or synced. */
 export const traktClientSecret = profiledPersisted('trakt-client-secret', '')
 export const TRAKT_DEVICE_REDIRECT_URI = 'urn:ietf:wg:oauth:2.0:oob'
 // Existing device-code sessions retain their original value until the next browser connection.

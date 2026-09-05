@@ -19,4 +19,9 @@ describe('native Trakt account settings', () => {
     expect(component).toContain('role="alert"')
     expect(component).toContain('Open profile')
   })
+
+  it('shows the official Trakt logo mark', () => {
+    expect(component).toContain('src="/brand/trakt.svg"')
+    expect(component).not.toContain('>TRAKT</span>')
+  })
 })
