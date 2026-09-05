@@ -21,6 +21,7 @@
   import Toggle from '$lib/components/settings/Toggle.svelte'
   import { open } from '@tauri-apps/plugin-dialog'
   import { isAndroid, isWindows } from '$lib/platform'
+  import { PLAYBACK_LANGUAGES } from '$lib/shared/languages'
   import SelectMenu from '$lib/components/settings/SelectMenu.svelte'
   import { m } from '$lib/paraglide/messages.js'
 
@@ -66,18 +67,11 @@
   <div class="mb-4 grid max-w-2xl gap-3 sm:grid-cols-2">
     <label class="flex flex-col gap-1">
       <span class="text-sm font-bold">{m.player_audio_language()}</span>
-      <SelectMenu bind:value={$preferredAudioLang} ariaLabel={m.player_audio_language()} options={[
-        { value: 'jpn', label: 'Japanese' },
-        { value: 'eng', label: 'English' },
-      ]} />
+      <SelectMenu bind:value={$preferredAudioLang} ariaLabel={m.player_audio_language()} searchable options={PLAYBACK_LANGUAGES} />
     </label>
     <label class="flex flex-col gap-1">
       <span class="text-sm font-bold">{m.player_subtitle_language()}</span>
-      <SelectMenu bind:value={$preferredSubLang} ariaLabel={m.player_subtitle_language()} options={[
-        { value: 'eng', label: 'English' },
-        { value: 'jpn', label: 'Japanese' },
-        { value: 'none', label: 'Off' },
-      ]} />
+      <SelectMenu bind:value={$preferredSubLang} ariaLabel={m.player_subtitle_language()} searchable options={[...PLAYBACK_LANGUAGES.slice(0, 2), { value: 'none', label: m.cast_subtitles_off() }, ...PLAYBACK_LANGUAGES.slice(2)]} />
     </label>
 
     <!-- Video-quality presets drive desktop mpv and the embedded Android libmpv plugin.

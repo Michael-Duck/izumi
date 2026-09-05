@@ -18,17 +18,22 @@
     onChange,
     className = '',
     ariaLabel,
+    searchable = false,
   }: {
     value: string
     options: SelectOption[]
     onChange?: (value: string) => void
     className?: string
     ariaLabel?: string
+    searchable?: boolean
   } = $props()
 
   let root: HTMLDivElement
   let trigger: HTMLButtonElement
   let open = $state(false)
+  let query = $state('')
+  let searchInput = $state<HTMLInputElement>()
+  const filteredOptions = $derived(options.filter(option => !query || `${option.label} ${option.value}`.toLowerCase().includes(query.toLowerCase())))
   const selected = $derived(options.find((option) => option.value === value) ?? options[0])
 
   // Placement: a menu anchored below a trigger that sits low on the screen used to run straight off
@@ -63,7 +68,7 @@
   }
 
   async function setOpen(next: boolean) {
-    if (next) measure()
+    if (next) { query = ''; measure() }
     open = next
     if (!next) return
     await tick()
@@ -71,7 +76,7 @@
     measure(menu?.scrollHeight)
     const current = root.querySelector<HTMLElement>(`[data-select-value="${CSS.escape(value)}"]`)
     const first = root.querySelector<HTMLElement>('[data-select-value]:not(:disabled)')
-    ;(current ?? first)?.focus({ preventScroll: true })
+    ;(searchable ? searchInput : current ?? first)?.focus({ preventScroll: true })
   }
 
   function choose(option: SelectOption) {
@@ -132,7 +137,13 @@
 </script>
 
 {#snippet optionList()}
-  {#each options as option (option.value)}
+  {#if searchable}
+    <input bind:this={searchInput} bind:value={query} type="search" aria-label={`Search ${ariaLabel ?? 'options'}`} placeholder="Search languages…" class="sticky top-0 mb-1 w-full rounded-md border border-border bg-background px-3 py-3 text-sm outline-none focus:border-foreground" />
+  {/if}
+  <!-- Conditional listbox is programmatically focusable only; never a positive tab stop. -->
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+  <div role={searchable ? 'listbox' : undefined} aria-label={searchable ? ariaLabel : undefined} tabindex={searchable ? -1 : undefined}>
+  {#each filteredOptions as option (option.value)}
     <button
       type="button"
       data-focusable
@@ -147,6 +158,8 @@
       {#if option.value === value}<Check size={15} class="shrink-0 text-primary" />{/if}
     </button>
   {/each}
+  </div>
+  {#if !filteredOptions.length}<p role="status" class="px-3 py-4 text-sm text-muted-foreground">No matching language</p>{/if}
 {/snippet}
 
 <div bind:this={root} class="relative {className}" data-nav-trap={open ? '' : undefined}>
@@ -172,7 +185,7 @@
            parent; the fixed panel gets the full width minus margins. -->
       <div
         bind:this={menu}
-        role="listbox"
+        role={searchable ? 'dialog' : 'listbox'}
         tabindex="-1"
         aria-label={ariaLabel}
         class="fixed left-3 right-3 z-[80] overflow-y-auto overscroll-contain rounded-md border border-border bg-background p-1 text-foreground shadow-xl"
@@ -184,7 +197,7 @@
     {:else}
       <div
         bind:this={menu}
-        role="listbox"
+        role={searchable ? 'dialog' : 'listbox'}
         tabindex="-1"
         aria-label={ariaLabel}
         class="absolute left-0 z-[80] min-w-full overflow-y-auto overscroll-contain rounded-md border border-border bg-background p-1 text-foreground shadow-xl

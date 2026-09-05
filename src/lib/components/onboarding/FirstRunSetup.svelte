@@ -11,12 +11,12 @@
   import EyeOff from '@lucide/svelte/icons/eye-off'
   import ExternalLink from '@lucide/svelte/icons/external-link'
   import Film from '@lucide/svelte/icons/film'
-  import Languages from '@lucide/svelte/icons/languages'
   import LibraryBig from '@lucide/svelte/icons/library-big'
   import Play from '@lucide/svelte/icons/play'
   import Sparkles from '@lucide/svelte/icons/sparkles'
   import { fetchExtensionInfo } from '$lib/extensions/manager'
-  import { getLocale, setLocale, type Locale } from '$lib/paraglide/runtime.js'
+  import SelectMenu from '$lib/components/settings/SelectMenu.svelte'
+  import { PLAYBACK_LANGUAGES } from '$lib/shared/languages'
   import { m } from '$lib/paraglide/messages.js'
   import {
     catalogDefaultProvider,
@@ -50,7 +50,6 @@
 
   let root = $state<HTMLElement>()
   let step = $state(0)
-  let locale = $state(getLocale())
   let focus = $state<OnboardingFocus>(initialProvider === 'merged' ? 'both' : initialProvider === 'tmdb' || initialProvider === 'stremio' ? 'movies' : 'anime')
   let movieMetadata = $state<OnboardingMovieMetadata>(initialProvider === 'stremio' ? 'stremio' : 'tmdb')
   let tmdbToken = $state(get(tmdbReadToken))
@@ -78,10 +77,6 @@
     m.onboarding_review_step(),
   ])
 
-  function changeLocale(next: Locale) {
-    locale = next
-    setLocale(next)
-  }
 
   function goBack() {
     if (stepIndex > 0) step = steps[stepIndex - 1]
@@ -218,14 +213,6 @@
         <div class="mx-auto max-w-3xl">
           {#if step === 0}
             {@render heading(m.onboarding_welcome_title(), m.onboarding_welcome_body())}
-            <div class="mt-9">
-              <h2 class="mb-3 flex items-center gap-2 text-sm font-semibold"><Languages size={17} />{m.onboarding_language()}</h2>
-              <div class="grid grid-cols-2 gap-3">
-                {#each [{ id: 'en', label: 'English' }, { id: 'ja', label: '日本語' }] as choice}
-                  <button type="button" data-focusable onclick={() => changeLocale(choice.id as Locale)} aria-pressed={locale === choice.id} class="setup-choice min-h-14 px-4 text-left font-semibold {locale === choice.id ? 'selected' : ''}">{choice.label}</button>
-                {/each}
-              </div>
-            </div>
             <p class="mt-8 border-t border-border pt-5 text-xs leading-relaxed text-muted-foreground">{m.onboarding_once_detail()}</p>
           {:else if step === 1}
             {@render heading(m.onboarding_focus_title(), m.onboarding_focus_body())}
@@ -294,8 +281,8 @@
           {:else if step === 4}
             {@render heading(m.onboarding_preferences_title(), m.onboarding_preferences_body())}
             <div class="mt-7 grid gap-4 sm:grid-cols-2">
-              <label class="grid gap-2 text-sm font-semibold">{m.player_audio_language()}<select data-focusable bind:value={audioLanguage} class="h-12 rounded-lg bg-input px-3 font-normal"><option value="jpn">Japanese</option><option value="eng">English</option></select></label>
-              <label class="grid gap-2 text-sm font-semibold">{m.player_subtitle_language()}<select data-focusable bind:value={subtitleLanguage} class="h-12 rounded-lg bg-input px-3 font-normal"><option value="eng">English</option><option value="jpn">日本語</option><option value="none">{m.cast_subtitles_off()}</option></select></label>
+              <label class="grid gap-2 text-sm font-semibold">{m.player_audio_language()}<SelectMenu bind:value={audioLanguage} ariaLabel={m.player_audio_language()} searchable options={PLAYBACK_LANGUAGES} /></label>
+              <label class="grid gap-2 text-sm font-semibold">{m.player_subtitle_language()}<SelectMenu bind:value={subtitleLanguage} ariaLabel={m.player_subtitle_language()} searchable options={[...PLAYBACK_LANGUAGES.slice(0, 2), { value: 'none', label: m.cast_subtitles_off() }, ...PLAYBACK_LANGUAGES.slice(2)]} /></label>
             </div>
             <h2 class="mt-9 text-base font-semibold">{m.onboarding_connections_title()}</h2><p class="mt-2 text-sm text-muted-foreground">{m.onboarding_connections_body()}</p>
             <div class="mt-4 divide-y divide-border border-y border-border">
@@ -336,6 +323,6 @@
   .setup-choice:hover { background: hsl(var(--secondary)); }
   .setup-choice.selected { border-color: hsl(var(--foreground) / .6); background: hsl(var(--foreground) / .05); }
   .setup-button { display: inline-flex; min-height: 2.75rem; align-items: center; justify-content: center; gap: .5rem; border-radius: .5rem; padding: .65rem 1rem; font-size: .8rem; font-weight: 600; }
-  .onboarding-surface button:focus-visible, .onboarding-surface input:focus-visible, .onboarding-surface select:focus-visible, .onboarding-surface summary:focus-visible { outline: 2px solid hsl(var(--foreground)); outline-offset: 3px; }
+  .onboarding-surface button:focus-visible, .onboarding-surface input:focus-visible, .onboarding-surface summary:focus-visible { outline: 2px solid hsl(var(--foreground)); outline-offset: 3px; }
   @media (prefers-reduced-motion: reduce) { .setup-choice { transition: none; } }
 </style>

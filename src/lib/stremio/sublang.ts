@@ -1,3 +1,5 @@
+import { LANGUAGE_DATA } from '../shared/languages'
+
 // Subtitle language normalization.
 //
 // Providers label subtitle tracks with whatever the source site happened to print: an ISO code
@@ -59,10 +61,14 @@ const LANGS: { code: string; aliases: string[] }[] = [
  * declare: a source may declare nothing, and a user may want to choose a language before adding a
  * source that serves it. Provider manifests use 639-1, so that is what is stored and compared.
  */
-export const SOURCE_LANGUAGES: string[] = LANGS
-  .map((l) => l.aliases.find((a) => a.length === 2))
-  .filter((c): c is string => !!c)
-  .sort()
+export const SOURCE_LANGUAGES: string[] = [...new Set(LANGUAGE_DATA.map(row => row.iso1).filter(Boolean))].sort()
+
+const ISO_ALIASES = new Map<string, string>()
+for (const row of LANGUAGE_DATA) {
+  for (const alias of [row.code, row.terminology, row.iso1, ...row.name.toLowerCase().split(';').map(name => name.trim())]) {
+    if (alias) ISO_ALIASES.set(alias.replace(/[\s_]+/g, ''), row.code)
+  }
+}
 
 const BY_ALIAS = new Map<string, string>()
 for (const { code, aliases } of LANGS) {
@@ -124,6 +130,8 @@ export function normalizeLang(raw: string | undefined): string | undefined {
   // and avoids a stray token in a long label winning over the label's real meaning.
   const whole = trimmed.toLowerCase().replace(/[\s_]+/g, '')
   if (BY_ALIAS.has(whole)) return BY_ALIAS.get(whole)
+  if (ISO_ALIASES.has(whole)) return ISO_ALIASES.get(whole)
+  if (isBcp47Locale(trimmed)) return ISO_ALIASES.get(trimmed.toLowerCase().split(/[-_]/)[0])
   const parts = tokens(trimmed)
   // A region-tagged code ('pt-BR' → ['pt','br']) resolves on its first token.
   for (const t of parts) {
