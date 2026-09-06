@@ -8,6 +8,8 @@ import { parseStreamDrm } from '$lib/player/drm'
 import { memo, cacheableList } from './online-cache'
 import { currentResolveTrace, traceResolve, traceResolveError } from '$lib/debug/resolve-trace'
 import { sourceTitleAliases } from './title-aliases'
+import { anilistIdOf } from '$lib/catalog/identity'
+import { nuvioMediaType, nuvioQueryArgs, nuvioVideoSources } from '$lib/extensions/nuvio-query'
 
 // Serial alias-search bounds (see findEp). A provider answers or it doesn't — walking every
 // synonym only multiplies a dead provider's timeout, and it used to do so per episode.
@@ -392,7 +394,9 @@ export async function resolveOnlineStreams(
   media: Media, episode: number | undefined, onlyId?: string, onBatch?: (rs: Stream[]) => void,
   signal?: AbortSignal,
 ): Promise<Stream[]> {
-  if (episode == null) return []
+  const requestedEpisode = episode
+  if (episode == null && nuvioMediaType(media) !== 'movie') return []
+  episode ??= 1
   const trace = currentResolveTrace(media.id, episode)
   // Superseded resolve (user already picked a source): issue NO hops — every scrape below spawns
   // worker HTTP that competes with the picked source's playback path. Checked again before each
@@ -412,9 +416,19 @@ export async function resolveOnlineStreams(
   // costs nothing, so this is the cheapest speed control as well as a relevance one.
   const allowedLangs = get(providerLanguages)
   const exts = [...unordered]
+    .filter((e) => requestedEpisode != null || e.runtime === 'nuvio')
     .filter((e) => allowedByLanguage(e.lang, allowedLangs))
     .sort((a, b) => langRank(a.lang, prefLang) - langRank(b.lang, prefLang))
   if (!exts.length) return []
+  // Lazy and shared: metadata mappings are only needed when a Nuvio provider is queried.
+  let nuvioArgs: Promise<ReturnType<typeof nuvioQueryArgs>> | undefined
+  const getNuvioArgs = () => nuvioArgs ??= (async () => {
+    const anilistId = anilistIdOf(media)
+    const mapped = anilistId
+      ? await (await import('$lib/anizip')).getExtensionIds(anilistId, requestedEpisode).catch(() => ({}))
+      : {}
+    return nuvioQueryArgs(media, requestedEpisode, mapped)
+  })()
   traceResolve(trace, 'online providers ready', {
     configured: unordered.length,
     queried: exts.map((extension) => extension.name),
@@ -548,6 +562,30 @@ export async function resolveOnlineStreams(
     const providerStartedAt = performance.now()
     traceResolve(trace, 'online provider start', { provider: ext.name, language: ext.lang })
     try {
+      if (ext.runtime === 'nuvio') {
+        if (ext.supportedTypes && !ext.supportedTypes.includes(nuvioMediaType(media))) return []
+        const args = await getNuvioArgs()
+        if (signal?.aborted) return []
+        const result = await ext.call('getStreams', ...args)
+        if (signal?.aborted) return []
+        const seen = new Set<string>()
+        const audioFilter = get(providerAudio)
+        const rows = nuvioVideoSources(result).flatMap(({ video, title, description }, index) => {
+          if (audioFilter !== 'both' && video.audio && video.audio !== audioFilter) return []
+          // Header variants can represent different routes even when their URL is identical.
+          const key = JSON.stringify([video.url, Object.entries(video.headers ?? {}).sort(), video.audio])
+          if (seen.has(key)) return []
+          seen.add(key)
+          const row = videoSourceToStream(video, 'default', {}, ext.name,
+            title, undefined, ext.id, ext.lang, !!ext.lang && !matchesPreferredLang(ext.lang, prefLang),
+            subLang, titles[0], index)
+          return [{ ...row, title, description, __logo: ext.icon }]
+        })
+        traceResolve(trace, 'online provider finish', { provider: ext.name, rows: rows.length,
+          durationMs: Math.round(performance.now() - providerStartedAt) })
+        if (rows.length) onBatch?.(rows)
+        return rows
+      }
       // Settings first: `supportsDub` decides whether a dub pass is worth running at all, so a
       // sub-only provider is never queried twice. Memoized because it never varies per episode and
       // was costing a serial worker round-trip before any network request could start.

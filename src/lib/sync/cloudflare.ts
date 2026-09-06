@@ -2,8 +2,9 @@ import { get, writable } from 'svelte/store'
 import { persisted } from 'svelte-persisted-store'
 import type { CompanionHomeSnapshot, CompanionMedia, CompanionPlaybackMode } from '$lib/companion/protocol'
 import type { SyncRecord, SyncStatus } from './types'
+import { chunkHash, MAX_SYNC_BYTES, parseChunkManifest, splitSyncPayload, type ChunkManifest } from './record-chunks'
 
-export const CLOUDFLARE_WORKER_VERSION = '1.8.0'
+export const CLOUDFLARE_WORKER_VERSION = '1.10.0'
 export const CLOUDFLARE_WORKER_PROTOCOL = 1
 export const CLOUDFLARE_GIT_DEPLOY_URL =
   'https://deploy.workers.cloudflare.com/?url=https://github.com/nickEatsBread/izumi/tree/main/cloudflare-sync-worker'
@@ -61,6 +62,7 @@ interface WorkerStatus {
   protocol: number
   claimed: boolean
   features?: string[]
+  recordChunks?: number
 }
 
 export interface CloudflareCompanionTransport {
@@ -82,6 +84,7 @@ export interface CloudflareCompanionRequest {
 }
 
 export interface CloudflareResolverProfile {
+  collections?: import('$lib/catalog/collections/model').HomeCollection[]
   household?: import('$lib/profiles/store').ProfileState
   enabled: boolean
   addons: string[]
@@ -141,6 +144,9 @@ interface InviteTicket {
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 const REQUEST_TIMEOUT_MS = 12_000
+// Leave room for GCM, base64, the envelope, and the outer request JSON below 512 KiB.
+const MAX_RECORD_PLAINTEXT_BYTES = 360 * 1024
+// Companion snapshots retain their independent protocol and existing limit.
 const MAX_PLAINTEXT_BYTES = 384 * 1024
 
 function bytesToBase64Url(bytes: Uint8Array): string {
@@ -340,6 +346,19 @@ export async function saveCloudflareResolverProfile(profile: CloudflareResolverP
 export async function deleteCloudflareResolverProfile(): Promise<void> {
   const config = companionConfig()
   await workerRequest(config.endpoint, '/v1/resolver/profile', { method: 'DELETE' }, config.deviceToken)
+}
+
+export interface CloudAccountState {
+  service: 'nuvio' | 'stremio'; connected: boolean; email: string; profile: number | null;
+  sources: boolean; playback: boolean; updatedAt: number | null
+}
+
+export async function cloudAccountRequest<T>(profileId: string, input?: Record<string, unknown>): Promise<T> {
+  const config = companionConfig()
+  const status = await getCloudflareWorkerStatus(config.endpoint)
+  if (!status.features?.includes('companion-accounts-v1')) throw new Error('Update your Cloudflare Worker to use TV accounts.')
+  return workerRequest<T>(config.endpoint, input ? '/v1/accounts' : `/v1/accounts?profileId=${encodeURIComponent(profileId)}`,
+    input ? { method: 'POST', body: JSON.stringify({ ...input, profileId }) } : {}, config.deviceToken)
 }
 
 export async function updateCloudflareCompanionRequest(
@@ -646,7 +665,7 @@ export async function readCloudflareCompanionProgress(
 
 async function encryptPayload(config: CloudflareSyncConfig, category: string, payload: string): Promise<string> {
   const plain = encoder.encode(payload)
-  if (plain.byteLength > MAX_PLAINTEXT_BYTES) throw new Error('Sync data is too large for the Cloudflare Worker.')
+  if (plain.byteLength > MAX_RECORD_PLAINTEXT_BYTES) throw new Error('Sync data is too large for the Cloudflare Worker.')
   const iv = crypto.getRandomValues(new Uint8Array(12))
   const encrypted = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv, additionalData: encoder.encode(`${category}:${config.deviceId}`) },
@@ -679,14 +698,72 @@ async function decryptPayload(
   }
 }
 
+type CachedChunk = { id: string; encrypted: string }
+const chunkCaches = new Map<string, Map<string, CachedChunk>>()
+const recordWrites = new Map<string, Promise<void>>()
+const publishedRecords = new Map<string, string>()
+const receivedRecords = new Map<string, { encrypted: string; record: SyncRecord }>()
+const chunkScope = (config: CloudflareSyncConfig, category: string) => `${config.endpoint}:${config.deviceId}:${config.groupKey}:${category}`
+
 export async function writeCloudflareRecord(category: string, payload: string): Promise<void> {
   const config = get(cloudflareSyncConfig)
   if (!configReady(config)) throw new Error('This device is not connected to a Cloudflare Worker.')
+  const scope = chunkScope(config, category)
+  // Manual sync and the automatic timer can overlap. Commit in invocation order per record.
+  const previous = recordWrites.get(scope) ?? Promise.resolve()
+  const writing = previous.catch(() => {}).then(() => writeCloudflarePayload(config, category, payload))
+  recordWrites.set(scope, writing)
+  try { await writing } finally { if (recordWrites.get(scope) === writing) recordWrites.delete(scope) }
+}
+
+async function writeCloudflarePayload(config: CloudflareSyncConfig, category: string, payload: string): Promise<void> {
+  const scope = chunkScope(config, category)
+  const payloadHash = await chunkHash(payload)
+  if (publishedRecords.get(scope) === payloadHash) return
+  if (encoder.encode(payload).byteLength > MAX_RECORD_PLAINTEXT_BYTES) {
+    const pieces = splitSyncPayload(payload)
+    const status = await getCloudflareWorkerStatus(config.endpoint)
+    if (status.recordChunks !== 1) throw new Error('Update your Cloudflare Worker in Device sync settings to sync this larger library. Your local history is safe.')
+    const scope = chunkScope(config, category)
+    const previous = chunkCaches.get(scope) ?? new Map<string, CachedChunk>()
+    const next = new Map<string, CachedChunk>()
+    const chunks: string[] = []
+    for (const piece of pieces) {
+      const fingerprint = await chunkHash(piece)
+      let chunk = previous.get(fingerprint) ?? next.get(fingerprint)
+      if (!chunk) {
+        const encrypted = await encryptPayload(config, `${category}:chunk`, piece)
+        chunk = { id: await chunkHash(encrypted), encrypted }
+        await workerRequest(config.endpoint, `/v1/record-chunks/${category}/${config.deviceId}/${chunk.id}`, {
+          method: 'PUT', body: JSON.stringify({ payload: encrypted }),
+        }, config.deviceToken)
+      }
+      next.set(fingerprint, chunk)
+      chunks.push(chunk.id)
+    }
+    const manifest: ChunkManifest = { kind: 'izumi-record-chunks', version: 1, bytes: encoder.encode(payload).byteLength, chunks }
+    const encrypted = await encryptPayload(config, category, JSON.stringify(manifest))
+    try {
+      await workerRequest(config.endpoint, `/v1/records/${category}`, {
+        method: 'PUT', body: JSON.stringify({ payload: encrypted, chunks }),
+      }, config.deviceToken)
+    } catch (cause) {
+      // A restored/cleaned Worker might no longer have a cached chunk. The next attempt reuploads
+      // the complete snapshot; never publish a partial library or silently discard local records.
+      chunkCaches.delete(scope)
+      throw cause
+    }
+    chunkCaches.set(scope, next)
+    publishedRecords.set(scope, payloadHash)
+    return
+  }
   const encrypted = await encryptPayload(config, category, payload)
   await workerRequest<{ ok: true }>(config.endpoint, `/v1/records/${category}`, {
     method: 'PUT',
     body: JSON.stringify({ payload: encrypted }),
   }, config.deviceToken)
+  chunkCaches.delete(chunkScope(config, category))
+  publishedRecords.set(scope, payloadHash)
 }
 
 export async function readCloudflareRecords(category: string): Promise<SyncRecord[]> {
@@ -698,8 +775,50 @@ export async function readCloudflareRecords(category: string): Promise<SyncRecor
     {},
     config.deviceToken,
   )
-  const records = await Promise.all(result.records.map((record) => decryptPayload(config, category, record)))
-  return records.filter((record): record is SyncRecord => !!record)
+  const records: SyncRecord[] = []
+  for (const record of result.records) {
+    const cacheKey = `${chunkScope(config, category)}:${record.deviceId}`
+    const cached = receivedRecords.get(cacheKey)
+    if (cached?.encrypted === record.payload) {
+      receivedRecords.delete(cacheKey)
+      receivedRecords.set(cacheKey, cached)
+      records.push(cached.record)
+      continue
+    }
+    const decrypted = await decryptPayload(config, category, record)
+    if (!decrypted) continue
+    const manifest = parseChunkManifest(decrypted.payload)
+    if (!manifest) { records.push(decrypted); continue }
+    const nextCache = new Map<string, CachedChunk>()
+    const parts: string[] = []
+    let bytes = 0
+    for (const id of manifest.chunks) {
+      const part = await workerRequest<{ payload: string }>(config.endpoint,
+        `/v1/record-chunks/${category}/${record.deviceId}/${id}`, {}, config.deviceToken)
+      if (await chunkHash(part.payload) !== id) throw new Error('A library chunk failed its integrity check. Retry sync.')
+      const plain = await decryptPayload(config, `${category}:chunk`, { deviceId: record.deviceId, payload: part.payload })
+      if (!plain) throw new Error('A library chunk could not be authenticated. Retry sync.')
+      bytes += encoder.encode(plain.payload).byteLength
+      if (bytes > MAX_SYNC_BYTES || bytes > manifest.bytes) throw new Error('The library snapshot exceeds its declared size.')
+      parts.push(plain.payload)
+      if (record.deviceId === config.deviceId) nextCache.set(await chunkHash(plain.payload), { id, encrypted: part.payload })
+    }
+    if (bytes !== manifest.bytes) throw new Error('The library snapshot is incomplete. Retry sync.')
+    const complete = { deviceId: record.deviceId, payload: parts.join('') }
+    records.push(complete)
+    // Bound decoded caches by size, so three ordinary devices do not continually evict one
+    // another while a household with genuinely huge libraries cannot consume unlimited memory.
+    receivedRecords.delete(cacheKey)
+    let cacheBytes = [...receivedRecords.values()].reduce((bytes, value) => bytes + value.record.payload.length * 2, 0)
+    while (receivedRecords.size && (receivedRecords.size >= 32 || cacheBytes + complete.payload.length * 2 > MAX_SYNC_BYTES * 2)) {
+      const oldest = receivedRecords.keys().next().value!
+      cacheBytes -= receivedRecords.get(oldest)!.record.payload.length * 2
+      receivedRecords.delete(oldest)
+    }
+    receivedRecords.set(cacheKey, { encrypted: record.payload, record: complete })
+    if (record.deviceId === config.deviceId) chunkCaches.set(chunkScope(config, category), nextCache)
+  }
+  return records
 }
 
 function compareVersions(left: string, right: string): number {

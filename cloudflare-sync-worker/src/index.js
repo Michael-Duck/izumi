@@ -1,4 +1,7 @@
 import webpush from 'web-push'
+import { accountScope, accountServices, accountSources, accountMedia, withAccount, readAccounts, manageAccount, pullAccount, pullAccountCollections, pushAccountProgress } from './accounts.js'
+import { collectionOptions, collectionSnapshot, normalizeCollections } from './collection-catalog.js'
+import { commitChunkedRecord, putRecordChunk } from './record-chunks.js'
 import { validSnapshotSelector, viewerForRequest, viewerAllows, scopeSnapshot } from './profiles.js'
 import { consumeTvSourceLookup } from './tv-source-lookup.js'
 import {
@@ -12,7 +15,7 @@ import {
   searchCatalog,
 } from './resolver.js'
 
-const VERSION = '1.8.0'
+const VERSION = '1.10.0'
 const PROTOCOL = 1
 const CATEGORIES = new Set(['watch', 'manual', 'presence', 'companion', 'profiles'])
 const MAX_BODY_BYTES = 512 * 1024
@@ -221,10 +224,24 @@ async function records(request, env, category) {
   if (typeof value.payload !== 'string' || encoder.encode(value.payload).byteLength > MAX_BODY_BYTES) {
     return json({ error: 'Encrypted sync payload is missing or too large.' }, 413)
   }
+  if (value.chunks !== undefined) return commitChunkedRecord(env, category, deviceId, value, json)
   await env.DB.prepare(
-    'INSERT INTO records (category, device_id, payload, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(category, device_id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at',
+    "INSERT INTO records (category, device_id, payload, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(category, device_id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at, chunk_ids = '[]'",
   ).bind(category, deviceId, value.payload, Date.now()).run()
   return json({ ok: true })
+}
+
+async function recordChunk(request, env, category, ownerId, chunkId) {
+  if (!CATEGORIES.has(category) && !/^watch-[A-Za-z0-9_-]{1,100}$/.test(category)) return json({ error: 'Unknown sync category.' }, 404)
+  const deviceId = await authenticate(request, env)
+  if (!deviceId) return json({ error: 'Authentication failed.' }, 401)
+  if (request.method === 'PUT') {
+    if (ownerId !== deviceId) return json({ error: 'Cannot change another device’s library.' }, 403)
+    return putRecordChunk(env, category, deviceId, chunkId, await body(request), json)
+  }
+  const row = await env.DB.prepare('SELECT payload FROM record_chunks WHERE category = ? AND device_id = ? AND chunk_id = ?')
+    .bind(category, ownerId, chunkId).first()
+  return row ? json(row) : json({ error: 'Library chunk is no longer available. Retry sync.' }, 404)
 }
 
 async function ensureVapidKeys(env) {
@@ -624,11 +641,13 @@ async function resolverProfile(request, env) {
     }
   }
   if (request.method === 'DELETE') {
+    await env.DB.prepare('DELETE FROM connected_accounts WHERE owner_device_id = ?').bind(deviceId).run()
     await env.DB.prepare('DELETE FROM resolver_profiles WHERE owner_device_id = ?').bind(deviceId).run()
     return json({ ok: true })
   }
   try {
     const profile = normalizeResolverProfile(await body(request), new URL(request.url).origin)
+    profile.collections = normalizeCollections(profile.collections)
     const now = Date.now()
     await env.DB.prepare('INSERT INTO resolver_profiles (owner_device_id, profile_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(owner_device_id) DO UPDATE SET profile_json = excluded.profile_json, updated_at = excluded.updated_at')
       .bind(deviceId, JSON.stringify(profile), now).run()
@@ -636,6 +655,118 @@ async function resolverProfile(request, env) {
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : 'Invalid resolver profile.' }, 400)
   }
+}
+
+async function ownerAccounts(request, env) {
+  const owner = await authenticate(request, env)
+  if (!owner) return json({ error: 'Authentication failed.' }, 401)
+  const input = request.method === 'GET' ? Object.fromEntries(new URL(request.url).searchParams) : await body(request)
+  const profileId = input.profileId || 'default'
+  if (!/^[A-Za-z0-9_-]{1,100}$/.test(profileId)) return json({ error: 'Invalid profile.' }, 400)
+  if (request.method === 'GET') return json({ accounts: await readAccounts(env.DB, owner, profileId) })
+  if (!accountServices.includes(input.service)) return json({ error: 'Invalid account service.' }, 400)
+  try {
+    return json(await withAccount(env.DB, owner, profileId, input.service,
+      (account, persist, replace) => manageAccount(account, persist, replace, input.service, input)))
+  } catch (error) { return json({ error: error.message || 'Account connection failed.' }, 409) }
+}
+
+async function tvAccountContext(request, env, pairingId, input) {
+  const pairing = await authenticateTv(request, env, pairingId)
+  if (!pairing) throw new Error('TV authentication failed.')
+  const owner = String(pairing.owner_device_id)
+  const row = await env.DB.prepare('SELECT profile_json AS profile FROM resolver_profiles WHERE owner_device_id = ?').bind(owner).first()
+  if (!row) throw new Error('Enable independent TV playback in Izumi first.')
+  const profile = normalizeResolverProfile(JSON.parse(row.profile), new URL(request.url).origin)
+  if (!profile.enabled) throw new Error('Independent TV playback is disabled.')
+  const viewer = await viewerForRequest(profile, input)
+  return { owner, profile, viewer, profileId: accountScope(profile, viewer) }
+}
+
+async function hydrateAccountSources(env, owner, profile, viewer) {
+  const profileId = accountScope(profile, viewer)
+  const accounts = await readAccounts(env.DB, owner, profileId)
+  for (const state of accounts.filter(value => value.connected && value.sources)) {
+    try {
+      const urls = await withAccount(env.DB, owner, profileId, state.service,
+        (account, persist) => accountSources(account, persist, state.service))
+      profile.addons = [...new Set([...urls, ...profile.addons])].slice(0, 8)
+    } catch { /* Existing enabled sources remain usable when an external account needs reconnection. */ }
+  }
+  return accounts
+}
+
+async function accountCatalogOptions(env, owner, profileId, profile) {
+  const accounts = await readAccounts(env.DB, owner, profileId)
+  const options = accounts.filter(value => value.connected && value.profile).map(value => ({ screen: `account-${value.service}`, label: value.service === 'nuvio' ? 'Nuvio library' : 'Stremio library' }))
+  const local = collectionOptions(profile.collections || [], 'lc')
+  if (local.length) options.push({ screen: 'local-collections', label: 'Your collections', children: local })
+  const nuvio = accounts.find(value => value.service === 'nuvio' && value.connected && value.profile)
+  if (nuvio) {
+    try {
+      const data = await withAccount(env.DB, owner, profileId, 'nuvio', (account, persist) => pullAccountCollections(account, persist))
+      const groups = collectionOptions(normalizeCollections(data), 'nc')
+      if (groups.length) options.push({ screen: 'nuvio-collections', label: 'Nuvio collections', children: groups })
+    } catch {
+      const option = options.find(value => value.screen === 'account-nuvio')
+      if (option) option.description = 'Nuvio could not refresh. Check TV accounts in Izumi.'
+    }
+  }
+  return options
+}
+
+async function tvAccounts(request, env, pairingId) {
+  try {
+    const input = await body(request)
+    const { owner, profile, viewer, profileId } = await tvAccountContext(request, env, pairingId, input)
+    if (input.action === 'status') {
+      const accounts = await readAccounts(env.DB, owner, profileId)
+      return json({ playbackSync: accounts.some(value => value.connected && value.profile && value.playback) })
+    }
+    if (input.action === 'progress') {
+      if (!viewerAllows(input.media, viewer)) throw new Error('This title is above this profile’s viewing limit.')
+      const accounts = await readAccounts(env.DB, owner, profileId)
+      const results = []
+      for (const state of accounts.filter(value => value.connected && value.playback)) {
+        results.push({ service: state.service, ...await withAccount(env.DB, owner, profileId, state.service,
+          (account, persist) => pushAccountProgress(account, persist, state.service, input)) })
+      }
+      return json({ ok: true, results })
+    }
+    return json({ options: await accountCatalogOptions(env, owner, profileId, profile) })
+  } catch (error) { return json({ error: error.message || 'TV account sync failed.' }, 409) }
+}
+
+async function externalAccountSnapshot(env, owner, profile, viewer, input) {
+  const profileId = accountScope(profile, viewer), screen = String(input.screen || '')
+  if (screen.startsWith('lc-')) {
+    const snapshot = await collectionSnapshot(profile, profile.collections || [], screen, 'lc', input.page || 1, input.offsets || [])
+    if (!snapshot) throw new Error('This folder is no longer available. Reopen the catalogue picker to refresh your collections.')
+    return snapshot
+  }
+  if (screen !== 'account-nuvio' && screen !== 'account-stremio' && !screen.startsWith('nc-')) return null
+  const service = screen === 'account-stremio' ? 'stremio' : 'nuvio'
+  if (screen.startsWith('nc-')) {
+    const collections = await withAccount(env.DB, owner, profileId, service, (account, persist) => pullAccountCollections(account, persist))
+    const snapshot = await collectionSnapshot(profile, normalizeCollections(collections), screen, 'nc', input.page || 1, input.offsets || [])
+    if (!snapshot) throw new Error('This Nuvio folder is no longer available. Reopen the catalogue picker to refresh.')
+    return snapshot
+  }
+  const data = await withAccount(env.DB, owner, profileId, service, (account, persist) => pullAccount(account, persist, service))
+  if (!data) throw new Error('Connect and select this account in Izumi → Sync → TV accounts.')
+  const base = profile.addons[0]
+  if (!base) throw new Error('Enable account sources or add a Stremio source in TV playback settings first.')
+  const library = data.library.filter(value => service === 'nuvio' || !value.removed).map(value => accountMedia(value, service, base)).filter(Boolean)
+  const progress = (service === 'nuvio' ? data.progress : data.library).map(value => accountMedia(value, service, base)).filter(value => value?.resumePositionSeconds)
+  const history = (service === 'nuvio' ? data.history || [] : data.library.filter(value => value.state?.lastWatched)).map(value => accountMedia(value, service, base)).filter(Boolean)
+  const page = Number(input.page || 1)
+  if (!Number.isInteger(page) || page < 1 || page > 1000) throw new Error('Invalid library page.')
+  const query = String(input.query || '').trim().toLowerCase().slice(0, 80)
+  const matching = query ? library.filter(item => item.title.toLowerCase().includes(query)) : library
+  const pageItems = matching.slice((page - 1) * 200, page * 200)
+  const rows = [{ id: `${service}-continue`, title: 'Continue watching', kind: 'continue', items: page === 1 ? progress.slice(0, 40) : [] }, { id: `${service}-library-${page}`, title: page === 1 ? 'My library' : 'More from my library', kind: 'catalog', items: pageItems }].filter(row => row.items.length)
+  return { app: 'izumi', kind: 'companion-home', version: 1, revision: `cloud-${screen}-${Date.now()}`, generatedAt: Date.now(), catalog: { screen, label: service === 'nuvio' ? 'Nuvio library' : 'Stremio library' },
+    rows, collectionPage: { page, hasMore: matching.length > page * 200, errors: [] }, hero: rows[0]?.items[0], history: history.slice(0, 200), views: { myList: pageItems, search: pageItems }, spoilersHidden: profile.catalog.hideSpoilers }
 }
 
 async function resolveForTv(request, env, pairingId) {
@@ -660,6 +791,7 @@ async function resolveForTv(request, env, pairingId) {
   }
   try {
     const viewer = await viewerForRequest(profile, input)
+    await hydrateAccountSources(env, String(pairing.owner_device_id), profile, viewer)
     const tvLookupContext = { pairingId, profileId: viewer?.id ?? 'default', startedAt: now }
     const tvContinuation = input.tvSourceResults ? await prepareTvSourceContinuation(profile, input, tvLookupContext) : undefined
     if (tvContinuation && !await consumeTvSourceLookup(env.DB, pairingId, tvContinuation.issuedAt, now)) {
@@ -696,6 +828,7 @@ async function detailsForTv(request, env, pairingId) {
   try {
     const input = await body(request)
     const viewer = await viewerForRequest(profile, input)
+    await hydrateAccountSources(env, String(pairing.owner_device_id), profile, viewer)
     const details = await resolveMediaDetails(input?.media ?? input, profile)
     if (!viewerAllows(details, viewer)) throw new Error('This title is above this profile’s viewing limit.')
     return details
@@ -733,7 +866,14 @@ async function catalogForTv(request, env, pairingId) {
     const profile = normalizeResolverProfile(JSON.parse(row.profile), new URL(request.url).origin)
     const input = await body(request)
     const viewer = await viewerForRequest(profile, input)
-    const snapshot = scopeSnapshot(await resolveCatalogSnapshot(profile, input?.screen), profile, viewer)
+    const owner = String(pairing.owner_device_id)
+    await hydrateAccountSources(env, owner, profile, viewer)
+    const snapshot = scopeSnapshot(await externalAccountSnapshot(env, owner, profile, viewer, input) ?? await resolveCatalogSnapshot(profile, input?.screen), profile, viewer)
+    if (snapshot) {
+      const options = snapshot.catalog.options || profile.catalog.screens.map(screen => ({ screen, label: screen }))
+      try { snapshot.catalog.options = [...options, ...await accountCatalogOptions(env, owner, accountScope(profile, viewer), profile)] }
+      catch { snapshot.catalog.options = options } // An expired optional account must not block other catalogues.
+    }
     return snapshot ? json({ ok: true, snapshot }) : json({ error: 'This catalogue is not available in the Worker.', code: 'CATALOG_UNAVAILABLE' }, 404)
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : 'Catalogue lookup failed.', code: 'CATALOG_FAILED' }, 409)
@@ -754,6 +894,12 @@ async function searchForTv(request, env, pairingId) {
     const profile = normalizeResolverProfile(JSON.parse(row.profile), new URL(request.url).origin)
     const input = await body(request)
     const viewer = await viewerForRequest(profile, input)
+    await hydrateAccountSources(env, String(pairing.owner_device_id), profile, viewer)
+    if (/^(account-|nc-|lc-)/.test(String(input.screen))) {
+      const snapshot = await externalAccountSnapshot(env, String(pairing.owner_device_id), profile, viewer, input)
+      const query = String(input.query || '').trim().toLowerCase().slice(0, 80)
+      return json({ ok: true, items: (snapshot?.views?.myList || snapshot?.rows.flatMap(row => row.items) || []).filter(item => viewerAllows(item, viewer) && item.title.toLowerCase().includes(query)).slice(0, 40) })
+    }
     const items = (await searchCatalog(profile, input?.screen, input?.query, input?.person, input?.genre)).filter((item) => viewerAllows(item, viewer))
     return json({ ok: true, items })
   } catch (error) {
@@ -856,10 +1002,11 @@ export default {
         return json({
           app: 'izumi-sync',
           version: VERSION,
+          recordChunks: 1,
           tvSourceLookup: 1,
           protocol: PROTOCOL,
           claimed: await claimed(env),
-          features: ['companion-profiles-v1', 'profile-sync-v1', 'companion-wake-v1', 'web-push-v1', 'cloud-resolver-v1', 'cloud-resolver-v2', 'cloud-resolver-debrid-v1', 'companion-details-v2', 'companion-snapshot-v1', 'companion-progress-v1', 'companion-catalog-v1', 'companion-trailer-v1', 'companion-discovery-v2'],
+          features: ['companion-accounts-v1', 'companion-collections-v1', 'companion-profiles-v1', 'profile-sync-v1', 'companion-wake-v1', 'web-push-v1', 'cloud-resolver-v1', 'cloud-resolver-v2', 'cloud-resolver-debrid-v1', 'companion-details-v2', 'companion-snapshot-v1', 'companion-progress-v1', 'companion-catalog-v1', 'companion-trailer-v1', 'companion-discovery-v2'],
         })
       }
       if (request.method === 'GET' && url.pathname === '/v1/companion/enrol') return companionEnrolmentPage(request)
@@ -894,6 +1041,9 @@ export default {
         return await companionRequestStatus(request, env, companionStatusMatch[1], companionStatusMatch[2])
       }
       const companionResolveMatch = url.pathname.match(/^\/v1\/companion\/pairings\/([A-Za-z0-9_-]{16,80})\/resolve$/)
+      const accountMatch = url.pathname.match(/^\/v1\/companion\/pairings\/([A-Za-z0-9_-]{16,80})\/accounts$/)
+      if (accountMatch && request.method === 'POST') return await tvAccounts(request, env, accountMatch[1])
+      if (url.pathname === '/v1/accounts' && ['GET', 'POST'].includes(request.method)) return await ownerAccounts(request, env)
       if (companionResolveMatch && request.method === 'POST') {
         return await resolveForTv(request, env, companionResolveMatch[1])
       }
@@ -942,6 +1092,8 @@ export default {
       if (url.pathname === '/v1/resolver/profile' && ['GET', 'PUT', 'DELETE'].includes(request.method)) {
         return await resolverProfile(request, env)
       }
+      const chunkMatch = url.pathname.match(/^\/v1\/record-chunks\/([A-Za-z0-9_-]{1,106})\/([A-Za-z0-9_-]{16,80})\/([a-f0-9]{64})$/)
+      if (chunkMatch && (request.method === 'GET' || request.method === 'PUT')) return await recordChunk(request, env, chunkMatch[1], chunkMatch[2], chunkMatch[3])
       const match = url.pathname.match(/^\/v1\/records\/([A-Za-z0-9_-]{1,106})$/)
       if (match && (request.method === 'GET' || request.method === 'PUT')) return await records(request, env, match[1])
       return json({ error: 'Not found.' }, 404)

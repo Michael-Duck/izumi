@@ -1,3 +1,5 @@
+import { exportLibraryStorage, isLibraryCollection, restoreLibraryStorage } from '$lib/storage/library-db'
+
 export interface AppBackup {
   app: 'izumi'
   kind: 'app-backup'
@@ -27,8 +29,13 @@ export function createBackup(storage: Storage, includeSecrets = false): AppBacku
   }
 }
 
-export function stringifyBackup(storage: Storage, includeSecrets = false) {
-  return JSON.stringify(createBackup(storage, includeSecrets), null, 2)
+export async function stringifyBackup(storage: Storage, includeSecrets = false) {
+  const library = await exportLibraryStorage()
+  const backup = createBackup(storage, includeSecrets)
+  // An inactive profile may still have a legacy value written by an older app version. Match
+  // migration's precedence instead of replacing that value with an older database snapshot.
+  backup.localStorage = { ...library, ...backup.localStorage }
+  return JSON.stringify(backup, null, 2)
 }
 
 export function parseBackup(text: string): AppBackup {
@@ -50,13 +57,15 @@ export function parseBackup(text: string): AppBackup {
 }
 
 /** Merge a validated backup, rolling back all touched keys if storage quota/write fails. */
-export function restoreBackup(storage: Storage, backup: AppBackup) {
+export async function restoreBackup(storage: Storage, backup: AppBackup) {
   const previous = new Map<string, string | null>()
   try {
     for (const [key, value] of Object.entries(backup.localStorage)) {
       previous.set(key, storage.getItem(key))
-      storage.setItem(key, value)
+      if (isLibraryCollection(key)) storage.removeItem(key)
+      else storage.setItem(key, value)
     }
+    await restoreLibraryStorage(backup.localStorage)
   } catch (error) {
     for (const [key, value] of previous) {
       if (value == null) storage.removeItem(key)

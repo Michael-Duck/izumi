@@ -3,7 +3,7 @@ import { get } from 'svelte/store'
 import { invokeNativeHttp, isNativeTransportFailure, phttp } from '$lib/net/http'
 import { enabledExtensionUrls, disabledPlugins } from '$lib/settings/ui'
 import type { TorrentResult, TorrentQuery, ExtensionConfig } from './types'
-import { resolveManifestUrl, normalizeManifest, pointerUrl, isRunnableType, isLegacyTorrentType, manifestProblem, catalogPackages, aniyomiRepositoryPackages } from './catalog'
+import { manifestFetchUrls, normalizeManifest, pointerUrl, isRunnableType, isLegacyTorrentType, manifestProblem, catalogPackages, aniyomiRepositoryPackages } from './catalog'
 import type { ExtensionCatalogPackage } from './catalog'
 import { extensionSourceConfigured, liveJvmSources } from './availability'
 import { clearProviderCache } from '$lib/stremio/online-cache'
@@ -24,6 +24,7 @@ interface RunningExt {
   cfg: ExtensionConfig
   worker: Worker
   ready: Promise<boolean>
+  loadError?: string
   seq: number
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   waits: Map<number, (m: any) => void>
@@ -185,12 +186,20 @@ export async function hasConfiguredExtensions(): Promise<boolean> {
 // repo index (array of {main} pointers) is expanded one level into its per-folder
 // manifests; a normal manifest is normalized directly. Best-effort: [] on failure.
 async function expandManifest(spec: string, depth = 0): Promise<ExtensionConfig[]> {
-  const url = resolveManifestUrl(spec)
-  // Pooled client — plugin-http builds a fresh reqwest client per request (~300ms handshake),
-  // which multiplied across a repo's manifests + modules made the first resolve crawl.
-  const r = await phttp(url)
-  if (!r.ok) return []
-  return expandRaw(await r.json(), url, depth)
+  const { raw, url } = await fetchSourceDocument(spec)
+  return expandRaw(raw, url, depth)
+}
+
+async function fetchSourceDocument(spec: string): Promise<{ raw: unknown; url: string }> {
+  let problem = 'That URL could not be fetched.'
+  for (const url of manifestFetchUrls(spec)) {
+    try {
+      const response = await phttp(url)
+      if (!response.ok) { problem = `That URL returned HTTP ${response.status}.`; continue }
+      return { raw: await response.json(), url }
+    } catch { /* Try the other repository layout, if any. */ }
+  }
+  throw new Error(problem)
 }
 
 // Split from the fetch above so the settings list can classify a document (package catalog vs
@@ -235,15 +244,13 @@ export interface ExtensionSourceInfo {
  *  extensions, a catalog of installable packages, or a reason it is neither. One fetch answers
  *  all three — the old two-pass version re-fetched the same URL to explain a failure. */
 export async function fetchExtensionInfo(spec: string): Promise<ExtensionSourceInfo> {
-  const url = resolveManifestUrl(spec)
+  let url: string
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let raw: any
   try {
-    const r = await phttp(url)
-    if (!r.ok) return { configs: [], problem: `That URL returned HTTP ${r.status}.` }
-    raw = await r.json()
-  } catch {
-    return { configs: [], problem: 'That URL could not be fetched.' }
+    ;({ raw, url } = await fetchSourceDocument(spec))
+  } catch (error) {
+    return { configs: [], problem: error instanceof Error ? error.message : 'That URL could not be fetched.' }
   }
   const packages = catalogPackages(raw) ?? aniyomiRepositoryPackages(raw, url)
   if (packages) return { configs: [], packages }
@@ -378,7 +385,7 @@ function spawn(cfg: ExtensionConfig, code: string): RunningExt {
     // needs this 20s backstop before it can report that every provider has settled.
     const t = setTimeout(() => { ext.waits.delete(id); resolve(false) }, 20000)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ext.waits.set(id, (m: any) => { clearTimeout(t); resolve(!m.error) })
+    ext.waits.set(id, (m: any) => { clearTimeout(t); ext.loadError = m.error; resolve(!m.error) })
     worker.onerror = () => { clearTimeout(t); ext.waits.delete(id); resolve(false) }
     // `name` rides along so host-side helpers running inside the worker (the embed extractors) can
     // attribute what they resolve back to the extension that asked, instead of returning anonymous
@@ -389,8 +396,10 @@ function spawn(cfg: ExtensionConfig, code: string): RunningExt {
       code,
       name: cfg.name,
       settings: cfg.settings,
+      scraperId: cfg.scraperId,
       kind: cfg.runtime === 'izumi-js'
         ? 'izumi'
+        : cfg.runtime === 'nuvio' ? 'nuvio'
         : cfg.type === 'onlinestream-provider'
           ? 'seanime'
           : cfg.type === 'anime-torrent-provider'
@@ -585,21 +594,33 @@ export async function queryExtensions(query: TorrentQuery, onBatch?: (rs: Torren
 // raw result (object OR array). 20s cap → null on timeout. (Torrent uses `call()` which coerces.)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function callRaw(ext: RunningExt, method: string, args: unknown[]): Promise<any> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const id = ++ext.seq
     const t = setTimeout(() => { ext.waits.delete(id); resolve(null) }, 20000)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ext.waits.set(id, (m: any) => { clearTimeout(t); resolve(m.results) })
+    ext.waits.set(id, (m: any) => {
+      clearTimeout(t)
+      if (m.error && ext.cfg.runtime === 'nuvio') reject(new Error(m.error))
+      else resolve(m.results)
+    })
     ext.worker.postMessage({ type: 'query', id, method, args })
   })
 }
 
 /** The live onlinestream-provider extensions, each with a bound multi-arg `call`. The
  *  orchestrator (stremio/onlinestream) drives search/findEpisodes/findEpisodeServer through it. */
-export async function runningStreamExtensions(onlyId?: string): Promise<
+export interface StreamExtension {
+  id: string
+  name: string
+  lang?: string
+  runtime?: ExtensionConfig['runtime']
+  supportedTypes?: ExtensionConfig['supportedTypes']
+  icon?: string
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  { id: string; name: string; lang?: string; call: (method: string, ...args: unknown[]) => Promise<any> }[]
-> {
+  call: (method: string, ...args: unknown[]) => Promise<any>
+}
+
+export async function runningStreamExtensions(onlyId?: string): Promise<StreamExtension[]> {
   const [exts, jvm] = await Promise.all([ensureRunning(), runningJvmExtensions(onlyId)])
   const candidates = exts.filter((e) =>
     (!onlyId || e.cfg.id === onlyId) && e.cfg.type === 'onlinestream-provider')
@@ -608,7 +629,13 @@ export async function runningStreamExtensions(onlyId?: string): Promise<
       id: e.cfg.id,
       name: e.cfg.name,
       lang: e.cfg.lang,
-      call: afterExtensionReady(
+      runtime: e.cfg.runtime,
+      supportedTypes: e.cfg.supportedTypes,
+      icon: e.cfg.icon,
+      call: e.cfg.runtime === 'nuvio' ? async (method: string, ...args: unknown[]) => {
+        if (!await e.ready) throw new Error(e.loadError || 'Nuvio provider could not be loaded.')
+        return callRaw(e, method, args)
+      } : afterExtensionReady(
         e.ready,
         (method: string, ...args: unknown[]) => callRaw(e, method, args),
         null,

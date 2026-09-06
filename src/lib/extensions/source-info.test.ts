@@ -31,6 +31,24 @@ beforeEach(() => {
 })
 
 describe('fetchExtensionInfo', () => {
+  it('loads a Nuvio repository as individually runnable providers', async () => {
+    mocks.phttp.mockResolvedValue(ok({ scrapers: [{ id: 'example', filename: 'providers/example.js', supportedTypes: ['movie', 'tv'] }] }))
+    const info = await fetchExtensionInfo('https://example.test/manifest.json')
+    expect(info.problem).toBeUndefined()
+    expect(info.configs).toEqual([expect.objectContaining({
+      runtime: 'nuvio', scraperId: 'example', code: 'https://example.test/providers/example.js',
+    })])
+    expect(mocks.phttp).toHaveBeenCalledTimes(1)
+  })
+
+  it('falls back to manifest.json for a Nuvio GitHub shorthand repository', async () => {
+    mocks.phttp.mockResolvedValueOnce({ ok: false, status: 404 })
+      .mockResolvedValueOnce(ok({ scrapers: [{ id: 'example', filename: 'providers/example.js', supportedTypes: ['movie'] }] }))
+    const info = await fetchExtensionInfo('owner/repo')
+    expect(mocks.phttp).toHaveBeenNthCalledWith(2, 'https://raw.githubusercontent.com/owner/repo/HEAD/manifest.json')
+    expect(info.configs[0].code).toBe('https://raw.githubusercontent.com/owner/repo/HEAD/providers/example.js')
+  })
+
   it('reads a package catalog as installable packages, not as a manifest that produced nothing', () => {
     mocks.phttp.mockResolvedValue(ok(CATALOG))
     return fetchExtensionInfo('https://x/index.json').then((info) => {

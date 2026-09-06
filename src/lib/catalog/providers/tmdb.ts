@@ -26,7 +26,7 @@ const TMDB_LANGUAGE = 'en-US'
 
 type TmdbKind = 'movie' | 'tv'
 
-interface TmdbListItem {
+export interface TmdbListItem {
   id?: number
   media_type?: TmdbKind | 'person'
   title?: string
@@ -199,7 +199,7 @@ const token = () => get(tmdbReadToken).trim()
   || (publicEnv as Record<string, string | undefined>).PUBLIC_TMDB_READ_TOKEN?.trim()
   || ''
 
-async function tmdb<T>(path: string, params: Record<string, string | number | boolean | undefined> = {}, signal?: AbortSignal): Promise<T> {
+export async function tmdb<T>(path: string, params: Record<string, string | number | boolean | undefined> = {}, signal?: AbortSignal): Promise<T> {
   const credential = token()
   if (!credential) throw new CatalogConfigurationError('TMDB needs a Read Access Token. Add one in Settings → Catalog.')
   const url = new URL(`${API}${path}`)

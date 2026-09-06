@@ -414,6 +414,7 @@
       <button onclick={() => void add()} data-focusable disabled={adding} class="w-full rounded-md bg-primary px-4 py-2.5 font-bold text-primary-foreground disabled:opacity-50 sm:w-auto sm:py-2">{adding ? 'Adding…' : 'Add'}</button>
     </div>
     {#if addError}<p role="alert" class="mt-2 text-xs text-destructive">{addError}</p>{/if}
+    <p class="mt-2 text-xs text-muted-foreground">Supports Nuvio provider manifests and Stremio add-on links from Nuvio or Omni.</p>
     <div class="mt-2 grid grid-cols-2 items-center gap-2 sm:flex sm:flex-wrap">
       <div class="relative col-span-2 min-w-0 sm:min-w-52 sm:flex-1">
         <Search size={14} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -521,7 +522,7 @@
     {#if !$addonUrls.length && !hasManageRows}
       <div class="mt-3 rounded-xl border border-dashed border-border p-4 text-center">
         <p class="text-sm font-bold">Nothing here yet</p>
-        <p class="mt-1 text-xs text-muted-foreground">Paste a Stremio add-on, GitHub repo, or catalog. Or add one from the Store.</p>
+        <p class="mt-1 text-xs text-muted-foreground">Paste a Nuvio provider manifest, a Stremio add-on from Nuvio or Omni, a GitHub repo, or a catalog. Or add one from the Store.</p>
       </div>
     {/if}
     <div data-source-masonry class="mt-3 grid items-start gap-2 2xl:auto-rows-[1px] 2xl:grid-cols-2">

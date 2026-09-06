@@ -3,3 +3,13 @@
 // See: https://svelte.dev/docs/kit/single-page-apps
 // See: https://v2.tauri.app/start/frontend/sveltekit/ for more info
 export const ssr = false;
+
+// Hydrate before routes mount or start reconciliation/sync. An empty loading store must never
+// overwrite a real library, and every route (including direct deep links) needs the same barrier.
+export async function load() {
+  const [{ durableHistory }, { localLibrary }] = await Promise.all([
+    import('$lib/player/history'), import('$lib/library/local-lists'),
+  ])
+  await Promise.all([durableHistory.ready, localLibrary.ready])
+  return {}
+}

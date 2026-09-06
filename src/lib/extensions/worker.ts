@@ -37,7 +37,7 @@ function bridgedFetch(url: string | URL, init?: any) {
     status: res.status,
     // Post-redirect URL, so a scraper can resolve relative links against where it actually landed.
     url: res.url ?? String(url),
-    headers: new Map(Object.entries(res.headers ?? {})),
+    headers: new Headers(res.headers ?? {}),
     // Every `Set-Cookie` line, in order — the flat header map keeps only the last one. The Rust
     // client also holds its own jar, so a provider only needs these to READ a cookie's value.
     setCookie: res.setCookie ?? [],
@@ -118,6 +118,17 @@ self.onmessage = async (e: MessageEvent<any>) => {
     if (msg.type === 'load') {
       const code: string = msg.code
       extensionName = typeof msg.name === 'string' && msg.name ? msg.name : undefined
+      if (msg.kind === 'nuvio') {
+        const { createNuvioModules, wrapNuvioModule } = await import('./nuvio-shim')
+        const modules = createNuvioModules(bridgedFetch, msg.scraperId, msg.settings)
+        Object.assign(globalThis, modules.globals, { global: globalThis, window: globalThis })
+        const mod = await importModule(wrapNuvioModule(code))
+        source = mod.default(modules.require, modules.Buffer, { env: {} })
+        if (typeof source?.getStreams !== 'function') throw new Error('Nuvio provider has no getStreams export')
+        if (msg.settings) source.settings = msg.settings
+        postMessage({ type: 'loaded', id: msg.id })
+        return
+      }
       // A second community format, detected from the payload's own banner rather than from catalog
       // metadata — the same file is valid whether it arrived via a catalog or a direct URL, and the
       // banner is the only thing guaranteed to travel with it. Its `export default class extends

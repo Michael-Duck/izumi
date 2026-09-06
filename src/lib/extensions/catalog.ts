@@ -4,6 +4,7 @@
 // Worker lifecycle.
 
 import type { ExtensionConfig } from './types'
+import { isNuvioManifest, normalizeNuvioManifest } from './nuvio-manifest'
 
 // Turn a stored spec into a fetchable manifest URL. Accepts these forms:
 //   gh:owner/repo[/sub]      → https://esm.sh/gh/owner/repo[/sub]/index.json
@@ -12,7 +13,21 @@ import type { ExtensionConfig } from './types'
 //   https://…                → as given (existing full-URL manifests)
 export function resolveManifestUrl(spec: string): string {
   const s = spec.trim()
-  if (/^https?:\/\//i.test(s)) return s
+  if (/^https?:\/\//i.test(s)) {
+    const url = new URL(s)
+    if (url.hostname === 'github.com') {
+      const [owner, repo, kind, ref, ...path] = url.pathname.split('/').filter(Boolean)
+      if (owner && repo && (!kind || kind === 'blob' || kind === 'tree')) {
+        const file = kind === 'blob' ? path.join('/') : [...path, 'manifest.json'].join('/')
+        return `https://raw.githubusercontent.com/${owner}/${repo}/${ref || 'HEAD'}/${file}`
+      }
+    }
+    if (url.hostname === 'raw.githubusercontent.com' && url.pathname.endsWith('/')) {
+      url.pathname += 'manifest.json'
+      return url.href
+    }
+    return s
+  }
   if (s.startsWith('gh:')) return withIndexJson(`https://esm.sh/gh/${s.slice(3).replace(/\/+$/, '')}`)
   if (s.startsWith('npm:')) return withIndexJson(`https://esm.sh/${s.slice(4).replace(/\/+$/, '')}`)
   // Bare GitHub shorthand: owner (no dots) / repo[/sub].
@@ -20,6 +35,17 @@ export function resolveManifestUrl(spec: string): string {
   return withIndexJson(`https://${s}`)
 }
 const withIndexJson = (base: string) => (/\.json(\?|$)/i.test(base) ? base : `${base.replace(/\/+$/, '')}/index.json`)
+
+/** Keep legacy index.json repositories working while accepting Nuvio's manifest.json layout. */
+export function manifestFetchUrls(spec: string): string[] {
+  const primary = resolveManifestUrl(spec)
+  const match = spec.trim().match(/^(?:gh:)?([A-Za-z0-9][A-Za-z0-9-]*)\/([^\s/:]+)(?:\/(.*))?$/)
+  if (!match) return [primary]
+  const [, owner, repoRef, path] = match
+  const [repo, ref = 'HEAD'] = repoRef.split('@')
+  const file = path && /\.json$/i.test(path) ? path : [path, 'manifest.json'].filter(Boolean).join('/')
+  return [primary, `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${file}`]
+}
 
 /**
  * A readable name for a source spec.
@@ -241,6 +267,7 @@ export function pointerUrl(e: any): string | null {
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function manifestProblem(raw: any): string | undefined {
+  if (isNuvioManifest(raw)) return 'This Nuvio repository has no enabled movie or TV JavaScript providers.'
   const entries = Array.isArray(raw) ? raw : [raw]
   const compiled = 'Compiled Android plugins (.cs3) can\'t run here — this is a source-extension app, not an Android host. Use a JavaScript extension repository instead.'
   // A repo index: {name, pluginLists:[…]} pointing at plugin lists of .cs3 builds.
@@ -284,10 +311,14 @@ function packageCodeUrl(url: string, manifestUrl: string): string {
 // `main` + `update`) into ExtensionConfig[].
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function normalizeManifest(raw: any, manifestUrl: string): ExtensionConfig[] {
+  const nuvio = normalizeNuvioManifest(raw, manifestUrl)
+  if (nuvio !== null) return nuvio
   const entries = Array.isArray(raw) ? raw : [raw]
   const out: ExtensionConfig[] = []
   for (const e of entries) {
     if (!e || typeof e !== 'object') continue
+    const scraper = normalizeNuvioManifest(e, manifestUrl)
+    if (scraper !== null) { out.push(...scraper); continue }
     if (isPackageEntry(e)) {
       if (e.type !== PACKAGE_VIDEO_TYPE) continue
       out.push({

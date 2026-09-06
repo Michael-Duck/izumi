@@ -29,6 +29,12 @@ pub fn init<R: Runtime, C: DeserializeOwned>(
 pub struct ExtPlayer<R: Runtime>(PluginHandle<R>);
 
 impl<R: Runtime> ExtPlayer<R> {
+    pub fn reset_local_data(&self) -> crate::Result<()> {
+        self.0
+            .run_mobile_plugin("resetLocalData", ())
+            .map_err(Into::into)
+    }
+
     pub fn play(&self, payload: PlayRequest) -> crate::Result<()> {
         self.0
             .run_mobile_plugin("play", payload)

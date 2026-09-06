@@ -10,6 +10,7 @@
   import Hero from '$lib/components/banner/Hero.svelte'
   import ContinueRow from '$lib/components/cards/ContinueRow.svelte'
   import CatalogSectionRow from './CatalogSectionRow.svelte'
+  import CollectionsHome from './CollectionsHome.svelte'
   import HomeRowFrame from './HomeRowFrame.svelte'
   import { CatalogConfigurationError, type CatalogHome, type CatalogHomeSection } from '$lib/catalog/types'
   import { loadCatalogProvider } from '$lib/catalog/registry'
@@ -119,6 +120,7 @@
   {/if}
 
   <div class="space-y-5">
+    <CollectionsHome />
     {#if continueEnabled && !home}
       {#key listUser}<ContinueRow title="Continue Watching" userName={listUser} malActive={!!$malToken || !!$malUser} />{/key}
     {/if}

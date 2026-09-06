@@ -40,7 +40,9 @@ use tokio::{
     task::JoinHandle,
 };
 
-const MAX_PAYLOAD_BYTES: usize = 2 * 1024 * 1024;
+// Iroh already replicates records as content-addressed blobs. Match the cloud multipart ceiling
+// so switching providers does not strand an otherwise supported large library.
+const MAX_PAYLOAD_BYTES: usize = 32 * 1024 * 1024;
 const MAX_PAIR_FRAME_BYTES: usize = 64 * 1024;
 // Watch Together has its own ephemeral transport. Never admit room records into
 // the persistent Device Sync document.

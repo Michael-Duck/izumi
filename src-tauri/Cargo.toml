@@ -186,6 +186,10 @@ windows = { version = "0.61", features = [
   "Win32_Devices_Display",
   "Win32_Graphics_Gdi",
   "Win32_Media_Audio",
+  # Keep extension services tied to Izumi even when a dev rebuild terminates the host.
+  "Win32_Security",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
   # SetThreadExecutionState — keep the display + system awake while a video plays.
   "Win32_System_Power",
   "Win32_System_Com",

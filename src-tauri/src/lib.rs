@@ -27,6 +27,11 @@ mod jvm_extensions;
 #[path = "jvm_extensions_android.rs"]
 mod jvm_extensions;
 mod net_interfaces;
+#[cfg(not(target_os = "android"))]
+mod oauth;
+mod reset;
+#[cfg(not(target_os = "android"))]
+mod reset_data;
 mod sync;
 mod text_file;
 mod torrent_download;
@@ -4504,10 +4509,7 @@ fn player_play_embedded(
     )
 }
 
-/// Open the provider's auth URL in a dedicated in-app webview window, then poll
-/// that window's URL until it reaches `redirect_prefix`. Returns the full
-/// redirect URL (query + fragment), so callers can read `?code=` or
-/// `#access_token=` themselves. Closes the window when done.
+/// Capture the provider's redirect in a dedicated in-app login window.
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
 async fn oauth_capture(
@@ -4515,37 +4517,7 @@ async fn oauth_capture(
     auth_url: String,
     redirect_prefix: String,
 ) -> Result<String, String> {
-    let url = auth_url
-        .parse()
-        .map_err(|_| "invalid auth url".to_string())?;
-    // reuse/replace any existing "oauth" window
-    if let Some(w) = app.get_webview_window("oauth") {
-        let _ = w.close();
-    }
-    let win = WebviewWindowBuilder::new(&app, "oauth", WebviewUrl::External(url))
-        .title("Sign in")
-        .inner_size(520.0, 760.0)
-        .build()
-        .map_err(|e| e.to_string())?;
-    let mut waited: u64 = 0;
-    let result = loop {
-        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-        waited += 400;
-        match win.url() {
-            Ok(u) => {
-                let s = u.to_string();
-                if s.starts_with(&redirect_prefix) {
-                    break Ok(s);
-                }
-            }
-            Err(_) => break Err("Login window was closed.".to_string()),
-        }
-        if waited > 300_000 {
-            break Err("Login timed out.".to_string());
-        }
-    };
-    let _ = win.close();
-    result
+    oauth::capture(&app, &auth_url, &redirect_prefix).await
 }
 
 /// Read ALL cookies for `uri` from the WebView2 cookie store (all app webviews share one store) and
@@ -5585,6 +5557,23 @@ pub fn run() {
     // keeps the established XWayland/snapshot path.
     let builder = tauri::Builder::default();
     #[cfg(not(target_os = "android"))]
+    let builder = builder
+        // Acquire the single-instance lock before a pending reset can touch app storage.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+            // The single-instance plugin forwards argv to the deep-link plugin for us, but that only
+            // covers *configured* schemes. Magnet is never registered, but if the user explicitly
+            // launches Izumi with one, relay that single request ourselves.
+            if let Some(url) = magnet_from_args(_args.iter().map(String::as_str)) {
+                let _ = app.emit("deep-link://new-url", vec![url]);
+            }
+        }))
+        .plugin(reset::startup_plugin());
+    #[cfg(not(target_os = "android"))]
     let window_state_flags = tauri_plugin_window_state::StateFlags::POSITION
         | tauri_plugin_window_state::StateFlags::SIZE
         | tauri_plugin_window_state::StateFlags::MAXIMIZED;
@@ -5605,20 +5594,7 @@ pub fn run() {
                 .with_state_flags(window_state_flags)
                 .with_filter(|label| label == "main")
                 .build(),
-        )
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
-            // The single-instance plugin forwards argv to the deep-link plugin for us, but that only
-            // covers *configured* schemes. Magnet is never registered, but if the user explicitly
-            // launches Izumi with one, relay that single request ourselves.
-            if let Some(url) = magnet_from_args(_args.iter().map(String::as_str)) {
-                let _ = app.emit("deep-link://new-url", vec![url]);
-            }
-        }));
+        );
     let builder = builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_os::init())
@@ -6211,6 +6187,7 @@ pub fn run() {
         .manage(desktop_presence::DesktopPresence::default())
         .invoke_handler(tauri::generate_handler![
             greet,
+            reset::reset_local_data,
             open_developer_tools,
             take_pending_magnet,
             player_play,
@@ -6373,6 +6350,7 @@ pub fn run() {
     #[cfg(target_os = "android")]
     let builder = builder.invoke_handler(tauri::generate_handler![
         greet,
+        reset::reset_local_data,
         // Always answers None on Android (no argv), but keeping it registered means the shared
         // deep-link bootstrap doesn't have to branch per platform.
         take_pending_magnet,

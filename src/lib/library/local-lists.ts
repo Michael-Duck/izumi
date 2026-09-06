@@ -1,6 +1,7 @@
 import type { Media } from '$lib/anilist/types'
 import { anilistIdOf, mediaKey } from '$lib/catalog/identity'
-import { profiledPersisted } from '$lib/profiles/store'
+import { profileStorageKey } from '$lib/profiles/store'
+import { databasePersisted, objectCodec } from '$lib/storage/library-db'
 
 export const WATCHLIST_ID = 'watchlist'
 export const RECENTLY_ADDED_ID = 'smart:recent'
@@ -67,7 +68,7 @@ const initialState: LocalLibraryState = {
   queue: [],
 }
 
-export const localLibrary = profiledPersisted<LocalLibraryState>('local-media-library-v1', initialState)
+export const localLibrary = databasePersisted(profileStorageKey('local-media-library-v1'), initialState, objectCodec(initialState))
 
 export function availableLocalLists(state: LocalLibraryState): LocalMediaList[] {
   const custom = (state.lists ?? []).filter((list) => list.id !== WATCHLIST_ID)

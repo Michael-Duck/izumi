@@ -1,6 +1,7 @@
 import { persisted } from 'svelte-persisted-store'
 import { derived, get, writable, type Readable, type Writable } from 'svelte/store'
 import { validAvatar, type ProfileAvatarId } from './avatars'
+import { deleteLibraryProfile, flushLibraryStorage } from '$lib/storage/library-db'
 
 export const DEFAULT_PROFILE_ID = 'default'
 const PROFILES_KEY = 'izumi-profiles-v1'
@@ -211,6 +212,7 @@ export async function verifyProfilePin(profile: IzumiProfile, pin: string): Prom
 export async function activateProfile(id: string, pin = ''): Promise<boolean> {
   const profile = get(profiles).find((candidate) => candidate.id === id)
   if (!profile || !(await verifyProfilePin(profile, pin))) return false
+  await flushLibraryStorage()
   safeStorage()?.setItem(ACTIVE_PROFILE_KEY, JSON.stringify(id))
   rememberUnlocked(id)
   activeProfileId.set(id)
@@ -238,6 +240,7 @@ export async function deleteProfile(id: string, pin = ''): Promise<boolean> {
   if (id === DEFAULT_PROFILE_ID || id === get(activeProfileId)) return false
   const profile = get(profiles).find((candidate) => candidate.id === id)
   if (!profile || !(await verifyProfilePin(profile, pin))) return false
+  await deleteLibraryProfile(id)
   storedProfiles.update((state) => ({ ...state, deleted: { ...state.deleted, [id]: Date.now() }, profiles: normalizeState(state).profiles.filter((candidate) => candidate.id !== id) }))
   const storage = safeStorage()
   if (storage) {

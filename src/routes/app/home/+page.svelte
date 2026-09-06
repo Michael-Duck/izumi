@@ -32,6 +32,7 @@
     resolveCatalogSwitcherPlacement,
   } from '$lib/settings/catalog'
   import CatalogHome from '$lib/components/catalog/CatalogHome.svelte'
+  import CollectionsHome from '$lib/components/catalog/CollectionsHome.svelte'
   import MergedCatalogHome from '$lib/components/catalog/MergedCatalogHome.svelte'
   import CatalogSwitcher from '$lib/components/catalog/CatalogSwitcher.svelte'
   import CatalogBrandLogo from '$lib/components/catalog/CatalogBrandLogo.svelte'
@@ -210,6 +211,7 @@
     {/if}
 
 
+    <CollectionsHome />
     {#each orderedRows as row (row)}
       {@const rowOption = anilistRows.find((option) => option.id === row)}
       <HomeRowFrame rowId={row} title={rowOption?.title ?? row} target={$catalogProvider} visibleIds={orderedRows}>

@@ -159,6 +159,11 @@ export interface CompanionHomeRow {
 export interface CompanionCatalogOption {
   screen: string
   label: string
+  children?: CompanionCatalogOption[]
+  cover?: string
+  emoji?: string
+  shape?: 'poster' | 'landscape' | 'square'
+  description?: string
 }
 
 export interface CompanionDiscovery {
@@ -170,6 +175,7 @@ export interface CompanionDiscovery {
 
 /** Provider-neutral payload consumed by the standalone TV project. */
 export interface CompanionHomeSnapshot {
+  collectionPage?: { page: number; hasMore: boolean; errors: string[]; nextOffsets?: number[] }
   discovery?: CompanionDiscovery
   /** Omitted by pre-profile clients, which always represent the main profile. */
   profileId?: string

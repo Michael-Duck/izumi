@@ -13,7 +13,8 @@ import { episodeSourceOrigins, sourceOrigins } from "$lib/player/source-origin";
 import { localLibrary } from "$lib/library/local-lists";
 import { seriesTrackPreferences } from "$lib/player/track-preferences";
 import { sceneBookmarkRecords } from "$lib/player/scene-bookmarks";
-import { exportJson, importJson } from "$lib/player/history-io";
+import { exportWatchBundle, importJson } from "$lib/player/history-io";
+import { libraryStorageReady, flushLibraryStorage } from '$lib/storage/library-db'
 import {
   applyManualSnapshot,
   createManualSnapshot,
@@ -64,6 +65,7 @@ import { watchCategory, watchPayloadForProfile } from './profile-scope'
 // between selecting another profile and the shell reloading.
 const syncProfileId = get(activeProfileId)
 export const profileSyncError = writable('')
+export const watchSyncError = writable('')
 
 export {
   checkCloudflareWorkerUpdate,
@@ -208,6 +210,8 @@ export async function listSyncMembers(): Promise<SyncMember[]> {
 }
 
 export async function pushWatchProgress(): Promise<boolean> {
+  await libraryStorageReady()
+  await flushLibraryStorage()
   const status = await getSyncStatus();
   if (status.state !== "ready" || !status.paired) return false;
   // Connected trackers own anime-level episode counts. Iroh still owns exact
@@ -222,12 +226,14 @@ export async function pushWatchProgress(): Promise<boolean> {
       throw cause
     }
   }
-  const payload = { ...JSON.parse(exportJson({ includeHistory: !trackersOwnProgress() })), profileId: syncProfileId }
+  const payload = { ...exportWatchBundle({ includeHistory: !trackersOwnProgress() }), exportedAt: 0, profileId: syncProfileId }
   await write(watchCategory(syncProfileId) as SyncCategory, JSON.stringify(payload));
+  watchSyncError.set('')
   return true;
 }
 
 export async function pullWatchProgress(): Promise<number> {
+  await libraryStorageReady()
   const status = await getSyncStatus();
   if (status.state !== "ready" || !status.paired) return 0;
   let imported = 0;
@@ -304,8 +310,8 @@ function scheduleWatchPush() {
     writing = true;
     try {
       await pushWatchProgress();
-    } catch {
-      /* offline/unpaired: next edit or launch retries */
+    } catch (cause) {
+      watchSyncError.set(cause instanceof Error ? cause.message : String(cause))
     } finally {
       writing = false;
     }
@@ -356,8 +362,8 @@ export function initDeviceSync() {
     try {
       await pullWatchProgress();
       scheduleWatchPush();
-    } catch {
-      /* backend may still be starting */
+    } catch (cause) {
+      watchSyncError.set(cause instanceof Error ? cause.message : String(cause))
     }
   };
   listen("iroh-sync-ready", refresh).catch(() => {});

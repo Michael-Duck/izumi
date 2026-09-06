@@ -16,7 +16,7 @@
     try {
       const saved = await saveTextFile(
         `izumi-backup-${new Date().toISOString().slice(0, 10)}.json`,
-        stringifyBackup(localStorage, includeSecrets),
+        await stringifyBackup(localStorage, includeSecrets),
       )
       if (saved) message = 'Application backup saved.'
     } catch (error) {
@@ -39,10 +39,10 @@
     }
   }
 
-  function applyRestore() {
+  async function applyRestore() {
     if (!pending) return
     try {
-      const count = restoreBackup(localStorage, pending)
+      const count = await restoreBackup(localStorage, pending)
       message = `Restored ${count} values. Restarting Izumi…`
       pending = null
       setTimeout(() => location.reload(), 350)

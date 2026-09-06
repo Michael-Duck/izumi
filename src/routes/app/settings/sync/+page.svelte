@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import TvAccounts from '$lib/components/catalog/TvAccounts.svelte'
+  import { activeProfileId as tvAccountProfileId } from '$lib/profiles/store'
+  import { onMount, tick } from 'svelte'
   import { goto } from '$app/navigation'
   import { listen } from '@tauri-apps/api/event'
   import { invoke } from '@tauri-apps/api/core'
@@ -39,7 +41,7 @@
     checkCloudflareWorkerUpdate, claimCloudflareWorker, cloudflareSetupSecret,
     cloudflareSyncConfig, cloudflareWorkerUpdateAvailable, createCloudflareInvite,
     createCloudflareCompanionEnrollment, generateCloudflareSetupSecret, joinCloudflareInvite,
-    setSyncProvider, syncProvider,
+    setSyncProvider, syncProvider, watchSyncError,
     type SyncMember,
   } from '$lib/sync/client'
   import {
@@ -75,6 +77,10 @@
   }
 
   let syncSection = $state<'sync' | 'tv'>('sync')
+  let connectionMethodOpen = $state(false)
+  let cloudflareOption = $state<HTMLButtonElement>()
+  let highlightCloudflare = $state(false)
+  let cloudflareHighlightTimer: ReturnType<typeof setTimeout> | undefined
   let cloudSetup = $state<'create' | 'join'>('create')
   let status = $state<SyncStatus>({ state: 'starting' })
   let joinTicket = $state('')
@@ -123,6 +129,18 @@
   const roomDeviceCount = $derived(Math.max(1, members.length))
   const currentRoomName = $derived(members.find((member) => member.isThisDevice)?.name || $syncDeviceName.trim() || 'This device')
   const validTvPairingCode = $derived(Boolean(normalizeCompanionPairingCode(tvPairingCode)))
+
+  async function openCloudflareSetup(event: MouseEvent) {
+    event.preventDefault()
+    syncSection = 'sync'
+    connectionMethodOpen = true
+    await tick()
+    cloudflareOption?.focus({ preventScroll: true })
+    cloudflareOption?.scrollIntoView({ block: 'center', behavior: 'instant' })
+    highlightCloudflare = true
+    clearTimeout(cloudflareHighlightTimer)
+    cloudflareHighlightTimer = setTimeout(() => { highlightCloudflare = false }, 2400)
+  }
 
   function showMessage(text: string) {
     clearTimeout(messageTimer)
@@ -618,12 +636,16 @@
       clearInterval(poll)
       clearInterval(clock)
       clearTimeout(messageTimer)
+      clearTimeout(cloudflareHighlightTimer)
       void Promise.all(unsubs).then((callbacks) => callbacks.forEach((unsubscribe) => unsubscribe()))
     }
   })
 </script>
 
 <div class="mx-auto max-w-4xl p-4 pb-24 sm:p-8">
+  {#if $watchSyncError}
+    <p role="alert" class="mb-4 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">{$watchSyncError}</p>
+  {/if}
   <h2 class="mb-2 text-3xl font-bold tracking-tight">Device sync</h2>
   <p class="mb-5 max-w-2xl text-sm text-muted-foreground">
     Keep your progress and setup in step across Izumi devices. History and settings are end-to-end encrypted. Optional TV source resolution is configured separately.
@@ -768,15 +790,15 @@
             {/if}
           </div>
         </section>
-
+        {#if cloudResolverEnabled}{#key $tvAccountProfileId}<TvAccounts />{/key}{/if}
 
     {:else}
-      <p class="mt-6 border-t border-border pt-5 text-sm leading-6 text-muted-foreground">Want your TV to find sources while Izumi is closed? Connect private Cloudflare sync first, then return here to enable TV playback. <button type="button" data-focusable onclick={() => syncSection = 'sync'} class="font-semibold text-foreground underline underline-offset-4">Open sync setup</button></p>
+      <p class="mt-6 border-t border-border pt-5 text-sm leading-6 text-muted-foreground">Want your TV to find sources while Izumi is closed? Connect <a href="#cloudflare-connection" data-focusable onclick={openCloudflareSetup} class="font-semibold text-foreground underline underline-offset-4">private Cloudflare sync</a> first, then return here to enable TV playback.</p>
     {/if}
     </div>
   {:else}
   <a href="/app/tv-setup" data-focusable class="mb-5 inline-flex min-h-10 items-center gap-2 rounded-lg bg-secondary px-4 py-2 text-sm font-bold">Set up a TV with Cloudflare <ExternalLink size={15} /></a>
-  <details class="mb-6 max-w-2xl border-b border-border pb-4" open={!paired}>
+  <details class="mb-6 max-w-2xl border-b border-border pb-4" open={connectionMethodOpen || !paired}>
     <summary class="cursor-pointer py-2 text-sm font-semibold">Connection method <span class="ml-2 font-normal text-muted-foreground">{$syncProvider === 'cloudflare' ? 'Private Cloudflare' : 'Peer-to-peer'}</span></summary>
   <SettingsGroup title="Connection" desc="Choose where encrypted device records travel" icon={Cloud}>
     <div class="grid grid-cols-2 gap-2 p-3">
@@ -784,7 +806,8 @@
         class="min-h-12 rounded-lg px-3 py-2 text-sm font-bold {$syncProvider === 'iroh' ? 'bg-foreground/10 text-foreground ring-1 ring-foreground/50' : 'bg-secondary text-muted-foreground'}">
         Peer-to-peer <span class="mt-0.5 block text-[10px] font-normal opacity-75">No account</span>
       </button>
-      <button type="button" data-focusable disabled={!!busy} aria-pressed={$syncProvider === 'cloudflare'} onclick={() => { h.tap(); void selectProvider('cloudflare') }}
+      <button id="cloudflare-connection" bind:this={cloudflareOption} type="button" data-focusable disabled={!!busy} aria-pressed={$syncProvider === 'cloudflare'} onclick={() => { h.tap(); void selectProvider('cloudflare') }}
+        class:cloudflare-setup-highlight={highlightCloudflare}
         class="min-h-12 rounded-lg px-3 py-2 text-sm font-bold {$syncProvider === 'cloudflare' ? 'bg-foreground/10 text-foreground ring-1 ring-foreground/50' : 'bg-secondary text-muted-foreground'}">
         My Cloudflare <span class="mt-0.5 block text-[10px] font-normal opacity-75">Self-hosted Worker</span>
       </button>
@@ -1298,3 +1321,11 @@
   {/if}
   {/if}
 </div>
+
+<style>
+  .cloudflare-setup-highlight {
+    outline: 2px solid hsl(var(--primary));
+    outline-offset: 3px;
+    background-color: hsl(var(--primary) / 0.15);
+  }
+</style>

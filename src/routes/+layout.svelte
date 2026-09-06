@@ -15,6 +15,7 @@
   import { initPlatform } from '$lib/platform'
   import { scheduleBootWork } from '$lib/util/boot-work'
   import { initClientPerformance } from '$lib/performance/client'
+  import { libraryStorageError } from '$lib/storage/library-db'
   import { getLocale, getTextDirection } from '$lib/paraglide/runtime.js'
   import {
     debridKey, torrentBindInterface, torrentPlaybackMode, torrentProxyEnabled, torrentProxyUrl,
@@ -52,4 +53,9 @@
     return () => { stopPerformance(); stopTheme(); stopDolbySync() }
   })
 </script>
+{#if $libraryStorageError && !captureControlsWindow}
+  <div role="alert" class="fixed inset-x-0 top-0 z-[200] bg-destructive px-4 py-3 text-sm text-destructive-foreground">
+    {$libraryStorageError} <a href="/app/settings/backup" class="font-bold underline">Export backup</a>
+  </div>
+{/if}
 {@render children()}

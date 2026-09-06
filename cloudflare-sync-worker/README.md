@@ -25,6 +25,18 @@ Never share the setup secret or an Izumi invite ticket publicly. Invites are sin
 
 ## Updating
 
+Version 1.9 adds encrypted multipart library records (`0006_record_chunks.sql`). Update the
+Worker and each desktop/mobile Izumi client to sync libraries larger than the old single-record
+limit. Small records retain the original wire format. This does not change Samsung TV snapshot
+or playback protocols.
+
+Large libraries are divided into content-addressed encrypted chunks. Each request stays below
+512 KiB; a snapshot may contain up to 32 MiB of plaintext. Only changed chunks upload again, and
+the Worker switches the current snapshot only after all referenced chunks exist. Interrupted
+uploads leave the last complete snapshot readable. Unreferenced chunks expire after ten minutes
+when another upload runs; the active snapshot is retained. The Worker bounds staged ciphertext
+to 96 MiB per device/category. Chunk contents and manifests remain end-to-end encrypted.
+
 Izumi checks the Worker's public version automatically. Claiming a temporary deployment does not
 give Izumi permanent access to the Cloudflare account. To update a Worker created directly by Izumi,
 the owner creates and pastes a new pre-scoped setup token; Izumi updates the Worker in place while

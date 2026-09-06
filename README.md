@@ -35,7 +35,9 @@ A native anime library manager for browsing, tracking, and playing from the sour
 
 ## Supported sources
 
-- **Stremio add-ons** — add stream and subtitle add-ons by manifest URL and browse their results together in one source picker.
+- **Stremio add-ons** — add stream and subtitle add-ons by manifest URL, including the Stremio add-ons used in Nuvio and Omni, and browse their results together in one source picker.
+- **Nuvio providers** — add a Nuvio JavaScript provider manifest or repository URL in Sources. Providers resolve movies and mapped TV episodes directly, with playback headers and subtitles. See [compatibility and setup](docs/nuvio-omni-sources.md).
+- **Nuvio Cloud** — sign in or create an account, manage profiles, edit cloud collections and artwork, and browse community collections. Manage sources, library, resume points, watch history, and client preferences with reviewed transfers between Nuvio and izumi. Collection imports support Stremio catalogs, TMDB feeds, and Trakt lists. See [account setup and compatibility](docs/nuvio-account.md).
 - **Aniyomi / Mihon-compatible extensions** — use supported anime-source extensions from the Tachiyomi ecosystem when distributed as verified `.izumi-ext` packages (desktop only).
 - **Community extension formats** — load native izumi JavaScript providers, Miru video extensions, Seanime online-stream providers, and anime torrent providers from a GitHub repository, manifest, or package catalog.
 - **Flexible playback** — play direct HTTP streams, resolve torrents through a supported debrid service, stream torrents with the built-in P2P engine, or watch files from your local library.
@@ -70,6 +72,8 @@ izumi will notify you of updates to keep izumi up-to-date. Grab your platform be
 
 Android **full** includes an embedded player; **lite** hands off this to an external app. The non-AppImage/Flatpak Linux builds need your distro's `libmpv` (`mpv` / `libmpv-dev`).
 
+**Samsung Tizen:** [izumi Companion setup guide](/docs/companion/setup)
+
 > [!WARNING]
 > On Windows, you may need to do the following to run the install after open: SmartScreen → **More info → Run anyway**.
 
@@ -85,7 +89,7 @@ Android **full** includes an embedded player; **lite** hands off this to an exte
 
 ## Prerequisites
 
-- **Node.js** 18+ and **npm**
+- **Node.js** 24 (matching CI) and **npm**
 - **Rust** (stable) + the [Tauri v2 system prerequisites](https://tauri.app/start/prerequisites/)
 - **libmpv** available to the Rust linker
   - **Windows:** provide `mpv.lib` (generate it from a `libmpv-2.dll` import) and ensure
@@ -108,7 +112,11 @@ npm run tauri build
 
 ## Status
 
-Release builds for Windows, macOS, Linux, Steam Deck, and Android are on the [Releases](https://github.com/nickEatsBread/izumi/releases/latest) page (see [Get started](#get-started)). Expect ongoing changes and the occasional rough edges — please report issues through GitHub Issues.
+Watch history and saved lists migrate automatically to database storage. Large-library Cloudflare
+sync requires Worker 1.9 and updated desktop/mobile clients; the app's Worker updater includes
+the migration. See [library storage and sync](docs/LIBRARY_STORAGE.md) for backup compatibility and limits.
+
+Release builds for Windows, macOS, Linux, Steam Deck, and Android are on the [Releases](https://github.com/nickEatsBread/izumi/releases/latest) page (see [Get started](#get-started)). For the TV client, see the [Samsung Tizen Companion setup guide](/docs/companion/setup) in the [izumi documentation](/docs). Expect ongoing changes and the occasional rough edges — please report issues through GitHub Issues.
 
 ## License
 

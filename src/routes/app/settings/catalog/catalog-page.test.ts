@@ -50,7 +50,7 @@ describe('catalog settings', () => {
   })
 
   it('shows provider-specific configuration whenever that provider is enabled', () => {
-    expect(source).toContain("{#if hasPlatform('tmdb')}")
+    expect(source).toContain("{#if hasPlatform('tmdb') || collectionsUseTmdb}")
     expect(source).toContain("{#if hasPlatform('stremio')}")
     expect(source).toContain("{#if hasPlatform('jvm')}")
   })

@@ -6,6 +6,7 @@ import { enabledAddonUrls } from '$lib/stremio/sources'
 import { providerMeta } from '$lib/stremio/debrid'
 import type { CloudflareResolverProfile } from '$lib/sync/cloudflare'
 import { cloudflareAllowLanSources } from '$lib/sync/cloudflare'
+import { homeCollections } from '$lib/catalog/collections/store'
 
 /** Build the Worker's opt-in profile from the same stores used by normal Izumi playback/browsing. */
 export function currentCloudflareCompanionProfile(connectedDeviceFallback: boolean): CloudflareResolverProfile {
@@ -13,6 +14,7 @@ export function currentCloudflareCompanionProfile(connectedDeviceFallback: boole
   const provider = get(debridProvider)
   return {
     enabled: true,
+    collections: get(homeCollections),
     household: get(profileHousehold),
     addons: [...get(enabledAddonUrls)],
     quality: get(preferredQuality),
@@ -39,6 +41,7 @@ export function watchCloudflareCompanionProfile(onChange: () => void): () => voi
     showAdult, hideSpoilers,
     cloudflareAllowLanSources,
     profileHousehold,
+    homeCollections,
   ]
   let primed = 0
   let timer: ReturnType<typeof setTimeout> | undefined

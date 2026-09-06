@@ -1,5 +1,6 @@
 import { phttp } from '$lib/net/http'
 import { acceptsStreamId, type AddonManifest } from './manifest-capability'
+import { normalizeBase } from './sources'
 
 export { acceptsStreamId } from './manifest-capability'
 export type { AddonCatalog, AddonCatalogExtra, AddonManifest, AddonResource } from './manifest-capability'
@@ -13,9 +14,7 @@ const cache = new Map<string, Promise<AddonManifest | null>>()
 const resolved = new Map<string, AddonManifest>()
 
 function manifestBase(base: string): string {
-  let b = base.trim().replace(/^http:\/\//i, 'https://')
-  if (!/^https?:\/\//i.test(b)) b = 'https://' + b
-  return b.replace(/\/manifest\.json\/?$/i, '').replace(/\/$/, '')
+  return normalizeBase(base)
 }
 
 /** Synchronous view of a successfully fetched manifest. Stream dispatch must not await an unknown
@@ -30,7 +29,9 @@ export function fetchManifest(base: string): Promise<AddonManifest | null> {
   if (!cache.has(b)) {
     const request = (async () => {
       try {
-        const r = await phttp(`${b}/manifest.json`)
+        const url = new URL(b)
+        url.pathname = url.pathname.replace(/\/$/, '') + '/manifest.json'
+        const r = await phttp(url.href)
         if (!r.ok) return null
         return (await r.json()) as AddonManifest
       } catch { return null }

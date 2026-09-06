@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Reset izumi</title>
+    <style>
+      :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #141418; color: #f4f4f5; }
+      body { margin: 0; min-height: 100dvh; display: grid; place-items: center; }
+      main { padding: 32px; max-width: 460px; }
+      img { width: 48px; height: 48px; }
+      h1 { font-size: 24px; }
+      p { color: #b6b6c2; line-height: 1.6; overflow-wrap: anywhere; }
+      button, a { font: inherit; color: inherit; }
+      button { background: #30303a; border: 1px solid #51515e; border-radius: 8px; padding: 12px 20px; cursor: pointer; }
+      button:disabled { opacity: .6; }
+      [hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="/brand/izumi-mark-color.svg" alt="izumi" />
+      <h1>Reset izumi</h1>
+      <p id="status" role="status" aria-live="polite">Preparing reset…</p>
+      <button id="retry" type="button" hidden>Retry reset</button>
+      <a id="back" href="/app/settings/about" hidden>Back to About</a>
+    </main>
+    <script type="module">
+      import { runReset } from '/reset-local-data.js'
+      const status = document.getElementById('status')
+      const retry = document.getElementById('retry')
+      // Visiting this URL alone must never delete data. About sets this after confirmation.
+      let authorized = false
+      try { authorized = sessionStorage.getItem('izumi-reset-requested') === 'true' } catch {}
+      async function reset() {
+        retry.hidden = true
+        status.textContent = 'Removing local data… Keep izumi open until the reset finishes.'
+        try {
+          await runReset(window)
+        } catch (error) {
+          status.textContent = `Reset did not finish. Some local data may already have been removed. ${error instanceof Error ? error.message : String(error)}`
+          retry.hidden = false
+        }
+      }
+      retry.addEventListener('click', reset)
+      if (authorized) void reset()
+      else {
+        status.textContent = 'Start a reset from Settings → About.'
+        document.getElementById('back').hidden = false
+      }
+    </script>
+  </body>
+</html>

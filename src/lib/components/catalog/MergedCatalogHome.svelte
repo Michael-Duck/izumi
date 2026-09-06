@@ -1,6 +1,7 @@
 <script lang="ts">
   import { goto } from '$app/navigation'
   import Hero from '$lib/components/banner/Hero.svelte'
+  import CollectionsHome from './CollectionsHome.svelte'
   import ContinueRow from '$lib/components/cards/ContinueRow.svelte'
   import HomeRow from '$lib/components/cards/HomeRow.svelte'
   import ListRow from '$lib/components/cards/ListRow.svelte'
@@ -144,6 +145,7 @@
   {/if}
 
   <div class="space-y-5">
+    <CollectionsHome />
     {#each rows as row (row.id)}
       <HomeRowFrame rowId={row.id} title={editorTitle(row)} target="merged" visibleIds={visibleRowIds}>
         {#if row.id === 'continue'}

@@ -7,6 +7,13 @@ use std::collections::HashSet;
 use std::time::Duration;
 
 const API_ROOT: &str = "https://api.cloudflare.com/client/v4";
+const TEMPORARY_AUTH_RETRY_DELAYS: &[Duration] = &[
+    Duration::from_secs(1),
+    Duration::from_secs(2),
+    Duration::from_secs(4),
+    Duration::from_secs(8),
+    Duration::from_secs(15),
+];
 const WORKER_BUNDLE: &str = include_str!("cloudflare_worker_bundle.mjs");
 const MIGRATIONS: &[(&str, &str)] = &[
     (
@@ -29,6 +36,11 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "0005_companion_discovery",
         include_str!("../../cloudflare-sync-worker/migrations/0005_companion_discovery.sql"),
     ),
+    (
+        "0006_record_chunks",
+        include_str!("../../cloudflare-sync-worker/migrations/0006_record_chunks.sql"),
+    ),
+    ("0007_connected_accounts", include_str!("../../cloudflare-sync-worker/migrations/0007_connected_accounts.sql")),
 ];
 
 #[derive(Debug, Deserialize)]
@@ -118,6 +130,8 @@ struct WorkersSubdomain {
 struct CloudflareApi {
     client: reqwest::Client,
     token: String,
+    api_root: String,
+    temporary_auth_retry_delays: &'static [Duration],
 }
 
 impl CloudflareApi {
@@ -131,12 +145,58 @@ impl CloudflareApi {
             .user_agent(concat!("izumi/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|error| format!("Could not start the Cloudflare connection: {error}"))?;
-        Ok(Self { client, token })
+        Ok(Self {
+            client,
+            token,
+            api_root: API_ROOT.into(),
+            temporary_auth_retry_delays: &[],
+        })
+    }
+
+    fn new_preview(token: String) -> Result<Self, String> {
+        let mut api = Self::new(token)?;
+        api.temporary_auth_retry_delays = TEMPORARY_AUTH_RETRY_DELAYS;
+        Ok(api)
+    }
+
+    async fn create_database(&self, account_id: &str, name: &str) -> Result<D1Database, String> {
+        let mut delays = self.temporary_auth_retry_delays.iter();
+        loop {
+            let response = self
+                .request(Method::POST, &format!("/accounts/{account_id}/d1/database"))
+                .json(&json!({ "name": name }))
+                .send()
+                .await
+                .map_err(network_error)?;
+            let status = response.status();
+            let envelope: ApiEnvelope<D1Database> = response.json().await.map_err(network_error)?;
+            // Fresh preview credentials can be returned before D1 accepts them.
+            // Retry only an explicit authentication rejection: it did not create
+            // a database. Timeouts and ambiguous failures must not repeat a POST.
+            if status == StatusCode::UNAUTHORIZED
+                && !envelope.success
+                && envelope
+                    .errors
+                    .iter()
+                    .any(|error| error.code == Some(10000))
+            {
+                if let Some(delay) = delays.next() {
+                    tokio::time::sleep(*delay).await;
+                    continue;
+                }
+            }
+            if !status.is_success() || !envelope.success {
+                return Err(api_error(status, &envelope.errors, "database creation"));
+            }
+            return envelope
+                .result
+                .ok_or_else(|| "Cloudflare returned an empty database creation response.".into());
+        }
     }
 
     fn request(&self, method: Method, path: &str) -> reqwest::RequestBuilder {
         self.client
-            .request(method, format!("{API_ROOT}{path}"))
+            .request(method, format!("{}{path}", self.api_root))
             .bearer_auth(&self.token)
     }
 
@@ -150,13 +210,14 @@ impl CloudflareApi {
     async fn success(&self, request: reqwest::RequestBuilder) -> Result<(), String> {
         let response = request.send().await.map_err(network_error)?;
         let status = response.status();
+        let operation = api_operation(response.url().path());
         let bytes = response.bytes().await.map_err(network_error)?;
         let envelope: ApiEnvelope<Value> = serde_json::from_slice(&bytes)
             .map_err(|_| format!("Cloudflare returned an unreadable response ({status})."))?;
         if status.is_success() && envelope.success {
             Ok(())
         } else {
-            Err(api_error(status, &envelope.errors))
+            Err(api_error(status, &envelope.errors, operation))
         }
     }
 }
@@ -165,11 +226,12 @@ async fn parse_json_response<T: DeserializeOwned>(
     response: reqwest::Response,
 ) -> Result<T, String> {
     let status = response.status();
+    let operation = api_operation(response.url().path());
     let bytes = response.bytes().await.map_err(network_error)?;
     let envelope: ApiEnvelope<T> = serde_json::from_slice(&bytes)
         .map_err(|_| format!("Cloudflare returned an unreadable response ({status})."))?;
     if !status.is_success() || !envelope.success {
-        return Err(api_error(status, &envelope.errors));
+        return Err(api_error(status, &envelope.errors, operation));
     }
     envelope
         .result
@@ -184,7 +246,29 @@ fn network_error(error: reqwest::Error) -> String {
     }
 }
 
-fn api_error(status: StatusCode, errors: &[ApiMessage]) -> String {
+fn api_operation(path: &str) -> &'static str {
+    if path.ends_with("/provisioning/previews/challenge") {
+        "security challenge"
+    } else if path.ends_with("/provisioning/previews") {
+        "temporary account creation"
+    } else if path.ends_with("/accounts") {
+        "account lookup"
+    } else if path.ends_with("/query") {
+        "database setup"
+    } else if path.ends_with("/d1/database") {
+        "database creation"
+    } else if path.contains("/d1/database/") {
+        "database verification"
+    } else if path.ends_with("/subdomain") {
+        "Worker address setup"
+    } else if path.contains("/workers/scripts/") {
+        "Worker upload"
+    } else {
+        "setup"
+    }
+}
+
+fn api_error(status: StatusCode, errors: &[ApiMessage], operation: &str) -> String {
     let details = errors
         .iter()
         .filter_map(|error| {
@@ -200,9 +284,9 @@ fn api_error(status: StatusCode, errors: &[ApiMessage]) -> String {
         .collect::<Vec<_>>()
         .join("; ");
     if details.is_empty() {
-        format!("Cloudflare rejected the request ({status}).")
+        format!("Cloudflare {operation} failed ({status}).")
     } else {
-        format!("Cloudflare: {details}")
+        format!("Cloudflare {operation} failed ({status}): {details}")
     }
 }
 
@@ -312,15 +396,6 @@ async fn provision_preview_account() -> Result<PreviewProvisioning, String> {
     .await
 }
 
-fn sql_statements(source: &str) -> impl Iterator<Item = &str> {
-    source.split(';').map(str::trim).filter(|statement| {
-        statement.lines().any(|line| {
-            let line = line.trim();
-            !line.is_empty() && !line.starts_with("--")
-        })
-    })
-}
-
 async fn d1_query(
     api: &CloudflareApi,
     account_id: &str,
@@ -370,9 +445,9 @@ async fn apply_migrations(
         if applied.contains(*name) {
             continue;
         }
-        for statement in sql_statements(source) {
-            d1_query(api, &target.account_id, &target.database_id, statement).await?;
-        }
+        // D1 accepts a complete SQL batch. Splitting on semicolons corrupts
+        // comments (migration 5) and quoted SQL values; let SQLite parse them.
+        d1_query(api, &target.account_id, &target.database_id, source).await?;
         d1_query(
             api,
             &target.account_id,
@@ -387,11 +462,25 @@ async fn apply_migrations(
 
 async fn ensure_workers_subdomain(api: &CloudflareApi, account_id: &str) -> Result<String, String> {
     let path = format!("/accounts/{account_id}/workers/subdomain");
-    if let Ok(existing) = api
-        .json::<WorkersSubdomain>(api.request(Method::GET, &path))
+    let response = api
+        .request(Method::GET, &path)
+        .send()
         .await
+        .map_err(network_error)?;
+    let status = response.status();
+    let envelope: ApiEnvelope<WorkersSubdomain> = response.json().await.map_err(network_error)?;
+    if status.is_success() && envelope.success {
+        if let Some(existing) = envelope.result.filter(|value| !value.subdomain.is_empty()) {
+            return Ok(existing.subdomain);
+        }
+    } else if status != StatusCode::NOT_FOUND
+        || !envelope
+            .errors
+            .iter()
+            .any(|error| error.code == Some(10007))
     {
-        return Ok(existing.subdomain);
+        // A denied read does not mean the account needs a new address.
+        return Err(api_error(status, &envelope.errors, "Worker address setup"));
     }
 
     let base = format!("izumi-{}", &account_id[..12]);
@@ -519,6 +608,21 @@ pub async fn cloudflare_deploy_worker(
     bootstrap_secret: Option<String>,
     existing: Option<CloudflareDeploymentTarget>,
 ) -> Result<CloudflareDeployResult, String> {
+    deploy_worker_with_api(
+        CloudflareApi::new(api_token)?,
+        account_id,
+        bootstrap_secret,
+        existing,
+    )
+    .await
+}
+
+async fn deploy_worker_with_api(
+    api: CloudflareApi,
+    account_id: String,
+    bootstrap_secret: Option<String>,
+    existing: Option<CloudflareDeploymentTarget>,
+) -> Result<CloudflareDeployResult, String> {
     if !valid_account_id(&account_id) {
         return Err("The selected Cloudflare account is invalid.".into());
     }
@@ -529,47 +633,11 @@ pub async fn cloudflare_deploy_worker(
     if existing.is_none() && secret.map_or(true, |value| value.len() < 24) {
         return Err("Generate a complete Izumi setup secret before deploying.".into());
     }
-    let api = CloudflareApi::new(api_token)?;
     let is_new = existing.is_none();
 
-    let target = if let Some(target) = existing {
-        if target.account_id != account_id
-            || !valid_account_id(&target.account_id)
-            || !valid_script_name(&target.script_name)
-            || !valid_database_id(&target.database_id)
-        {
-            return Err("The saved Cloudflare deployment details are invalid.".into());
-        }
-        target
-    } else {
-        // A random suffix avoids ever replacing an unrelated Worker or a previous Izumi setup.
-        let script_name = format!("izumi-sync-{}", random_suffix()?);
-        let database: D1Database = api
-            .json(
-                api.request(Method::POST, &format!("/accounts/{account_id}/d1/database"))
-                    .json(&json!({ "name": format!("{script_name}-db") })),
-            )
-            .await?;
-        CloudflareDeploymentTarget {
-            account_id: account_id.clone(),
-            script_name,
-            database_id: database
-                .uuid
-                .ok_or_else(|| "Cloudflare created D1 without returning its ID.".to_string())?,
-        }
-    };
+    let target = prepare_deployment_target(&api, &account_id, existing).await?;
 
     let deployment = async {
-        // Also proves that a saved database still exists before an update can replace the Worker.
-        let _: D1Database = api
-            .json(api.request(
-                Method::GET,
-                &format!(
-                    "/accounts/{}/d1/database/{}",
-                    target.account_id, target.database_id
-                ),
-            ))
-            .await?;
         apply_migrations(&api, &target).await?;
         let subdomain = ensure_workers_subdomain(&api, &target.account_id).await?;
         upload_worker(&api, &target, secret).await?;
@@ -606,6 +674,49 @@ pub async fn cloudflare_deploy_worker(
     deployment
 }
 
+async fn prepare_deployment_target(
+    api: &CloudflareApi,
+    account_id: &str,
+    existing: Option<CloudflareDeploymentTarget>,
+) -> Result<CloudflareDeploymentTarget, String> {
+    if let Some(target) = existing {
+        if target.account_id != account_id
+            || !valid_account_id(&target.account_id)
+            || !valid_script_name(&target.script_name)
+            || !valid_database_id(&target.database_id)
+        {
+            return Err("The saved Cloudflare deployment details are invalid.".into());
+        }
+        // Saved targets must still exist before an update can replace the Worker.
+        let _: D1Database = api
+            .json(api.request(
+                Method::GET,
+                &format!(
+                    "/accounts/{}/d1/database/{}",
+                    target.account_id, target.database_id
+                ),
+            ))
+            .await?;
+        Ok(target)
+    } else {
+        // A random suffix avoids ever replacing an unrelated Worker or a previous Izumi setup.
+        let script_name = format!("izumi-sync-{}", random_suffix()?);
+        let database = api
+            .create_database(account_id, &format!("{script_name}-db"))
+            .await?;
+        // The create response already identifies this new database. Temporary
+        // credentials support a narrower API than permanent account tokens;
+        // do not require an extra metadata read before executing migrations.
+        Ok(CloudflareDeploymentTarget {
+            account_id: account_id.into(),
+            script_name,
+            database_id: database
+                .uuid
+                .ok_or_else(|| "Cloudflare created D1 without returning its ID.".to_string())?,
+        })
+    }
+}
+
 #[tauri::command]
 pub async fn cloudflare_create_preview(
     accept_terms: bool,
@@ -620,8 +731,8 @@ pub async fn cloudflare_create_preview(
         return Err("Generate a complete Izumi setup secret before deploying.".into());
     }
     let preview = provision_preview_account().await?;
-    let deployed = cloudflare_deploy_worker(
-        preview.account.api_token,
+    let deployed = deploy_worker_with_api(
+        CloudflareApi::new_preview(preview.account.api_token)?,
         preview.account.id,
         Some(bootstrap_secret),
         None,
@@ -661,6 +772,267 @@ pub async fn cloudflare_remove_bootstrap_secret(
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    #[ignore = "Creates an expiring Cloudflare account; run only for an authorized live setup diagnostic"]
+    async fn live_temporary_d1_diagnostic() {
+        let preview = provision_preview_account()
+            .await
+            .expect("temporary account provisioning");
+        let api = CloudflareApi::new_preview(preview.account.api_token).unwrap();
+        let path = format!("/accounts/{}/d1/database", preview.account.id);
+        let name = format!("izumi-auth-diagnostic-{}", random_suffix().unwrap());
+        let started = std::time::Instant::now();
+        let database = api
+            .create_database(&preview.account.id, &name)
+            .await
+            .expect("D1 creation with production activation retry");
+        println!(
+            "D1 creation succeeded after {:.1}s",
+            started.elapsed().as_secs_f64()
+        );
+        let id = database.uuid.unwrap();
+        let target = CloudflareDeploymentTarget {
+            account_id: preview.account.id,
+            script_name: name,
+            database_id: id.clone(),
+        };
+        let verification = async {
+            apply_migrations(&api, &target).await?;
+            // A second pass must skip recorded migrations, including ALTER TABLE.
+            apply_migrations(&api, &target).await?;
+            println!(
+                "All {} migrations applied and repeat application passed.",
+                MIGRATIONS.len()
+            );
+            let subdomain = ensure_workers_subdomain(&api, &target.account_id).await?;
+            upload_worker(&api, &target, Some("isolated-diagnostic-bootstrap-secret")).await?;
+            enable_worker_subdomain(&api, &target).await?;
+            wait_for_worker(&format!(
+                "https://{}.{}.workers.dev",
+                target.script_name, subdomain
+            ))
+            .await?;
+            println!("Worker upload, address activation and live status check passed.");
+            Ok::<(), String>(())
+        }
+        .await;
+        // Clean up even if a later deployment step failed.
+        let script_cleanup = api
+            .success(api.request(
+                Method::DELETE,
+                &format!(
+                    "/accounts/{}/workers/scripts/{}",
+                    target.account_id, target.script_name
+                ),
+            ))
+            .await;
+        let database_cleanup = api
+            .success(api.request(Method::DELETE, &format!("{path}/{id}")))
+            .await;
+        database_cleanup.expect("remove diagnostic database");
+        println!("Diagnostic database removed.");
+        verification.expect("complete automatic Cloudflare deployment");
+        script_cleanup.expect("remove diagnostic Worker");
+        println!("Diagnostic Worker removed.");
+    }
+
+    type Requests = std::sync::Arc<std::sync::Mutex<Vec<(Method, String, String)>>>;
+
+    async fn mock_api(
+        responses: Vec<(StatusCode, Value)>,
+    ) -> (CloudflareApi, Requests, tokio::task::JoinHandle<()>) {
+        use std::{
+            collections::VecDeque,
+            sync::{Arc, Mutex},
+        };
+        let requests: Requests = Arc::new(Mutex::new(Vec::new()));
+        let recorded = requests.clone();
+        let responses = Arc::new(Mutex::new(VecDeque::from(responses)));
+        let router = axum::Router::new().fallback(move |request: axum::extract::Request| {
+            let recorded = recorded.clone();
+            let responses = responses.clone();
+            async move {
+                let method = request.method().clone();
+                let path = request.uri().path().to_string();
+                let body = axum::body::to_bytes(request.into_body(), 1024 * 1024).await.unwrap();
+                recorded.lock().unwrap().push((method, path, String::from_utf8(body.to_vec()).unwrap()));
+                let (status, value) = responses.lock().unwrap().pop_front().unwrap_or((
+                    StatusCode::UNAUTHORIZED,
+                    json!({"success": false, "errors": [{"code": 10000, "message": "Authentication error"}]}),
+                ));
+                (status, axum::Json(value))
+            }
+        });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        let mut api = CloudflareApi::new("test-only-credential-0000".into()).unwrap();
+        api.api_root = format!("http://{address}/client/v4");
+        (api, requests, server)
+    }
+
+    #[tokio::test]
+    async fn fresh_database_uses_creation_response_without_requiring_metadata_read() {
+        let id = "01234567-89ab-cdef-0123-456789abcdef";
+        let (api, requests, server) = mock_api(vec![(
+            StatusCode::OK,
+            json!({"success": true, "result": {"uuid": id}}),
+        )])
+        .await;
+        // Any request after creation gets the reported authentication error.
+        let target =
+            prepare_deployment_target(&api, "0123456789abcdef0123456789abcdef", None).await;
+        server.abort();
+        assert_eq!(target.unwrap().database_id, id);
+        assert_eq!(requests.lock().unwrap().len(), 1);
+        assert_eq!(requests.lock().unwrap()[0].0, Method::POST);
+    }
+
+    fn authentication_failure() -> (StatusCode, Value) {
+        (
+            StatusCode::UNAUTHORIZED,
+            json!({"success": false, "errors": [{"code": 10000, "message": "Authentication error"}]}),
+        )
+    }
+
+    #[tokio::test]
+    async fn temporary_credentials_retry_auth_rejections_until_d1_accepts_them() {
+        let (mut api, requests, server) = mock_api(vec![
+            authentication_failure(), authentication_failure(),
+            (StatusCode::OK, json!({"success": true, "result": {"uuid": "01234567-89ab-cdef-0123-456789abcdef"}})),
+        ]).await;
+        api.temporary_auth_retry_delays = &[Duration::ZERO, Duration::ZERO];
+        let target =
+            prepare_deployment_target(&api, "0123456789abcdef0123456789abcdef", None).await;
+        server.abort();
+        assert!(target.is_ok());
+        assert_eq!(requests.lock().unwrap().len(), 3);
+        assert!(requests
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|request| request.0 == Method::POST));
+    }
+
+    #[tokio::test]
+    async fn user_api_tokens_are_not_retried_when_authentication_is_rejected() {
+        let (api, requests, server) = mock_api(vec![authentication_failure()]).await;
+        let result = api
+            .create_database("0123456789abcdef0123456789abcdef", "test-db")
+            .await;
+        server.abort();
+        assert!(result.unwrap_err().contains("code 10000"));
+        assert_eq!(requests.lock().unwrap().len(), 1);
+        assert!(CloudflareApi::new("test-only-credential-0000".into())
+            .unwrap()
+            .temporary_auth_retry_delays
+            .is_empty());
+        assert_eq!(
+            CloudflareApi::new_preview("test-only-credential-0000".into())
+                .unwrap()
+                .temporary_auth_retry_delays
+                .iter()
+                .sum::<Duration>(),
+            Duration::from_secs(30)
+        );
+    }
+
+    #[tokio::test]
+    async fn temporary_authentication_retry_has_a_fixed_limit() {
+        let (mut api, requests, server) = mock_api(vec![]).await;
+        api.temporary_auth_retry_delays = &[Duration::ZERO, Duration::ZERO];
+        let result = api
+            .create_database("0123456789abcdef0123456789abcdef", "test-db")
+            .await;
+        server.abort();
+        assert!(result.unwrap_err().contains("code 10000"));
+        assert_eq!(requests.lock().unwrap().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn ambiguous_or_unrelated_errors_never_repeat_database_creation() {
+        for (status, code) in [
+            (StatusCode::INTERNAL_SERVER_ERROR, 10000),
+            (StatusCode::UNAUTHORIZED, 10001),
+            (StatusCode::TOO_MANY_REQUESTS, 10000),
+        ] {
+            let (mut api, requests, server) = mock_api(vec![(
+                status,
+                json!({"success": false, "errors": [{"code": code, "message": "Rejected"}]}),
+            )])
+            .await;
+            api.temporary_auth_retry_delays = &[Duration::ZERO];
+            let result = api
+                .create_database("0123456789abcdef0123456789abcdef", "test-db")
+                .await;
+            server.abort();
+            assert!(result.is_err());
+            assert_eq!(requests.lock().unwrap().len(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn saved_database_is_verified_before_replacing_worker() {
+        let (api, requests, server) = mock_api(vec![]).await;
+        let account_id = "0123456789abcdef0123456789abcdef";
+        let target = CloudflareDeploymentTarget {
+            account_id: account_id.into(),
+            script_name: "izumi-sync-test".into(),
+            database_id: "01234567-89ab-cdef-0123-456789abcdef".into(),
+        };
+        let error = prepare_deployment_target(&api, account_id, Some(target))
+            .await
+            .unwrap_err();
+        server.abort();
+        assert!(error.contains("database verification"));
+        assert!(error.contains("10000"));
+        assert!(!error.contains(account_id));
+        assert_eq!(requests.lock().unwrap().len(), 1);
+        assert_eq!(requests.lock().unwrap()[0].0, Method::GET);
+    }
+
+    #[tokio::test]
+    async fn rejected_subdomain_lookup_never_changes_account_address() {
+        let (api, requests, server) = mock_api(vec![]).await;
+        let error = ensure_workers_subdomain(&api, "0123456789abcdef0123456789abcdef")
+            .await
+            .unwrap_err();
+        server.abort();
+        assert!(error.contains("Worker address setup"));
+        assert!(error.contains("10000"));
+        assert_eq!(requests.lock().unwrap().len(), 1);
+        assert_eq!(requests.lock().unwrap()[0].0, Method::GET);
+    }
+
+    #[tokio::test]
+    async fn missing_subdomain_can_still_be_created() {
+        let (api, requests, server) = mock_api(vec![
+            (
+                StatusCode::NOT_FOUND,
+                json!({"success": false, "errors": [{"code": 10007, "message": "No subdomain"}]}),
+            ),
+            (
+                StatusCode::OK,
+                json!({"success": true, "result": {"subdomain": "izumi-test"}}),
+            ),
+        ])
+        .await;
+        let subdomain = ensure_workers_subdomain(&api, "0123456789abcdef0123456789abcdef").await;
+        server.abort();
+        assert_eq!(subdomain.unwrap(), "izumi-test");
+        assert_eq!(
+            requests
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|request| request.0.clone())
+                .collect::<Vec<_>>(),
+            [Method::GET, Method::PUT]
+        );
+    }
+
     #[test]
     fn direct_upload_bundle_is_generated_and_current() {
         assert!(WORKER_BUNDLE.starts_with("// izumi-cloudflare-source-sha256:"));
@@ -670,20 +1042,40 @@ mod tests {
 
     #[test]
     fn includes_independent_tv_and_discovery_migrations() {
-        assert!(MIGRATIONS.iter().any(|(name, sql)| *name == "0004_companion_independent" && sql.contains("CREATE TABLE companion_progress")));
-        assert!(MIGRATIONS.iter().any(|(name, sql)| *name == "0005_companion_discovery" && sql.contains("CREATE TABLE companion_discovery")));
+        assert!(MIGRATIONS
+            .iter()
+            .any(|(name, sql)| *name == "0004_companion_independent"
+                && sql.contains("CREATE TABLE companion_progress")));
+        assert!(MIGRATIONS
+            .iter()
+            .any(|(name, sql)| *name == "0005_companion_discovery"
+                && sql.contains("CREATE TABLE companion_discovery")));
     }
 
-    #[test]
-    fn migration_splitter_keeps_executable_statements() {
-        let statements = sql_statements(MIGRATIONS[0].1).collect::<Vec<_>>();
-        assert!(statements
-            .iter()
-            .any(|statement| statement.contains("CREATE TABLE metadata")));
-        assert!(statements
-            .iter()
-            .any(|statement| statement.contains("CREATE TABLE devices")));
-        assert!(statements.len() >= 7);
+    #[tokio::test]
+    async fn migrations_are_sent_intact_including_semicolons_inside_comments() {
+        let replies = vec![
+            (StatusCode::OK, json!({"success": true, "result": []}));
+            2 + MIGRATIONS.len() * 2
+        ];
+        let (api, requests, server) = mock_api(replies).await;
+        let target = CloudflareDeploymentTarget {
+            account_id: "0123456789abcdef0123456789abcdef".into(),
+            script_name: "izumi-sync-test".into(),
+            database_id: "01234567-89ab-cdef-0123-456789abcdef".into(),
+        };
+        let result = apply_migrations(&api, &target).await;
+        server.abort();
+        result.unwrap();
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 2 + MIGRATIONS.len() * 2);
+        for (index, (name, source)) in MIGRATIONS.iter().enumerate() {
+            let query: Value = serde_json::from_str(&requests[2 + index * 2].2).unwrap();
+            assert_eq!(query["sql"].as_str().unwrap(), *source);
+            let marker: Value = serde_json::from_str(&requests[3 + index * 2].2).unwrap();
+            assert!(marker["sql"].as_str().unwrap().contains(name));
+        }
+        assert!(MIGRATIONS[4].1.contains("record; all content"));
     }
 
     #[test]

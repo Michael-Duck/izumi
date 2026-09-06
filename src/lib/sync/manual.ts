@@ -44,6 +44,7 @@ export const SYNCED_SETTING_KEYS = [
   "catalog-last-provider",
   "catalog-last-screen",
   "catalog-home-layouts-v1",
+  "catalog-collections-v1",
   "stremio-home-hero-artwork",
   "hide-spoilers",
   "carousel-wheel-scroll",

@@ -56,6 +56,11 @@ interface WatchJsonOptions {
 
 /** Full izumi backup (history + resume positions) as pretty JSON. */
 export function exportJson(options: WatchJsonOptions = {}): string {
+  return JSON.stringify(exportWatchBundle(options), null, 2)
+}
+
+/** Sync uses the object directly, without pretty-printing and parsing the entire library first. */
+export function exportWatchBundle(options: WatchJsonOptions = {}): ExportBundle {
   const bundle: ExportBundle = {
     app: 'izumi', kind: 'watch-history', version: 1, exportedAt: Date.now(),
     history: options.includeHistory === false ? {} : get(durableHistory),
@@ -67,7 +72,7 @@ export function exportJson(options: WatchJsonOptions = {}): string {
     sceneBookmarks: get(sceneBookmarkRecords),
     discoveryFeedback: get(discoveryQueueFeedback),
   }
-  return JSON.stringify(bundle, null, 2)
+  return bundle
 }
 
 const xmlEscape = (s: string) => s.replace(/]]>/g, ']]]]><![CDATA[>')

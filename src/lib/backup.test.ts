@@ -39,13 +39,13 @@ describe('full application backup', () => {
     })
   })
 
-  it('validates and restores values', () => {
+  it('validates and restores values', async () => {
     const storage = new MemoryStorage()
     const backup = parseBackup(JSON.stringify({
       app: 'izumi', kind: 'app-backup', version: 1, exportedAt: 1, includesSecrets: false,
       localStorage: { 'home-row-order': '["continue"]', 'extension-urls': '[]' },
     }))
-    expect(restoreBackup(storage, backup)).toBe(2)
+    expect(await restoreBackup(storage, backup)).toBe(2)
     expect(storage.getItem('home-row-order')).toBe('["continue"]')
   })
 })

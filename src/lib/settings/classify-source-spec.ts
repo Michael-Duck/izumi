@@ -1,6 +1,8 @@
 import { catalogPackages, normalizeManifest, resolveManifestUrl } from '$lib/extensions/catalog'
+import { isNuvioManifest } from '$lib/extensions/nuvio-manifest'
 import { phttp } from '$lib/net/http'
 import { normalizeBase } from '$lib/stremio/sources'
+import { isCollectionDocument } from '$lib/catalog/collections/model'
 
 export type ClassifiedSource =
   | { kind: 'addon'; spec: string }
@@ -33,6 +35,8 @@ export function classifySourceSpecShape(input: string): ClassifiedSource | 'url'
 
 export function sourceSpecFetchUrl(spec: string): string {
   const s = stripQuotes(spec)
+  const resolved = resolveManifestUrl(s)
+  if (/^https?:\/\//i.test(s) && resolved !== s) return resolved
   if (/\.json(\?|$)/i.test(s)) {
     return /^https?:\/\//i.test(s) ? s.replace(/^http:\/\//i, 'https://') : `https://${s}`
   }
@@ -63,6 +67,8 @@ function isStremioManifest(raw: unknown): boolean {
 }
 
 export function classifySourceDocument(raw: unknown, fetchedUrl: string): ClassifiedSource | { error: string } {
+  if (isCollectionDocument(raw)) return { error: 'This is a collection. Import it in Settings → Catalog → Collections.' }
+  if (isNuvioManifest(raw)) return { kind: 'extension', spec: fetchedUrl }
   if (catalogPackages(raw) !== null) return { kind: 'extension', spec: fetchedUrl }
   if (isCompiledAndroid(raw)) return { kind: 'extension', spec: fetchedUrl }
   if (Array.isArray(raw)) return { kind: 'extension', spec: fetchedUrl }
@@ -103,7 +109,7 @@ export async function classifySourceSpec(
       const base = normalizeBase(spec) || classified.spec
       return { kind: 'addon', spec: base }
     }
-    return { kind: 'extension', spec }
+    return { kind: 'extension', spec: fetchedUrl }
   } catch (error) {
     if (error instanceof Error && error.message === NOT_JSON) return { error: NOT_JSON }
     return { error: FETCH_ERROR }

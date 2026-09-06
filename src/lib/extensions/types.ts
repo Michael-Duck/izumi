@@ -114,7 +114,10 @@ export interface ExtensionConfig {
   settings?: Record<string, unknown>
   /** Native `.izumi-ext` modules are already in Izumi's worker ABI and need no
    * Seanime/Miru compatibility transform before evaluation. */
-  runtime?: 'izumi-js' | 'aniyomi-jvm'
+  runtime?: 'izumi-js' | 'aniyomi-jvm' | 'nuvio'
+  /** Nuvio providers are queried directly by TMDB id, rather than by title search. */
+  supportedTypes?: Array<'movie' | 'tv'>
+  scraperId?: string
   /** Validated package code returned by the native installer. Remote configs
    * leave this empty and fetch `code` as a URL. */
   moduleCode?: string

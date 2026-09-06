@@ -22,6 +22,8 @@ function filesBelow(root) {
 }
 
 const inputs = [
+  join(repositoryRoot, 'src/lib/catalog/collections/model.ts'),
+  join(repositoryRoot, 'src/lib/catalog/collections/requests.ts'),
   ...filesBelow(join(workerRoot, 'src')),
   ...filesBelow(join(workerRoot, 'migrations')),
   join(workerRoot, 'package.json'),

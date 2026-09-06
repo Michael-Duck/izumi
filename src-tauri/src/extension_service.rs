@@ -16,9 +16,15 @@ use std::time::Duration;
 
 use tauri::{AppHandle, Manager};
 
+#[cfg(windows)]
+#[path = "extension_service_job.rs"]
+mod windows_job;
+
 struct RunningService {
     child: Child,
     port: u16,
+    #[cfg(windows)]
+    _job: std::os::windows::io::OwnedHandle,
 }
 
 #[derive(Default)]
@@ -66,7 +72,7 @@ async fn healthy(port: u16) -> bool {
         .is_some_and(|value| value.is_object() || value.is_array())
 }
 
-fn spawn_service(app: &AppHandle, id: &str, port: u16) -> Result<Child, String> {
+fn spawn_service(app: &AppHandle, id: &str, port: u16) -> Result<RunningService, String> {
     let executable = crate::extension_package::extension_service_entry(app, id)?;
     let data_dir = app
         .path()
@@ -94,9 +100,19 @@ fn spawn_service(app: &AppHandle, id: &str, port: u16) -> Result<Child, String> 
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         command.creation_flags(CREATE_NO_WINDOW);
     }
-    command
+    #[cfg(windows)]
+    let (child, job) = windows_job::spawn(&mut command)
+        .map_err(|e| format!("Could not start extension service {id}: {e}"))?;
+    #[cfg(not(windows))]
+    let child = command
         .spawn()
-        .map_err(|e| format!("Could not start extension service {id}: {e}"))
+        .map_err(|e| format!("Could not start extension service {id}: {e}"))?;
+    Ok(RunningService {
+        child,
+        port,
+        #[cfg(windows)]
+        _job: job,
+    })
 }
 
 #[tauri::command]
@@ -135,8 +151,8 @@ pub async fn extension_service_ensure(
             service.port
         } else {
             let port = allocate_port()?;
-            let child = spawn_service(&app, &id, port)?;
-            running.insert(id.clone(), RunningService { child, port });
+            let service = spawn_service(&app, &id, port)?;
+            running.insert(id.clone(), service);
             port
         }
     };
@@ -276,6 +292,23 @@ pub async fn extension_service_stop(
             .map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+pub async fn stop_all(services: tauri::State<'_, ExtensionServices>) -> Result<(), String> {
+    let running: Vec<_> = services
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .drain()
+        .map(|(_, service)| service)
+        .collect();
+    tauri::async_runtime::spawn_blocking(move || {
+        for service in running {
+            stop(service);
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 impl Drop for ExtensionServices {

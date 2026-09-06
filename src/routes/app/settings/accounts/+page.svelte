@@ -5,6 +5,7 @@
   import SettingsSwitch from '$lib/components/settings/SettingsSwitch.svelte'
   import TrackerProviderBadge from '$lib/components/settings/TrackerProviderBadge.svelte'
   import TraktAccountSettings from '$lib/components/settings/TraktAccountSettings.svelte'
+  import { nuvioSession } from '$lib/nuvio/auth'
   import LetterboxdAccountSettings from '$lib/components/settings/LetterboxdAccountSettings.svelte'
   import { autoWatchlistEnabled, autoWatchlistEpisodes } from '$lib/settings/ui'
   import {
@@ -434,6 +435,12 @@
   </SettingsGroup>
 
   <TraktAccountSettings />
+
+  <SettingsGroup icon={Blocks} title="Nuvio" desc="Manage Nuvio profiles, collections, sources, library, playback data, and preferences.">
+    <SettingsRow title={$nuvioSession ? 'Nuvio connected' : 'Connect Nuvio'} description={$nuvioSession?.email || 'Approve a device code on Nuvio, or sign in with your email.'}>
+      {#snippet control()}<a href="/app/nuvio" data-focusable class="min-h-10 rounded-lg bg-secondary px-4 py-2.5 text-sm font-bold">{$nuvioSession ? 'Browse' : 'Connect'} →</a>{/snippet}
+    </SettingsRow>
+  </SettingsGroup>
 
   <SettingsGroup
     icon={Blocks}

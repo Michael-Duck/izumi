@@ -9,6 +9,13 @@ import { fetchManifest, peekManifest } from './manifest'
 describe('addon manifest cache', () => {
   beforeEach(() => mocks.phttp.mockReset())
 
+  it('keeps query-based configuration after the manifest path', async () => {
+    mocks.phttp.mockResolvedValue({ ok: true, json: async () => ({ id: 'query', name: 'Query', version: '1' }) })
+    await fetchManifest('https://query-manifest.test/addon/manifest.json?token=fixture')
+    expect(mocks.phttp).toHaveBeenCalledWith('https://query-manifest.test/addon/manifest.json?token=fixture')
+    expect(peekManifest('https://query-manifest.test/addon?token=fixture')?.id).toBe('query')
+  })
+
   it('keeps successful manifests cached', async () => {
     mocks.phttp.mockResolvedValue({
       ok: true,

@@ -171,6 +171,22 @@ class SaveTextFileArgs {
     ],
 )
 class ExtPlayerPlugin(private val activity: Activity) : Plugin(activity) {
+    @Command
+    fun resetLocalData(invoke: Invoke) {
+        try {
+            // The system stops every app process and deletes private files, databases, preferences
+            // and WebView storage. No network/account deletion or shared-media traversal is needed.
+            val manager = activity.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            if (!manager.clearApplicationUserData()) {
+                invoke.reject("Android could not clear izumi's local data. Retry the reset.")
+            } else {
+                invoke.resolve()
+            }
+        } catch (error: Exception) {
+            invoke.reject(error.message ?: "Could not reset izumi's local data")
+        }
+    }
+
     private val aniyomiLock = Any()
     @Volatile private var aniyomiRuntime: Any? = null
     @Volatile private var aniyomiRuntimeClass: Class<*>? = null

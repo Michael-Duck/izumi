@@ -53,6 +53,8 @@ export const SETTINGS_SEARCH_INDEX: SettingSearchItem[] = [
   { title: 'Continue Watching', category: 'Catalog', href: '/app/settings/catalog', keywords: 'history progress current platform provider all combined separate scope', anchored: true },
   { title: 'Catalog platforms', category: 'Catalog', href: '/app/settings/catalog', keywords: 'enable provider logo cycle switch anilist kitsu tmdb stremio jvm aniyomi automatic adaptive last selected default startup' },
   { title: 'Aniyomi sources', category: 'Catalog', href: '/app/settings/catalog', keywords: 'aniyomi extension provider popular latest browse filter' },
+  { title: 'Nuvio account and community', category: 'Catalog', href: '/app/nuvio', keywords: 'login sign in signup connect device code collections packs covers artwork profiles browse search cloud library history progress resume sources preferences import export transfer' },
+  { title: 'Collections and covers', category: 'Catalog', href: '/app/settings/catalog/collections', keywords: 'nuvio import json folders home artwork edit' },
 
   { title: 'Auto-play the best source', category: 'Sources', href: '/app/settings/sources?tab=playback', keywords: 'automatic stream cached countdown timer instant', anchored: true },
   { title: 'Preferred quality', category: 'Sources', href: '/app/settings/sources?tab=playback', keywords: '4k 1080p 720p resolution' },

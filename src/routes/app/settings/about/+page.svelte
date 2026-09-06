@@ -17,6 +17,23 @@
   // Steam Deck / Flatpak uses its signed OSTree repositories instead of replacing the read-only
   // app binary. It still exposes the same stable/beta preference as the desktop updater.
   let flatpak = $state(false)
+  let confirmReset = $state(false)
+  let resetting = $state(false)
+  let resetError = $state('')
+
+  function resetToDefaults() {
+    if (!confirmReset || resetting) return
+    resetting = true
+    resetError = ''
+    try {
+      sessionStorage.setItem('izumi-reset-requested', 'true')
+      // A full navigation stops stores, workers and sync before any data is removed.
+      window.location.replace('/reset.html')
+    } catch (error) {
+      resetError = ioErrorMessage(error, 'Could not start the reset.')
+      resetting = false
+    }
+  }
 
   onMount(async () => {
     try {
@@ -113,6 +130,7 @@
     data-focusable
     class="mt-3 inline-block text-sm font-medium underline underline-offset-2 hover:no-underline"
   >License Information</a>
+  <p class="mt-3 max-w-md text-sm text-muted-foreground">Need help with a TV setup or sources? <a href="/docs" class="font-bold text-foreground underline underline-offset-2">Read the izumi documentation</a>, including the <a href="/docs/companion/setup" class="font-bold text-foreground underline underline-offset-2">Samsung Tizen guide</a>.</p>
 
   <!-- Updates -->
   <div class="mt-6 max-w-md">
@@ -166,6 +184,35 @@
       </div>
     {/if}
     {#if $updateError}<p class="mt-2 text-xs text-destructive">{$updateError}</p>{/if}
+  </div>
+
+  <div class="mt-6 max-w-md" data-setting-key="reset-defaults">
+    <h3 class="mb-1 text-sm font-black">Reset izumi</h3>
+    <p class="mb-3 text-xs text-muted-foreground">Remove all local client data and restore the default settings.</p>
+    {#if confirmReset}
+      <div class="rounded-md border border-destructive/40 bg-destructive/5 p-4" aria-busy={resetting}>
+        <p class="text-sm font-bold">Reset izumi to defaults?</p>
+        <p class="mt-2 text-xs leading-relaxed text-muted-foreground">
+          This permanently removes all profiles, sign-ins, settings, local libraries, watch history,
+          extensions, device pairings, caches and downloads stored in izumi’s app folder on this device.
+          Cloud data and files saved outside the app folder are kept. This cannot be undone.
+        </p>
+        <p class="mt-2 text-xs text-muted-foreground">{$isAndroid ? 'izumi will close. Open it again to start fresh.' : 'izumi will restart with default settings.'}</p>
+        <a href="/app/settings/backup" data-focusable class="mt-3 inline-block text-xs font-bold underline underline-offset-2">Export a backup first</a>
+        <div class="mt-4 flex flex-wrap gap-2">
+          <button type="button" data-focusable disabled={resetting} onclick={() => { confirmReset = false; resetError = '' }}
+                  class="rounded-md border border-border px-4 py-2.5 text-sm font-bold hover:bg-secondary disabled:opacity-60 sm:py-2">Cancel</button>
+          <button type="button" data-focusable disabled={resetting} onclick={resetToDefaults}
+                  class="rounded-md bg-destructive px-4 py-2.5 text-sm font-bold text-destructive-foreground hover:bg-destructive/90 disabled:opacity-60 sm:py-2">
+            {resetting ? 'Resetting…' : 'Delete local data & reset'}
+          </button>
+        </div>
+        {#if resetError}<p role="alert" class="mt-2 text-xs text-destructive">{resetError}</p>{/if}
+      </div>
+    {:else}
+      <button type="button" data-focusable onclick={() => confirmReset = true}
+              class="rounded-md border border-destructive/40 px-4 py-2.5 text-sm font-bold text-destructive hover:bg-destructive/10 sm:py-2">Reset izumi to defaults</button>
+    {/if}
   </div>
 
   <p class="mt-6 max-w-md text-xs text-muted-foreground">

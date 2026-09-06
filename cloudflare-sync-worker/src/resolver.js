@@ -122,6 +122,7 @@ export function normalizeResolverProfile(value, workerOrigin = '') {
   if (tmdbToken.length > 2_048 || /[\u0000-\u001f\u007f]/.test(tmdbToken)) throw new Error('The TMDB catalogue credential is invalid.')
   return {
     enabled: input.enabled === true,
+    ...(Array.isArray(input.collections) ? { collections: input.collections } : {}),
     ...(input.household ? { household: normalizeHousehold(input.household) } : {}),
     addons,
     quality,
@@ -340,17 +341,23 @@ async function tmdbDetails(request, profile) {
 async function stremioDetails(request, profile) {
   const identity = decodeStremioRef(request.ref.id)
   if (!identity) return null
-  const base = profile.addons.map(catalogInternals.normalizeBase).find((candidate) => catalogInternals.fnv(candidate) === identity.addonId)
-  if (!base) return null
+  const bases = profile.addons.map(catalogInternals.normalizeBase)
+  const preferred = bases.find((candidate) => catalogInternals.fnv(candidate) === identity.addonId)
+  // Account libraries carry a global IMDb/TMDB id, but the first enabled source may supply streams only.
+  const candidates = [...new Set([preferred, ...(/^(?:tt\d+|tmdb:\d+)$/.test(identity.id) ? bases : [])].filter(Boolean))]
+  let base = preferred
   let raw = null
-  try {
-    const url = new URL(base)
+  for (const candidate of candidates) {
+   try {
+    const url = new URL(candidate)
     const search = url.search
     url.search = ''
     url.pathname = `${url.pathname.replace(/\/$/, '')}/meta/${encodeURIComponent(identity.type)}/${encodeURIComponent(identity.id)}.json`
     url.search = search
     raw = (await catalogInternals.fetchJson(url.toString()))?.meta
-  } catch { /* The compact catalogue summary remains usable. */ }
+    if (raw) { base = candidate; break }
+   } catch { /* Try the next installed metadata source for a known global id. */ }
+  }
   if (!raw) return null
   const summary = catalogInternals.stremioMedia(raw, base, identity.type)
   const episodes = (raw.videos ?? []).flatMap((entry, index) => {

@@ -1,5 +1,6 @@
 <script lang="ts">
   import CredentialField from '$lib/components/settings/CredentialField.svelte'
+  import { homeCollections } from '$lib/catalog/collections/store'
   import {
     catalogDefaultProvider,
     catalogLastProvider,
@@ -59,6 +60,7 @@
   let showTmdbGuide = $state(false)
 
   const enabled = $derived(normalizeCatalogProviders($catalogProviders, $catalogProvider))
+  const collectionsUseTmdb = $derived($homeCollections.some((collection) => collection.folders.some((folder) => folder.sources.some((source) => source.provider === 'tmdb'))))
   const defaultOptions = $derived([
     { value: 'adaptive', label: 'Adaptive · last selected' },
     ...catalogScreens($catalogProviders).map((id) => ({
@@ -240,12 +242,15 @@
   </SettingsGroup>
 
   <SettingsGroup icon={Rows3} title="Home layout" desc="Edit each catalog screen independently.">
+    <SettingsRow title="Collections & covers" description="Import Nuvio collection JSON and customize folder artwork with community cover URLs.">
+      <a href="/app/settings/catalog/collections" data-focusable class="inline-flex min-h-10 items-center rounded-md bg-primary px-4 text-sm font-bold text-primary-foreground">Manage collections</a>
+    </SettingsRow>
     <SettingsRow title="Home sections" description="Use the pencil in the Home catalog picker to edit in place, or open the full list here.">
       <a href={`/app/settings/catalog/home?provider=${homeCustomizeProvider}`} data-focusable class="inline-flex min-h-10 items-center rounded-md bg-primary px-4 text-sm font-bold text-primary-foreground">Customize Home</a>
     </SettingsRow>
   </SettingsGroup>
 
-  {#if hasPlatform('tmdb')}
+  {#if hasPlatform('tmdb') || collectionsUseTmdb}
     <SettingsGroup icon={KeyRound} title="TMDB access">
       <SettingsRow title="Read access token" description="A personal free non-commercial credential; stored only on this device.">
         <button type="button" data-focusable onclick={() => (showTmdbGuide = true)} class="mb-3 inline-flex min-h-9 items-center gap-2 rounded-lg bg-secondary px-3 text-xs font-bold transition-colors hover:bg-accent">
