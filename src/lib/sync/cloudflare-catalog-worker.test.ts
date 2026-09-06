@@ -95,7 +95,7 @@ describe('Cloudflare-first companion catalogue', () => {
     expect(details).toMatchObject({ episodes: [{ season: 1, episode: 1, title: 'Beginning' }] })
   })
 
-  it('routes a Worker-created Stremio identity back to its originating add-on', async () => {
+  it('routes a Worker-created global Stremio identity to all configured stream add-ons', async () => {
     const base = 'https://catalog.example/configured'
     const media = catalogInternals.stremioMedia({
       id: 'tt1234567', name: 'Example film', videos: [{ id: 'native-movie-id' }],
@@ -120,7 +120,7 @@ describe('Cloudflare-first companion catalogue', () => {
     }, { ref: media.ref }, fetcher)
 
     expect(result.candidates[0]?.url).toBe('https://media.example/movie.mp4')
-    expect(requested.some((url) => url.includes('unrelated.example'))).toBe(false)
+    expect(requested.some((url) => url.includes('unrelated.example'))).toBe(true)
   })
 
   it('uses video streams embedded in Stremio metadata without calling a stream resource', async () => {

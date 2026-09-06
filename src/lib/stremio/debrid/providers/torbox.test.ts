@@ -63,6 +63,13 @@ describe('tbFindReady', () => {
 describe('torbox.resolveHash noAdd', () => {
   beforeEach(() => httpFetch.mockReset())
 
+  it('does not create a torrent after the caller has cancelled resolution', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    await expect(torbox.resolveHash('key', HASH, { signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' })
+    expect(httpFetch).not.toHaveBeenCalled()
+  })
+
   it('never creates the torrent when the hash is not already on the account', async () => {
     serveJson(httpFetch, [['/torrents/mylist', { success: true, data: [] }]])
     await expect(torbox.resolveHash('key', HASH, { noAdd: true })).rejects.toThrow(/background prefetch/)

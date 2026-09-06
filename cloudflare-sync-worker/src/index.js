@@ -1,9 +1,11 @@
 import webpush from 'web-push'
 import { validSnapshotSelector, viewerForRequest, viewerAllows, scopeSnapshot } from './profiles.js'
+import { consumeTvSourceLookup } from './tv-source-lookup.js'
 import {
   defaultResolverProfile,
   normalizeResolverProfile,
   publicResolverProfile,
+  prepareTvSourceContinuation,
   resolveCatalogSnapshot,
   resolveDirectSources,
   resolveMediaDetails,
@@ -640,9 +642,12 @@ async function resolveForTv(request, env, pairingId) {
   const pairing = await authenticateTv(request, env, pairingId)
   if (!pairing) return json({ error: 'TV authentication failed.' }, 401)
   const now = Date.now()
-  const gate = await env.DB.prepare('UPDATE companion_pairings SET last_resolve_at = ? WHERE pairing_id = ? AND last_resolve_at <= ?')
-    .bind(now, pairingId, now - RESOLVER_MIN_INTERVAL_MS).run()
-  if (!Number(gate.meta?.changes || 0)) return json({ error: 'Wait before starting another source lookup.' }, 429)
+  const input = await body(request)
+  if (!input.tvSourceResults) {
+    const gate = await env.DB.prepare('UPDATE companion_pairings SET last_resolve_at = ? WHERE pairing_id = ? AND last_resolve_at <= ?')
+      .bind(now, pairingId, now - RESOLVER_MIN_INTERVAL_MS).run()
+    if (!Number(gate.meta?.changes || 0)) return json({ error: 'Wait before starting another source lookup.' }, 429)
+  }
   const row = await env.DB.prepare('SELECT profile_json AS profile FROM resolver_profiles WHERE owner_device_id = ?')
     .bind(String(pairing.owner_device_id)).first()
   if (!row) return json({
@@ -654,13 +659,17 @@ async function resolveForTv(request, env, pairingId) {
     return json({ error: 'The cloud resolver profile is invalid. Open Izumi and save it again.', code: 'RESOLVER_INVALID' }, 409)
   }
   try {
-    const input = await body(request)
     const viewer = await viewerForRequest(profile, input)
+    const tvLookupContext = { pairingId, profileId: viewer?.id ?? 'default', startedAt: now }
+    const tvContinuation = input.tvSourceResults ? await prepareTvSourceContinuation(profile, input, tvLookupContext) : undefined
+    if (tvContinuation && !await consumeTvSourceLookup(env.DB, pairingId, tvContinuation.issuedAt, now)) {
+      return json({ error: 'This TV source lookup was already used or superseded. Start playback again.', code: 'RESOLVER_LOOKUP_EXPIRED' }, 409)
+    }
     if (viewer && (viewer.ratingLimit < 18 || !viewer.allowAdult)) {
       const metadata = await resolveMediaDetails(input, profile)
       if (!viewerAllows(metadata, viewer)) throw new Error('This title is above this profile’s viewing limit.')
     }
-    const result = await resolveDirectSources(profile, input)
+    const result = await resolveDirectSources(profile, input, fetch, { tvLookupContext, tvContinuation })
     return json({
       ok: true,
       ...result,
@@ -847,6 +856,7 @@ export default {
         return json({
           app: 'izumi-sync',
           version: VERSION,
+          tvSourceLookup: 1,
           protocol: PROTOCOL,
           claimed: await claimed(env),
           features: ['companion-profiles-v1', 'profile-sync-v1', 'companion-wake-v1', 'web-push-v1', 'cloud-resolver-v1', 'cloud-resolver-v2', 'cloud-resolver-debrid-v1', 'companion-details-v2', 'companion-snapshot-v1', 'companion-progress-v1', 'companion-catalog-v1', 'companion-trailer-v1', 'companion-discovery-v2'],

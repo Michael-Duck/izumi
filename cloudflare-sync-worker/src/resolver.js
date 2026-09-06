@@ -1,6 +1,7 @@
 // @ts-nocheck -- Wrangler validates this Worker module; the root app checker cannot model its
 // cross-package TypeScript import without changing the browser application's compiler contract.
 import { normalizeHousehold } from './profiles.js'
+import { createTvSourceLookup, tvSourceRequests, verifyTvSourceLookup } from './tv-source-lookup.js'
 import {
   acceptsStreamId,
   buildStreamIds,
@@ -11,6 +12,8 @@ import {
   pickCandidates,
 } from './generated/resolver-core/resolver-core.ts'
 import {
+  cacheCheckMode,
+  checkCached,
   providerName,
   providers,
   resolveHash as resolveDebridHash,
@@ -197,7 +200,8 @@ function addonEndpoint(base, suffix) {
   return url.toString()
 }
 
-async function fetchJson(fetcher, url, timeoutMs) {
+async function fetchJson(fetcher, url, timeoutMs, onFailure = () => {}) {
+  if (timeoutMs <= 0) { onFailure('could not be reached within the cloud lookup time limit.'); return null }
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
@@ -206,13 +210,29 @@ async function fetchJson(fetcher, url, timeoutMs) {
       redirect: 'follow',
       signal: controller.signal,
     })
-    if (!response.ok) return null
+    if (!response.ok) {
+      onFailure(response.status === 403
+        ? 'blocked the Worker request (HTTP 403). Use a source that allows cloud requests or connected-device playback.'
+        : `returned HTTP ${response.status}.`)
+      await response.body?.cancel()
+      return null
+    }
     const announced = Number(response.headers.get('content-length') || 0)
-    if (announced > MAX_PROVIDER_RESPONSE_BYTES) return null
+    if (announced > MAX_PROVIDER_RESPONSE_BYTES) {
+      onFailure('returned a response larger than the cloud source limit.')
+      await response.body?.cancel()
+      return null
+    }
     const text = await response.text()
-    if (encoder.encode(text).byteLength > MAX_PROVIDER_RESPONSE_BYTES) return null
+    if (encoder.encode(text).byteLength > MAX_PROVIDER_RESPONSE_BYTES) {
+      onFailure('returned a response larger than the cloud source limit.')
+      return null
+    }
     return JSON.parse(text)
-  } catch { return null } finally { clearTimeout(timer) }
+  } catch {
+    onFailure(controller.signal.aborted ? 'timed out responding to the Worker.' : 'could not return a valid response to the Worker.')
+    return null
+  } finally { clearTimeout(timer) }
 }
 
 async function metadataFor(request, fetcher) {
@@ -550,12 +570,12 @@ function sanitizeStream(value, allowPrivate = false) {
   }
 }
 
-async function resolveConfiguredDebrid(stream, profile, want) {
+async function resolveConfiguredDebrid(stream, profile, want, budgetMs = 22_000) {
   const provider = profile.debrid?.provider
   const credential = profile.debrid?.credential
   if (!provider || !credential || !stream.infoHash) return null
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 22_000)
+  const timer = setTimeout(() => controller.abort(), budgetMs)
   try {
     const magnet = stream.__magnet || `magnet:?xt=urn:btih:${stream.infoHash}`
     const rawUrl = await resolveDebridHash(provider, credential, magnet, {
@@ -563,7 +583,7 @@ async function resolveConfiguredDebrid(stream, profile, want) {
         ...want,
         filename: stream.behaviorHints?.filename,
       },
-      timeoutMs: 18_000,
+      timeoutMs: Math.min(18_000, budgetMs),
       pollMs: 1_000,
       signal: controller.signal,
       priority: true,
@@ -579,7 +599,7 @@ async function resolveConfiguredDebrid(stream, profile, want) {
         ...want,
         filename: stream.behaviorHints?.filename,
       },
-      timeoutMs: 18_000,
+      timeoutMs: Math.min(18_000, budgetMs),
       pollMs: 1_000,
       signal: controller.signal,
       priority: true,
@@ -605,6 +625,9 @@ async function resolveConfiguredDebrid(stream, profile, want) {
       subtitles,
       delivery: 'debrid',
     }
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error(`${providerName(provider)} did not prepare this release in time. Try a cached source.`)
+    throw error
   } finally {
     clearTimeout(timer)
     // The desktop implementation caches an account listing for faster repeat playback. A Worker
@@ -675,15 +698,17 @@ async function mapLimit(values, limit, operation) {
   return output
 }
 
-async function resolveAddon(base, ids, type, fetcher, allowPrivate = false) {
-  const manifest = await fetchJson(fetcher, addonEndpoint(base, '/manifest.json'), MANIFEST_TIMEOUT_MS)
+async function resolveAddon(base, ids, type, fetcher, allowPrivate = false, addonIndex = 0, deadline = Infinity) {
+  const failures = []
+  const failed = (message) => failures.push(`${new URL(base).hostname}: ${message}`)
+  const manifest = await fetchJson(fetcher, addonEndpoint(base, '/manifest.json'), Math.min(MANIFEST_TIMEOUT_MS, deadline - Date.now()), failed)
   const ask = ids.filter((id) => acceptsStreamId(manifest, type, id))
   const responses = await mapLimit(ask, 2, async (id) => {
-    const result = await fetchJson(fetcher, addonEndpoint(base, `/stream/${type}/${encodeURIComponent(id)}.json`), STREAM_TIMEOUT_MS)
+    const result = await fetchJson(fetcher, addonEndpoint(base, `/stream/${type}/${encodeURIComponent(id)}.json`), Math.min(STREAM_TIMEOUT_MS, deadline - Date.now()), failed)
     return Array.isArray(result?.streams) ? result.streams.slice(0, MAX_STREAMS_PER_ADDON) : []
   })
   const addonName = cleanText(manifest?.name, 120) ?? new URL(base).hostname
-  return responses.flatMap((streams, requestIndex) => streams.flatMap((raw, upstreamRank) => {
+  const streams = responses.flatMap((streams, requestIndex) => streams.flatMap((raw, upstreamRank) => {
     const clean = sanitizeStream(raw, allowPrivate)
     if (!clean) return []
     return [normalizeStreamBehavior({
@@ -693,6 +718,7 @@ async function resolveAddon(base, ids, type, fetcher, allowPrivate = false) {
       __evidence: { upstreamRank, requestId: ask[requestIndex] },
     })]
   }))
+  return { streams, failures, tvRequests: failures.length ? tvSourceRequests(base, ask, type, addonIndex) : [] }
 }
 
 async function embeddedStremioStreams(request, bases, plan, fetcher, allowPrivate = false) {
@@ -728,32 +754,58 @@ async function embeddedStremioStreams(request, bases, plan, fetcher, allowPrivat
   return { declared: true, streams }
 }
 
-export async function resolveDirectSources(profileValue, requestValue, fetcher = fetch) {
+export function prepareTvSourceContinuation(profileValue, requestValue, context) {
+  return verifyTvSourceLookup(normalizeResolverProfile(profileValue), normalizeResolveRequest(requestValue), requestValue.tvSourceResults, context)
+}
+
+export async function resolveDirectSources(profileValue, requestValue, fetcher = fetch, options = {}) {
+  const debridDeadline = Date.now() + 25_000
   const profile = normalizeResolverProfile(profileValue)
   const request = normalizeResolveRequest(requestValue)
   if (!profile.enabled) throw new Error('Cloud source resolving is disabled for this TV.')
   if (!profile.addons.length) throw new Error('No cloud resolver add-ons are configured.')
-  const plan = await streamRequestPlan(request, fetcher, profile)
+  const plan = options.tvContinuation?.plan ?? await streamRequestPlan(request, fetcher, profile)
   if (!plan.ids.length) return { candidates: [], selectedId: null, queriedIds: [], rejected: 0 }
   const skipSegmentsPromise = resolveSkipSegments(plan, request, fetcher).catch(() => [])
-  const resolverAddons = plan.addonId
+  // IMDb/TMDB identifiers belong to the title, not the catalogue that displayed it.
+  // Keep custom namespaces scoped, but let every configured stream add-on answer global IDs.
+  const globalIds = plan.ids.every((id) => /^(?:tt\d+|tmdb:\d+)(?::\d+:\d+)?$/.test(id))
+  const resolverAddons = plan.addonId && !globalIds
     ? profile.addons.filter((base) => catalogInternals.fnv(catalogInternals.normalizeBase(base)) === plan.addonId)
     : profile.addons
-  const embedded = await embeddedStremioStreams(
+  const embedded = options.tvContinuation ? { declared: false, streams: [] } : await embeddedStremioStreams(
     request, resolverAddons, plan, fetcher, profile.allowPrivateNetworkSources,
   )
   const resourceType = request.ref.provider === 'stremio' ? request.nativeType ?? request.streamType : request.streamType
-  const batches = embedded.declared
-    ? [embedded.streams]
-    : await mapLimit(resolverAddons, 2, (base) => resolveAddon(base, plan.ids, resourceType, fetcher, profile.allowPrivateNetworkSources))
-  const normalized = dedupeStreams(batches.flat().filter((stream) => !isNotice(stream)))
+  const sourceDeadline = Date.now() + 12_000
+  const batches = options.tvContinuation
+    ? [{ streams: options.tvContinuation.streams.flatMap((raw, upstreamRank) => {
+      const stream = sanitizeStream(raw)
+      return stream ? [normalizeStreamBehavior({ ...stream, __addonName: 'Torrentio (TV)',
+        __origin: { kind: 'addon', id: 'tv-torrentio', name: 'Torrentio (TV)' }, __evidence: { upstreamRank } })] : []
+    }), failures: [] }]
+    : embedded.declared
+    ? [{ streams: embedded.streams, failures: [] }]
+    : await mapLimit(resolverAddons, 3, (base, index) => resolveAddon(base, plan.ids, resourceType, fetcher, profile.allowPrivateNetworkSources, index, sourceDeadline))
+  const normalized = dedupeStreams(batches.flatMap((batch) => batch.streams).filter((stream) => !isNotice(stream)))
+  // TV lookup returns plain torrent hashes. Check the configured provider before choosing a
+  // release so a cached result is not stuck behind several full torrent downloads.
+  if (profile.debrid && cacheCheckMode(profile.debrid.provider) === 'native'
+    && !normalized.some((stream) => directCandidate(stream, profile))) {
+    const hashes = [...new Set(normalized.map((stream) => stream.infoHash).filter(Boolean))].slice(0, 240)
+    const cached = await checkCached(profile.debrid.provider, profile.debrid.credential, hashes)
+    for (const stream of normalized) {
+      const state = cached.get(stream.infoHash)
+      if (state) { stream.__cache = state; stream.__cacheSource = 'native' }
+    }
+  }
   const ordered = pickCandidates(normalized, profile.quality, plan.want, undefined, {
     audioLang: profile.audioLang || undefined,
     cacheCheck: 'none',
     allowUncached: !!profile.debrid,
   })
   const candidates = []
-  const failures = []
+  const failures = batches.flatMap((batch) => batch.failures)
   let rejected = 0
   const attemptedDebridHashes = new Set()
   let debridAttempts = 0
@@ -766,7 +818,9 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
       attemptedDebridHashes.add(stream.infoHash)
       debridAttempts += 1
       try {
-        const resolved = await resolveConfiguredDebrid(stream, profile, plan.want)
+        const remaining = debridDeadline - Date.now()
+        if (remaining <= 0) throw new Error('Source resolution timed out. Try another cached release.')
+        const resolved = await resolveConfiguredDebrid(stream, profile, plan.want, Math.min(7_500, remaining))
         if (resolved) {
           candidates.push(resolved)
           debridResolved = true
@@ -780,6 +834,16 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
     if (candidates.length >= MAX_RESPONSE_CANDIDATES) break
   }
   candidates.splice(MAX_RESPONSE_CANDIDATES)
+  const tvSourceLookup = !candidates.length && requestValue.tvSourceLookup === 1 && !options.tvContinuation && options.tvLookupContext
+    ? await createTvSourceLookup(profile, request, plan, batches.flatMap((batch) => batch.tvRequests ?? []), options.tvLookupContext)
+    : undefined
+  if (!candidates.length && !failures.length) {
+    failures.push(!normalized.length
+      ? 'Your configured source add-ons returned no playable streams for this title.'
+      : !profile.debrid && normalized.some((stream) => stream.infoHash)
+        ? 'The Worker has no saved debrid credential for these torrent sources. Save TV playback settings in izumi again.'
+        : `${profile.debrid ? providerName(profile.debrid.provider) + ' is configured, but the' : 'The'} returned sources could not be played on the TV.`)
+  }
   return {
     candidates,
     selectedId: candidates[0]?.id ?? null,
@@ -787,6 +851,7 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
     rejected,
     failures: [...new Set(failures)].slice(0, 3),
     skipSegments: await skipSegmentsPromise,
+    ...(tvSourceLookup ? { tvSourceLookup } : {}),
   }
 }
 

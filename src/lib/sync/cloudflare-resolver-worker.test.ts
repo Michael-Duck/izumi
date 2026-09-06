@@ -8,6 +8,7 @@ import {
   resolveDirectSources,
   streamRequestPlan,
 } from '../../../cloudflare-sync-worker/src/resolver.js'
+import { catalogInternals } from '../../../cloudflare-sync-worker/src/catalog.js'
 
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), {
   status,
@@ -16,6 +17,75 @@ const json = (value: unknown, status = 200) => new Response(JSON.stringify(value
 
 describe('self-hosted Cloudflare source resolver', () => {
   afterEach(() => vi.unstubAllGlobals())
+  it.each([
+    { type: 'movie', id: 'tt0126029', streamId: 'tt0126029' },
+    { type: 'series', id: 'tt10589968', streamId: 'tt10589968:1:1' },
+  ])('asks stream add-ons for a global $type ID displayed by a catalogue add-on', async ({ type, id, streamId }) => {
+    const catalog = 'https://catalog.example'
+    const fetcher = vi.fn(async (raw: RequestInfo | URL) => {
+      const url = String(raw)
+      if (url === `${catalog}/manifest.json`) return json({ resources: ['catalog', 'meta'] })
+      if (url === 'https://streams.example/manifest.json') return json({ resources: ['stream'] })
+      if (url === `https://streams.example/stream/${type}/${encodeURIComponent(streamId)}.json`) {
+        return json({ streams: [{ url: 'https://media.example/video.mkv' }] })
+      }
+      return json({}, 404)
+    })
+    const result = await resolveDirectSources({
+      enabled: true, addons: [catalog, 'https://streams.example'],
+    }, {
+      ref: { provider: 'stremio', type, id: encodeURIComponent(JSON.stringify([catalogInternals.fnv(catalog), type, id])) },
+      streamIds: [streamId], ...(type === 'series' ? { season: 1, episode: 1 } : {}),
+    }, fetcher)
+    expect(result.candidates[0]?.url).toBe('https://media.example/video.mkv')
+  })
+
+  it('keeps custom Stremio identifiers scoped to their originating add-on', async () => {
+    const base = 'https://custom.example'
+    const fetcher = vi.fn(async () => json({ resources: ['stream'], streams: [] }))
+    await resolveDirectSources({ enabled: true, addons: [base, 'https://unrelated.example'] }, {
+      ref: { provider: 'stremio', type: 'series', id: encodeURIComponent(JSON.stringify([catalogInternals.fnv(base), 'series', 'private:123'])) },
+      streamIds: ['private:123'],
+    }, fetcher)
+    expect(fetcher.mock.calls.some(([url]) => String(url).includes('unrelated.example'))).toBe(false)
+  })
+
+  it('reports a blocked source without exposing configured URLs or blaming TorBox settings', async () => {
+    const fetcher = vi.fn(async (raw: RequestInfo | URL) => String(raw).endsWith('/manifest.json')
+      ? json({ resources: ['stream'] }) : new Response('Blocked', { status: 403 }))
+    const result = await resolveDirectSources({
+      enabled: true, addons: ['https://source.example/secret-addon-key'],
+      debrid: { provider: 'torbox', credential: 'secret-torbox-key' },
+    }, { ref: { provider: 'tmdb', type: 'movie', id: '808' } }, fetcher)
+    expect(result.candidates).toEqual([])
+    expect(result.failures).toEqual(['source.example: blocked the Worker request (HTTP 403). Use a source that allows cloud requests or connected-device playback.'])
+    expect(JSON.stringify(result)).not.toContain('secret-')
+  })
+
+  it('explains empty add-on results when TorBox is already configured', async () => {
+    const result = await resolveDirectSources({
+      enabled: true, addons: ['https://source.example'],
+      debrid: { provider: 'torbox', credential: 'configured-key' },
+    }, { ref: { provider: 'tmdb', type: 'movie', id: '808' } }, async () => json({ resources: ['stream'], streams: [] }))
+    expect(result.failures).toEqual(['Your configured source add-ons returned no playable streams for this title.'])
+  })
+
+  it('bounds all stalled add-ons to one source-discovery deadline', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetcher = vi.fn((_url: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+      }))
+      let finished = false
+      const pending = resolveDirectSources({
+        enabled: true, addons: Array.from({ length: 8 }, (_, i) => `https://source${i}.example`),
+      }, { ref: { provider: 'kitsu', type: 'anime', id: '42' }, episode: 1 }, fetcher).then(result => { finished = true; return result })
+      await vi.advanceTimersByTimeAsync(12_001)
+      expect(finished).toBe(true)
+      expect((await pending).candidates).toEqual([])
+      expect(fetcher).toHaveBeenCalledTimes(6)
+    } finally { vi.useRealTimers() }
+  })
   it('is disabled with no uploaded add-ons by default', () => {
     expect(defaultResolverProfile()).toEqual({
       enabled: false,
