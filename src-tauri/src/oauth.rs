@@ -95,6 +95,7 @@ pub(crate) async fn capture(
     let navigation = capture.clone();
     let page_load = capture.clone();
     let win = WebviewWindowBuilder::new(app, next_window_label(), WebviewUrl::External(url))
+        .additional_browser_args(crate::desktop_webview::DESKTOP_WEBVIEW_ARGS)
         .title("Sign in")
         .inner_size(520.0, 760.0)
         // Register cancellation before the user can close the window.

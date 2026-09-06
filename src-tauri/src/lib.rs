@@ -43,6 +43,10 @@ mod desktop_cast;
 #[cfg(not(target_os = "android"))]
 mod desktop_presence;
 #[cfg(not(target_os = "android"))]
+mod desktop_webview;
+#[cfg(not(target_os = "android"))]
+use desktop_webview::DESKTOP_WEBVIEW_ARGS;
+#[cfg(not(target_os = "android"))]
 mod dlna_cast;
 #[cfg(not(target_os = "android"))]
 mod gif_capture;
@@ -2894,8 +2898,6 @@ fn main_video_webview(app: &AppHandle) -> Result<tauri::Webview, String> {
 }
 
 const CAPTURE_CONTROLS_WINDOW: &str = "capture-controls";
-#[cfg(not(target_os = "android"))]
-const DESKTOP_WEBVIEW_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion --disable-direct-composition-video-overlays";
 
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
@@ -4868,6 +4870,7 @@ async fn da_login(app: tauri::AppHandle, base: String) -> Result<bool, String> {
         let _ = w.close();
     }
     let win = WebviewWindowBuilder::new(&app, "da-login", WebviewUrl::External(url))
+        .additional_browser_args(DESKTOP_WEBVIEW_ARGS)
         .title("Sign in — Discuss Anime")
         .inner_size(520.0, 760.0)
         .on_new_window(|_u, _f| tauri::webview::NewWindowResponse::Allow) // Disqus OAuth may use a popup
