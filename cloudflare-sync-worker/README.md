@@ -25,6 +25,10 @@ Never share the setup secret or an Izumi invite ticket publicly. Invites are sin
 
 ## Updating
 
+Worker runtime tests live in `tests/` and run with the root `npm test` command, alongside
+the client tests. Keeping server-only tests here prevents the Svelte application type checker
+from treating the Worker's D1 bindings and JavaScript runtime as browser application code.
+
 Version 1.9 adds encrypted multipart library records (`0006_record_chunks.sql`). Update the
 Worker and each desktop/mobile Izumi client to sync libraries larger than the old single-record
 limit. Small records retain the original wire format. This does not change Samsung TV snapshot

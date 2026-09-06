@@ -15,7 +15,8 @@ vi.mock('./manifest', async (actual) => ({
   ...(await actual() as object),
   fetchManifest: async () => ({ id: 'a', name: 'Addon', version: '1' }),
 }))
-vi.mock('./sources', () => ({
+vi.mock('./sources', async (actual) => ({
+  ...(await actual() as object),
   addonUrls: readable<string[]>(['https://addon.test']),
   enabledAddonUrls: readable<string[]>(['https://addon.test']),
   addonOriginId: () => 'addon',

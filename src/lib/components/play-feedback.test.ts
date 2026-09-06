@@ -31,10 +31,11 @@ describe('Lazy pending state', () => {
 
 describe('player-flow feedback', () => {
   it('covers both paths that are the user’s only feedback', () => {
-    expect(layout).toContain('load={loadStreamPicker}')
-    expect(layout).toContain('load={loadSourceConnecting}')
-    const pendingSnippets = layout.match(/\{#snippet pending\(\)\}/g) ?? []
-    expect(pendingSnippets.length).toBe(2)
+    for (const loader of ['loadStreamPicker', 'loadSourceConnecting']) {
+      const mount = layout.match(new RegExp(`<Lazy load=\\{${loader}\\}>([\\s\\S]*?)</Lazy>`))
+      expect(mount?.[1]).toContain('{#snippet pending()}')
+      expect(mount?.[1]).toContain('<PlayFeedback')
+    }
   })
 
   it('stays silent for a binge continuation, which hides the picker deliberately', () => {

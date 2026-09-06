@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { resolveCatalogSnapshot, resolveDirectSources, resolveMediaDetails, searchCatalog } from '../../../cloudflare-sync-worker/src/resolver.js'
-import { catalogInternals } from '../../../cloudflare-sync-worker/src/catalog.js'
+import { resolveCatalogSnapshot, resolveDirectSources, resolveMediaDetails, searchCatalog } from '../src/resolver.js'
+import { catalogInternals } from '../src/catalog.js'
 
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), {
   status,

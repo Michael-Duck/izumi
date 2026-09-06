@@ -96,7 +96,8 @@ describe('encrypted multipart library sync', () => {
     failChunk = false
     await client.writeCloudflareRecord('watch', makePayload(1, 'Changed series'))
     expect((await client.readCloudflareRecords('watch'))[0].payload).toBe(makePayload(1, 'Changed series'))
-  })
+    // Multiple real multi-megabyte encryption rounds need headroom under full-suite CPU load.
+  }, 20_000)
 
   it('refuses to commit a manifest with a missing chunk, without replacing the old record', async () => {
     await client.writeCloudflareRecord('watch', '{"history":{}}')

@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync } from 'node:fs'
 import worker from '../src/index.js'
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 const ownerToken = 'o'.repeat(43), tvToken = 't'.repeat(43), pairingId = 'p'.repeat(20)
 const digest = (value: string) => createHash('sha256').update(value).digest('base64url')
 
@@ -55,6 +55,7 @@ it('gates every account action behind the selected TV profile PIN and isolates c
 })
 
 it('searches beyond the first library page and returns profile-scoped TV snapshots', async () => {
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now())
   const { sql, call } = fixture()
   const library = Array.from({ length: 220 }, (_, index) => ({ _id: `tt${index}`, type: 'movie', name: index === 215 ? 'Needle' : `Film ${index}` }))
   sql.prepare('INSERT INTO connected_accounts (owner_device_id, profile_id, service, connection_json) VALUES (?, ?, ?, ?)').run('owner', 'family', 'stremio', JSON.stringify({ authKey: 'account-secret', profile: 1, cache: { at: Date.now(), library } }))
@@ -66,6 +67,9 @@ it('searches beyond the first library page and returns profile-scoped TV snapsho
     const data = await result.json()
     expect(data.snapshot).toMatchObject({ profileId: 'family', collectionPage: { hasMore: true, page: 1 } })
     expect(data.snapshot.views.myList).toHaveLength(200)
+    const limited = await call(`/v1/companion/pairings/${pairingId}/search`, { ...input, query: 'Needle' })
+    expect(limited.status).toBe(429)
+    clock.mockReturnValue(Date.now() + 750)
     const search = await call(`/v1/companion/pairings/${pairingId}/search`, { ...input, query: 'Needle' })
     expect(search.status).toBe(200)
     expect(await search.json()).toMatchObject({ items: [{ title: 'Needle' }] })

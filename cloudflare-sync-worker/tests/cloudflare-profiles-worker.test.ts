@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeHousehold, scopeSnapshot, validSnapshotSelector, viewerAllows, viewerForRequest } from '../../../cloudflare-sync-worker/src/profiles.js'
-import { catalogInternals } from '../../../cloudflare-sync-worker/src/catalog.js'
+import { normalizeHousehold, scopeSnapshot, validSnapshotSelector, viewerAllows, viewerForRequest } from '../src/profiles.js'
+import { catalogInternals } from '../src/catalog.js'
 import type { IzumiProfile } from '$lib/profiles/store'
 import type { CompanionHomeSnapshot, CompanionMedia } from '$lib/companion/protocol'
 

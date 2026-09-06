@@ -12,7 +12,8 @@ const queryExtensions = vi.fn(async (..._args: unknown[]) => [])
 
 vi.mock('$lib/net/http', () => ({ phttp: (...a: unknown[]) => phttp(...a) }))
 vi.mock('./manifest', async (actual) => ({ ...(await actual() as object), fetchManifest: async () => ({ id: 'a', name: 'Addon', version: '1' }) }))
-vi.mock('./sources', () => ({
+vi.mock('./sources', async (actual) => ({
+  ...(await actual() as object),
   addonUrls,
   enabledAddonUrls: addonUrls,
   addonOriginId: () => 'addon',

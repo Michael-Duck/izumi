@@ -36,7 +36,8 @@ const sourceHash = createHash('sha256')
 for (const path of inputs) {
   sourceHash.update(relative(repositoryRoot, path).replaceAll('\\', '/'))
   sourceHash.update('\0')
-  sourceHash.update(readFileSync(path))
+  // Git checks text out as CRLF on Windows and LF on Linux. Both build the same Worker.
+  sourceHash.update(readFileSync(path, 'utf8').replace(/\r\n/g, '\n'))
   sourceHash.update('\0')
 }
 const digest = sourceHash.digest('hex')

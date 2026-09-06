@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync } from 'node:fs'
-import worker from '../../../cloudflare-sync-worker/src/index.js'
-import { tvSourceRequests } from '../../../cloudflare-sync-worker/src/tv-source-lookup.js'
+import worker from '../src/index.js'
+import { tvSourceRequests } from '../src/tv-source-lookup.js'
 
 const pairingId = 'p'.repeat(20), tvToken = 't'.repeat(43), key = 'secret-torbox-credential'
 const cachedHash = 'a'.repeat(40), uncachedHash = 'b'.repeat(40)
@@ -13,7 +13,7 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 function fixture() {
   const sql = new DatabaseSync(':memory:')
-  const dir = new URL('../../../cloudflare-sync-worker/migrations/', import.meta.url)
+  const dir = new URL('../migrations/', import.meta.url)
   for (const name of readdirSync(dir).filter(name => name.endsWith('.sql')).sort()) sql.exec(readFileSync(new URL(name, dir), 'utf8'))
   const digest = (value: string) => createHash('sha256').update(value).digest('base64url')
   sql.prepare('INSERT INTO devices VALUES (?, ?, ?, ?, ?)').run('owner', digest('o'.repeat(43)), 'Test', 1, 1)

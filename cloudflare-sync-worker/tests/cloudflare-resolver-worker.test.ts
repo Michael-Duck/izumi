@@ -7,8 +7,8 @@ import {
   publicResolverProfile,
   resolveDirectSources,
   streamRequestPlan,
-} from '../../../cloudflare-sync-worker/src/resolver.js'
-import { catalogInternals } from '../../../cloudflare-sync-worker/src/catalog.js'
+} from '../src/resolver.js'
+import { catalogInternals } from '../src/catalog.js'
 
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), {
   status,
