@@ -8,6 +8,7 @@ See the [README](README.md#prerequisites) for prerequisites (Node, Rust, libmpv)
 
 ```sh
 npm install
+npm ci --prefix cloudflare-sync-worker  # Worker runtime dependencies used by npm test
 cp .env.example .env      # public OAuth client IDs
 npm run tauri dev         # run the desktop app
 ```
