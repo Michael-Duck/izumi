@@ -108,6 +108,10 @@ describe('schedule page header', () => {
     expect(page).toContain('($anilistDegradedBannerVisible ? 28 : 0)')
   })
 
+  it('extends the pinned titlebar shield over the degraded strip so rows cannot slice through', () => {
+    expect(page).toMatch(/data-schedule-titlebar-shield[^>]+\{\$anilistDegradedBannerVisible \? 'h-\[3\.75rem\]' : 'h-8'\}/)
+  })
+
   it('hands weekday Down navigation to the first airing instead of a geometric lower row', () => {
     expect(grid).toContain('data-nav-down="schedule-first-airing"')
     expect(grid).toContain('navFirst="schedule-first-airing"')

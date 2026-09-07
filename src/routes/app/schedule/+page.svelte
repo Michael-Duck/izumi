@@ -93,9 +93,13 @@
   <!-- The global desktop titlebar is transparent so hero artwork can extend to the window edge.
        Schedule has no hero, though, and its rows would remain visible through that strip once this
        page's toolbar became sticky. Paint only that reserved 32px titlebar area while pinned; the
-       real titlebar stays above it at z-50, so the window controls and drag region are unchanged. -->
+       real titlebar stays above it at z-50, so the window controls and drag region are unchanged.
+       With the degraded strip up, the pinned header parks below it (top-[3.75rem]) — the shield
+       must grow to the same height or agenda rows scroll through the uncovered 28px band and read
+       as broken content slicing between the strip and the header. -->
   {#if stickyActive && !$isMobile}
-    <div data-schedule-titlebar-shield aria-hidden="true" class="pointer-events-none fixed inset-x-0 top-0 z-20 h-8 bg-background"></div>
+    <div data-schedule-titlebar-shield aria-hidden="true"
+         class="pointer-events-none fixed inset-x-0 top-0 z-20 {$anilistDegradedBannerVisible ? 'h-[3.75rem]' : 'h-8'} bg-background"></div>
   {/if}
 
   <!-- Schedule/Watchlist tabs, week nav, and (schedule tab only) the My Shows/All filter all share
