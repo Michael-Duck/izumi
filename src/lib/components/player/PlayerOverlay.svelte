@@ -30,7 +30,7 @@
     type TorrentDeliveryState,
   } from '$lib/player/recovery-watchdog'
   import {
-    autoSkip, seekDuration, videoFit, uiScale, keepAwakeWhilePlaying,
+    autoSkip, skipPreviews, seekDuration, videoFit, uiScale, keepAwakeWhilePlaying,
     subtitleStyleEnabled, subtitleOverrideScope, subtitleFont, subtitleBold, subtitleFontSize, subtitleTextColor,
     subtitleBorderColor, subtitleBorderSize, subtitleShadow, subtitlePosition, subtitleAssSnapshot,
     subtitleAutoSync, gifIncludeSubtitles,
@@ -226,7 +226,9 @@
   )
   const controlsMounted = $derived(controlsVisible || quietDpadScrub)
   const currentSeg = $derived(segments.find((s) => pos >= s.start && pos <= s.end))
-  const willSkip = (_segment: Segment) => $autoSkip
+  // A preview sits after the ending, so auto-skipping it runs off the end of the episode. It opts in
+  // separately; every other type follows the one auto-skip toggle.
+  const willSkip = (segment: Segment) => $autoSkip && (segment.type !== 'preview' || $skipPreviews)
   const autoSkipCurrent = $derived(
     !!currentSeg
       && willSkip(currentSeg)

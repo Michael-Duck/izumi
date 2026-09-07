@@ -37,7 +37,7 @@
   } from '$lib/settings/ui'
   import { effectiveSubtitleStyle, sessionSubtitleStyle } from '$lib/settings/subtitle-presets'
   import { discoverCompanionReceivers } from '$lib/companion/client'
-  import { companionMedia } from '$lib/companion/protocol'
+  import { castSkipSegments, companionMedia } from '$lib/companion/protocol'
   import { getMediaSkipSegments } from '$lib/stremio/skip-segments'
   import { m } from '$lib/paraglide/messages.js'
 
@@ -173,7 +173,7 @@
       const castPosition = Number.isFinite(livePosition) ? Math.max(0, livePosition) : Math.max(0, pos)
       const skipSegments = $nowPlayingMedia
         ? await getMediaSkipSegments($nowPlayingMedia.media, $nowPlayingMedia.episode, dur)
-          .then((items) => items.map((item) => ({ type: item.type, startTime: item.start, endTime: item.end, label: item.label })))
+          .then(castSkipSegments)
           .catch(() => [])
         : []
       const nativeSession = await startDesktopCast({

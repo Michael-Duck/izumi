@@ -23,7 +23,7 @@ import {
 } from '$lib/settings/ui'
 import { updateCloudflareCompanionRequest } from '$lib/sync/cloudflare'
 import { pendingCompanionPlayback } from './client'
-import { companionMedia, type CompanionMedia } from './protocol'
+import { castSkipSegments, companionMedia, type CompanionMedia } from './protocol'
 
 export interface CompanionCastSubtitle {
   url: string
@@ -216,12 +216,7 @@ export async function startPendingCompanionCast(input: {
   const skipSegments = input.episode == null
     ? []
     : await getMediaSkipSegments(input.media, input.episode, Math.max(0, Number(input.media.duration) || 0) * 60)
-      .then((segments) => segments.map((segment) => ({
-        type: segment.type,
-        startTime: segment.start,
-        endTime: segment.end,
-        label: segment.label,
-      })))
+      .then(castSkipSegments)
       .catch(() => [])
   const normalizedMedia = companionMedia(input.media, { episode: input.episode })
   const castMedia: CompanionMedia = {

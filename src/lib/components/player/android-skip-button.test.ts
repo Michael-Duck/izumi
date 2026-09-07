@@ -31,8 +31,12 @@ describe('Android skip button auto-hide', () => {
   })
 
   it('honours auto-skip for every detected segment on both players', () => {
-    expect(android).toContain('const willSkip = (_segment: Segment) => $autoSkip')
-    expect(desktop).toContain('const willSkip = (_segment: Segment) => $autoSkip')
+    // Type is the only thing allowed to gate a skip, and only for the next-episode preview, which
+    // opts in separately. Nothing may filter by occurrence: skipping the first OP but not a second
+    // one is the regression `firstOccurrences` used to cause.
+    const gate = 'const willSkip = (segment: Segment) => $autoSkip && (segment.type !== \'preview\' || $skipPreviews)'
+    expect(android).toContain(gate)
+    expect(desktop).toContain(gate)
     expect(android).not.toContain('firstOccurrences')
     expect(desktop).not.toContain('firstOccurrences')
   })

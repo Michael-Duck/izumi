@@ -190,13 +190,14 @@
     const mm = h ? String(m).padStart(2, '0') : `${m}`
     return `${h ? `${h}:` : ''}${mm}:${String(sec).padStart(2, '0')}`
   }
-  // Tint per skip type. OP=sky, ED=amber, recap=neutral.
+  // Tint per skip type. OP=sky, ED=amber, recap=neutral, preview=violet.
   const segClass: Record<string, string> = {
     op: 'bg-sky-400/50',
     ed: 'bg-amber-400/50',
     recap: 'bg-white/20',
+    preview: 'bg-violet-400/50',
   }
-  // Label at a time: OP/ED/recap segment wins, else the enclosing mkv chapter.
+  // Label at a time: a skip segment wins, else the enclosing mkv chapter.
   function labelAt(t: number): string {
     const seg = segments.find((s) => t >= s.start && t <= s.end)
     if (seg) return seg.label
@@ -373,7 +374,7 @@
          style="left:{pct(scrubT)}%"></div>
   {/if}
 
-  <!-- OP/ED/recap tints (AniSkip) overlaid on the segmented track. -->
+  <!-- Skip-segment tints overlaid on the segmented track. -->
   {#each segments as s}
     <div class="pointer-events-none absolute top-1/2 z-10 h-0.5 -translate-y-1/2 {segClass[s.type] ?? 'bg-white/20'}" style="left:{pct(s.start)}%;width:{pct(s.end) - pct(s.start)}%"></div>
   {/each}

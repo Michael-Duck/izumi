@@ -1,5 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import { companionMedia, isCompanionSnapshot, parseCompanionPairingLink } from './protocol'
+import { castSkipSegments, companionMedia, isCompanionSnapshot, parseCompanionPairingLink } from './protocol'
+
+describe('cast skip segments', () => {
+  it('maps the local segment shape onto the wire shape', () => {
+    expect(castSkipSegments([
+      { type: 'op', start: 24, end: 114, label: 'Opening' },
+      { type: 'recap', start: 0, end: 20, label: 'Recap' },
+    ])).toEqual([
+      { type: 'op', startTime: 24, endTime: 114, label: 'Opening' },
+      { type: 'recap', startTime: 0, endTime: 20, label: 'Recap' },
+    ])
+  })
+
+  it('drops a type this protocol version does not carry', () => {
+    // The TV app ships separately, so a paired set is routinely one build apart. A preview is
+    // derived from the file's own chapters and only the local player draws it — sending it would
+    // break an older receiver for no gain.
+    expect(castSkipSegments([
+      { type: 'ed', start: 1_290, end: 1_380, label: 'Ending' },
+      { type: 'preview', start: 1_380, end: 1_420, label: 'Preview' },
+    ])).toEqual([{ type: 'ed', startTime: 1_290, endTime: 1_380, label: 'Ending' }])
+  })
+})
 
 describe('companion pairing protocol', () => {
   const valid = 'izumi://companion/pair?v=1&tv=192.168.4.20&device=0123456789abcdef01234567&challenge=0123456789abcdef0123456789abcdef'

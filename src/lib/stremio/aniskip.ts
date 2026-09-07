@@ -2,10 +2,17 @@ import { fetch as httpFetch } from '@tauri-apps/plugin-http'
 
 // AniSkip OP/ED/recap "skip times" for an episode, used to draw seekbar segments
 // and drive the "Skip Opening/Ending" button.
-export type SkipType = 'op' | 'ed' | 'recap'
+export type SkipType = 'op' | 'ed' | 'recap' | 'preview'
 export interface Segment { start: number; end: number; type: SkipType; label: string }
 
-export const LABELS: Record<SkipType, string> = { op: 'Opening', ed: 'Ending', recap: 'Recap' }
+export const LABELS: Record<SkipType, string> = {
+  op: 'Opening', ed: 'Ending', recap: 'Recap', preview: 'Preview',
+}
+// `preview` is the next-episode trailer after the ending. No remote skip source this client queries
+// annotates one, so it only ever arrives from a file's own chapter titles (see
+// player/chapter-skip.ts) — it is absent from the request and response maps below by fact, not
+// oversight. It is also the one type auto-skip leaves alone by default: seeking past it runs the
+// playhead off the end of the episode.
 // `mixed-op` / `mixed-ed` are AniSkip's annotation for an opening or ending that runs INTO the
 // episode proper (the cold-open cut, extremely common in anime) — which is exactly the case people
 // most want skipped. They are separate skip types in the API and are simply absent from the

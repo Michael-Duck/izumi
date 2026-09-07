@@ -44,12 +44,18 @@ if (typeof localStorage !== 'undefined' && localStorage.getItem('player-title-to
 export const playerTitleTop = persisted<boolean>('player-title-top', true)
 
 /**
- * Auto-skip OP/ED/recap segments (from AniSkip) during playback. When on, the
- * player seeks past a segment automatically the first time the playhead enters it
+ * Auto-skip opening/ending/recap segments during playback. When on, the player
+ * seeks past a segment automatically the first time the playhead enters it
  * (seeking back in still lets you watch it). When off, only the manual "Skip"
  * button shows. Default off.
  */
 export const autoSkip = persisted<boolean>('player-auto-skip', false)
+
+/** Include the next-episode preview in auto-skip. Separate from `autoSkip` and default off because
+ *  a preview sits after the ending: skipping it runs the playhead off the end of the episode and
+ *  auto-advances, which is not what "skip the opening" led anyone to expect. The manual Skip button
+ *  shows for a preview either way. */
+export const skipPreviews = persisted<boolean>('player-skip-previews', false)
 
 /** Skip filler episodes during auto next-episode (AnimeFillerList data). Filler is
  *  always *marked* in the episode list; this controls whether auto-advance skips it. */

@@ -68,7 +68,7 @@
   import type { Chapter } from '$lib/player/chapter-skip'
   import { reportWatchPlayback } from '$lib/watch-together/client'
   import {
-    autoSkip, seekDuration, scrubThumbnails, openSubtitlesToken,
+    autoSkip, skipPreviews, seekDuration, scrubThumbnails, openSubtitlesToken,
     subtitleStyleEnabled, subtitleOverrideScope, subtitleFont, subtitleBold, subtitleFontSize, subtitleTextColor,
     subtitleBorderColor, subtitleBorderSize, subtitleShadow, subtitlePosition, subtitleAssSnapshot,
     gifIncludeSubtitles, androidAutoPip, keepAwakeWhilePlaying,
@@ -88,7 +88,7 @@
   import { candidateKey, candidateTitle, providerBadge, subtitleErrorNotice, candidateApiKey, candidateDownloadUrl } from './online-subs'
   import { stopDirectTorrentPlayback } from '$lib/player/direct-torrent'
   import { castSourceDecision, castSubtitleFormat, castSubtitleTitle, castTrackPreferences, tvCastSource } from '$lib/player/android-cast'
-  import { companionMedia } from '$lib/companion/protocol'
+  import { castSkipSegments, companionMedia } from '$lib/companion/protocol'
   import {
     controlTizenReceiver,
     getTizenReceiverStatus,
@@ -281,7 +281,9 @@
   let autoSkipPending = $state(new Set<number>())
   let autoSkipFailed = $state(new Set<number>())
   const currentSeg = $derived(segments.find((s) => pos >= s.start && pos <= s.end) ?? null)
-  const willSkip = (_segment: Segment) => $autoSkip
+  // A preview sits after the ending, so auto-skipping it runs off the end of the episode. It opts in
+  // separately; every other type follows the one auto-skip toggle.
+  const willSkip = (segment: Segment) => $autoSkip && (segment.type !== 'preview' || $skipPreviews)
   // `$playerLoadId` is in the key because a dub/sub or alternate-server swap re-plays the SAME
   // media and episode from a different release: on media+episode alone the guard never fires, so
   // auto-skip stayed armed with the previous release's OP/ED windows (a jump mid-scene) and the
@@ -1346,7 +1348,7 @@
           subtitles: prepared.subtitles,
           activeTrackIds,
           media: $nowPlayingMedia ? companionMedia($nowPlayingMedia.media, { episode: $nowPlayingMedia.episode }) : undefined,
-          skipSegments: segments.map((item) => ({ type: item.type, startTime: item.start, endTime: item.end, label: item.label })),
+          skipSegments: castSkipSegments(segments),
           trackPreferences: castTrackPreferences(castSource, liveTracks),
           subtitleStyle: castStyle(),
         }, 'Izumi Android')

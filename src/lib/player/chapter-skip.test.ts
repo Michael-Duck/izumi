@@ -54,12 +54,40 @@ describe('chapter title classification', () => {
     }
   })
 
+  it('recognises the common next-episode preview namings', () => {
+    for (const t of ['Preview', 'Next Episode', 'Next Ep', 'Next Episode Preview', 'Next Time', 'Next Time On', 'Sneak Peek', 'Yokoku']) {
+      expect(classifyChapter(t), t).toBe('preview')
+    }
+  })
+
   it('does not match a theme word buried in an episode-title chapter', () => {
     // These are chapter names for actual content. Matching on a contained word would skip the scene.
     expect(classifyChapter('The Opening of the Gate')).toBeNull()
     expect(classifyChapter('Reopening the case')).toBeNull()
     expect(classifyChapter('Shopping trip')).toBeNull()
     expect(classifyChapter('A Recap of the Plan')).toBeNull()
+  })
+
+  it('does not match a chapter that is a sentence starting with a theme word', () => {
+    // The word leads, but what follows is prose, not a qualifier or a song title. Matching these
+    // seeks the viewer out of the scene the chapter names.
+    for (const t of [
+      'Opening the vault', 'Intro to the case', 'Credits roll over the city',
+      'Recap of the war', 'Ending of an era', 'Preview screening at the cinema',
+    ]) {
+      expect(classifyChapter(t), t).toBeNull()
+    }
+  })
+
+  it('still accepts an index, a qualifier or a song title after the stem', () => {
+    // The flip side of the anchor: these are how releases actually decorate a theme chapter.
+    expect(classifyChapter('Opening Theme 「Gurenge」')).toBe('op')
+    expect(classifyChapter('ED2 - Song Name')).toBe('ed')
+    expect(classifyChapter('OP 1 (Creditless)')).toBe('op')
+    expect(classifyChapter('Ending Theme 2')).toBe('ed')
+    // A named show after these phrases is expected, not prose to reject.
+    expect(classifyChapter('Previously on Some Series')).toBe('recap')
+    expect(classifyChapter('Next Time on Some Series')).toBe('preview')
   })
 })
 
@@ -72,11 +100,12 @@ describe('segmentsFromChapters', () => {
     { time: 1_380, title: 'Preview' },
   ]
 
-  it('derives OP/ED bands bounded by the next chapter', () => {
+  it('derives bands bounded by the next chapter, and the last one by the duration', () => {
     const segs = segmentsFromChapters(chapters, 1_420)
     expect(segs).toEqual([
       { start: 24, end: 114, type: 'op', label: 'Opening' },
       { start: 1_290, end: 1_380, type: 'ed', label: 'Ending' },
+      { start: 1_380, end: 1_420, type: 'preview', label: 'Preview' },
     ])
   })
 
@@ -187,6 +216,17 @@ describe('paired edge marks', () => {
     expect(segmentsFromChapters(
       [{ time: 0, title: 'Recap Start' }, { time: 1_380, title: 'Recap End' }], 1_420,
     )).toEqual([])
+  })
+
+  it('bounds a preview by its own closing mark', () => {
+    expect(segmentsFromChapters([
+      { time: 1_290, title: 'ED' },
+      { time: 1_380, title: 'Preview Start' },
+      { time: 1_410, title: 'Preview End' },
+    ], 1_420)).toEqual([
+      { start: 1_290, end: 1_380, type: 'ed', label: 'Ending' },
+      { start: 1_380, end: 1_410, type: 'preview', label: 'Preview' },
+    ])
   })
 
   it('holds a stated theme to the same ceiling as an inferred one', () => {

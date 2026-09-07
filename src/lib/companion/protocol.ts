@@ -143,6 +143,30 @@ export interface CompanionSkipSegment {
   label?: string
 }
 
+const CAST_SKIP_TYPES = new Set<string>([
+  'intro', 'op', 'mixed-op', 'recap', 'outro', 'ed', 'mixed-ed', 'credits', 'ending',
+])
+
+/** Map local skip segments onto the cast wire shape, dropping any type this protocol version does
+ *  not carry.
+ *
+ *  The TV app is a separate release with its own update cadence, so a paired set is routinely one
+ *  build apart. Sending a type an older TV does not know is a protocol break for no gain — the
+ *  next-episode preview is derived from a file's own chapters and only the local player draws it.
+ *  Widening the union above is a coordinated change in both repositories, not a one-line edit. */
+export function castSkipSegments(
+  segments: readonly { type: string; start: number; end: number; label?: string }[],
+): CompanionSkipSegment[] {
+  return segments
+    .filter((segment) => CAST_SKIP_TYPES.has(segment.type))
+    .map((segment) => ({
+      type: segment.type as CompanionSkipSegmentType,
+      startTime: segment.start,
+      endTime: segment.end,
+      label: segment.label,
+    }))
+}
+
 export interface CompanionRelation {
   relationType: string
   media: CompanionMedia

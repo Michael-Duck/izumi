@@ -38,6 +38,13 @@ describe('settings search', () => {
     expect(searchSettings('discord rpc')[0]?.title).toBe('Discord Rich Presence')
   })
 
+  it('keeps the two auto-skip toggles distinguishable', () => {
+    // They share a label prefix, so a query for either has to land on the right one rather than
+    // whichever was registered first.
+    expect(searchSettings('next episode preview')[0]?.title).toBe('Auto-skip next-episode previews')
+    expect(searchSettings('skip opening')[0]?.title).toBe('Auto-skip openings & endings')
+  })
+
   it('finds dialogue-only subtitle styling from typesetting terminology', () => {
     expect(searchSettings('preserve subtitle signs')[0]?.title).toBe('Subtitle dialogue style overrides')
   })
