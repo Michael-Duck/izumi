@@ -41,6 +41,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
         include_str!("../../cloudflare-sync-worker/migrations/0006_record_chunks.sql"),
     ),
     ("0007_connected_accounts", include_str!("../../cloudflare-sync-worker/migrations/0007_connected_accounts.sql")),
+    ("0008_companion_client_links", include_str!("../../cloudflare-sync-worker/migrations/0008_companion_client_links.sql")),
 ];
 
 #[derive(Debug, Deserialize)]

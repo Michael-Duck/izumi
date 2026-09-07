@@ -1,10 +1,11 @@
+import { companionRestorePending } from '$lib/companion/restore-state'
 import { invoke } from '@tauri-apps/api/core'
 import { get, writable } from 'svelte/store'
 import { discoveryQueueFeedback, recordDiscoveryDecision, forgetDiscoveryDecision } from '$lib/recommendations/discovery-queue'
 import { localLibrary, mediaIsInLocalList, setMediaInLocalList, WATCHLIST_ID } from '$lib/library/local-lists'
 import { mediaKey } from '$lib/catalog/identity'
 import { readCloudflareDiscoveryChoices, type CloudflareDiscoveryChoice } from '$lib/sync/cloudflare'
-import { activeProfileId } from '$lib/profiles/store'
+import { activeProfileId, activeProfileLocked, profileSwitcherOpen } from '$lib/profiles/store'
 import { persisted } from 'svelte-persisted-store'
 import { SamsungSmartViewChannel } from '$lib/player/samsung-smart-view'
 import { setTizenReceiverRelayForeground, type TizenReceiverDevice } from '$lib/player/tizen-receiver-cast'
@@ -31,7 +32,7 @@ import type { Media } from '$lib/anilist/types'
 import { recordPlay } from '$lib/player/history'
 import { clearPosition, savePosition } from '$lib/player/progress'
 import { markWatched } from '$lib/trackers'
-import { getCloudflareResolverProfile, saveCloudflareResolverProfile, type CloudflareResolverProfile } from '$lib/sync/cloudflare'
+import { getCloudflareResolverProfile, saveCloudflareResolverProfile, companionTransportForLan, type CloudflareResolverProfile } from '$lib/sync/cloudflare'
 import { currentCloudflareCompanionProfile, watchCloudflareCompanionProfile } from './cloud-profile'
 import {
   COMPANION_PROTOCOL,
@@ -55,6 +56,7 @@ export const pairedCompanions = persisted<PairedCompanion[]>('paired-tizen-compa
 const appliedCompanionProgress = persisted<Record<string, number>>('paired-tizen-progress-applied-v1', {})
 const appliedDiscoverySaves = persisted<Record<string, number>>('companion-discovery-saves-v1', {})
 const companionProgressPulling = new Set<string>()
+const companionProfileReady = () => !get(companionRestorePending) && !get(activeProfileLocked) && !get(profileSwitcherOpen)
 
 export interface PendingCompanionPlayback {
   device: PairedCompanion
@@ -441,7 +443,7 @@ export async function pairCompanion(
       challenge: link.challenge,
       credential,
       groupName: groupName.trim() || 'Izumi sync group',
-      transport: { bridge: endpoint, cloudflare },
+      transport: { bridge: endpoint, cloudflare: cloudflare ? companionTransportForLan(cloudflare) : undefined },
       snapshot,
     }, 'host')
     await paired
@@ -538,6 +540,7 @@ function companionProgressRecord(value: unknown): CompanionProgressRecord | null
 }
 
 function applyCompanionProgress(device: PairedCompanion, record: CompanionProgressRecord, source: 'cloud' | 'tv'): boolean {
+  if (!companionProfileReady()) return false
   if ((record.profileId ?? 'default') !== get(activeProfileId)) return false
   const owner = device.cloudflare?.pairingId ?? device.deviceId
   // Keep the historical Worker key stable so upgrading does not reapply an old cloud checkpoint.
@@ -560,12 +563,15 @@ function applyCompanionProgress(device: PairedCompanion, record: CompanionProgre
 }
 
 async function pullCompanionProgress(device: PairedCompanion): Promise<boolean> {
-  if (!device.cloudflare) return false
+  if (!device.cloudflare || !companionProfileReady()) return false
+  const profileId = get(activeProfileId)
   // Older Workers lack the discovery endpoint; watch sync must keep working during upgrades.
   const choices = await readCloudflareDiscoveryChoices(device.cloudflare).catch(() => [])
+  if (!companionProfileReady() || get(activeProfileId) !== profileId) return false
   let discoveryChanged = false
   for (const choice of choices.sort((a, b) => a.at - b.at)) discoveryChanged = applyCompanionDiscovery(choice) || discoveryChanged
   const records = await readCloudflareCompanionProgress(device.cloudflare)
+  if (!companionProfileReady() || get(activeProfileId) !== profileId) return discoveryChanged
   let changed = discoveryChanged
   for (const record of records.sort((left, right) => left.updatedAt - right.updatedAt)) {
     const normalized = companionProgressRecord(record)
@@ -574,7 +580,14 @@ async function pullCompanionProgress(device: PairedCompanion): Promise<boolean> 
   return changed
 }
 
+/** Explicit restore uses the same validation, profile filtering and checkpoint deduplication as
+ * background TV sync. The caller can retry without replaying already imported progress. */
+export async function syncCompanionProgress(device: PairedCompanion): Promise<boolean> {
+  return pullCompanionProgress(device)
+}
+
 function applyCompanionDiscovery(choice: CloudflareDiscoveryChoice): boolean {
+  if (!companionProfileReady()) return false
   if (!choice || typeof choice !== 'object' || choice.profileId !== get(activeProfileId) || !Number.isFinite(choice.at) || choice.at <= 0 || choice.at > Date.now() + 60_000
     || !choice.media?.ref || typeof choice.media.ref.id !== 'string' || typeof choice.media.ref.provider !== 'string' || typeof choice.media.ref.type !== 'string' || typeof choice.media.title !== 'string' || !['save', 'skip', 'dismiss', 'undo'].includes(choice.action)) return false
   const media = checkpointMedia(choice.media)
@@ -602,7 +615,7 @@ function sendWorkerTransport(connection: CompanionConnection): void {
   pulseCompanionActivity()
   connection.channel.publish('izumi.companion.transport', {
     credential: connection.device.credential,
-    cloudflare: connection.device.cloudflare,
+    cloudflare: companionTransportForLan(connection.device.cloudflare),
   }, 'host')
 }
 
@@ -966,22 +979,30 @@ export function initCompanionConnections(
   let stopped = false
   let profileSyncing = false
   const syncProfile = async () => {
-    if (stopped || profileSyncing || get(syncProvider) !== 'cloudflare') return
+    if (stopped || profileSyncing || get(syncProvider) !== 'cloudflare' || !companionProfileReady()) return
+    const profileId = get(activeProfileId)
     profileSyncing = true
     try {
       const existing = await getCloudflareResolverProfile()
+      if (stopped || !companionProfileReady() || get(activeProfileId) !== profileId) return
       if (!existing.profile.enabled) return
       const profile = currentCloudflareCompanionProfile(existing.profile.connectedDeviceFallback)
       await saveCloudflareResolverProfile(profile)
+      if (stopped || !companionProfileReady() || get(activeProfileId) !== profileId) return
       await provisionCompanionResolverRoutes(profile)
+      if (stopped || !companionProfileReady() || get(activeProfileId) !== profileId) return
       const screens = catalogScreens(get(catalogProviders))
       const snapshots = []
-      for (const screen of screens) snapshots.push(await createSnapshot(screen))
+      for (const screen of screens) {
+        snapshots.push(await createSnapshot(screen))
+        if (stopped || !companionProfileReady() || get(activeProfileId) !== profileId) return
+      }
       const snapshot = snapshots.find((value) => value.catalog.screen === get(catalogScreen)) ?? snapshots[0]
       if (snapshot) await publishCompanionSnapshot(snapshot).catch(() => {})
       for (const device of get(pairedCompanions)) {
         if (!device.cloudflare) continue
         for (const value of snapshots) {
+          if (stopped || !companionProfileReady() || get(activeProfileId) !== profileId) return
           await publishCloudflareCompanionSnapshot(device.cloudflare, value).catch(() => {})
         }
       }
@@ -991,7 +1012,7 @@ export function initCompanionConnections(
   const stopProfile = watchCloudflareCompanionProfile(() => { void syncProfile() })
   const initialProfileTimer = setTimeout(() => { void syncProfile() }, 1_500)
   const refresh = () => {
-    if (stopped) return
+    if (stopped || !companionProfileReady()) return
     for (const device of get(pairedCompanions)) {
       if (!companionProgressPulling.has(device.deviceId)) {
         companionProgressPulling.add(device.deviceId)

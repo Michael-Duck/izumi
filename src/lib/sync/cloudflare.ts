@@ -4,7 +4,7 @@ import type { CompanionHomeSnapshot, CompanionMedia, CompanionPlaybackMode } fro
 import type { SyncRecord, SyncStatus } from './types'
 import { chunkHash, MAX_SYNC_BYTES, parseChunkManifest, splitSyncPayload, type ChunkManifest } from './record-chunks'
 
-export const CLOUDFLARE_WORKER_VERSION = '1.10.0'
+export const CLOUDFLARE_WORKER_VERSION = '1.11.0'
 export const CLOUDFLARE_WORKER_PROTOCOL = 1
 export const CLOUDFLARE_GIT_DEPLOY_URL =
   'https://deploy.workers.cloudflare.com/?url=https://github.com/nickEatsBread/izumi/tree/main/cloudflare-sync-worker'
@@ -70,6 +70,8 @@ export interface CloudflareCompanionTransport {
   endpoint: string
   pairingId: string
   tvToken: string
+  /** Recovery encryption secret shared with the TV; never used as a Worker bearer token. */
+  recoveryKey?: string
   playbackMode: CompanionPlaybackMode
   wakeWhenClosed: boolean
 }
@@ -193,8 +195,12 @@ export function normalizeCloudflareEndpoint(value: string): string {
   return url.toString().replace(/\/$/, '')
 }
 
+function deviceConfigReady(config: CloudflareSyncConfig): boolean {
+  return !!(config.endpoint && config.deviceId && config.deviceToken)
+}
+
 function configReady(config: CloudflareSyncConfig): boolean {
-  return !!(config.endpoint && config.deviceId && config.deviceToken && config.groupKey)
+  return deviceConfigReady(config) && !!config.groupKey
 }
 
 async function workerRequest<T>(
@@ -260,7 +266,7 @@ function nativeDebridResolverSupported(status: WorkerStatus): boolean {
 
 function companionConfig(): CloudflareSyncConfig {
   const config = get(cloudflareSyncConfig)
-  if (!configReady(config)) throw new Error('Connect this phone to your Cloudflare Worker first.')
+  if (!deviceConfigReady(config)) throw new Error('Connect this device to your Cloudflare Worker first.')
   return config
 }
 
@@ -281,6 +287,55 @@ export async function createCloudflareCompanionPairing(policy: {
     body: JSON.stringify({ pairingId, tvToken }),
   }, config.deviceToken)
   return { protocol: 1, endpoint: config.endpoint, pairingId, tvToken, ...policy }
+}
+
+/** The recovery secret is shared only through the encrypted reverse-link flow. */
+export function companionTransportForLan(transport: CloudflareCompanionTransport): CloudflareCompanionTransport {
+  const { recoveryKey: _recoveryKey, ...publicTransport } = transport
+  return publicTransport
+}
+
+/** The TV can recover the sync key after a reinstall without giving it the owner's device token. */
+async function persistCompanionRecovery(transport: CloudflareCompanionTransport, config: CloudflareSyncConfig): Promise<void> {
+  if (!/^[A-Za-z0-9_-]{43}$/.test(config.groupKey) || base64UrlToBytes(config.groupKey).length !== 32) {
+    throw new Error('The sync recovery key is invalid.')
+  }
+  if (!transport.recoveryKey || !/^[A-Za-z0-9_-]{43}$/.test(transport.recoveryKey) || base64UrlToBytes(transport.recoveryKey).length !== 32) {
+    throw new Error('The TV recovery secret is invalid.')
+  }
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const key = await crypto.subtle.importKey('raw', base64UrlToBytes(transport.recoveryKey), 'AES-GCM', false, ['encrypt', 'decrypt'])
+  const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv,
+    additionalData: encoder.encode(`izumi-companion:${transport.pairingId}:client-recovery`) }, key,
+    encoder.encode(JSON.stringify({ v: 1, groupKey: config.groupKey })))
+  const payload = JSON.stringify({ v: 1, iv: bytesToBase64Url(iv), data: bytesToBase64Url(new Uint8Array(data)) })
+  const path = `/v1/companion/pairings/${encodeURIComponent(transport.pairingId)}/client-recovery`
+  const result = await workerRequest<{ ok: true; stored?: boolean }>(config.endpoint, path, {
+    method: 'PUT', body: JSON.stringify({ payload }),
+  }, config.deviceToken)
+  if (result.stored === false) {
+    try {
+      const existing = await workerRequest<{ payload: string | null }>(config.endpoint, path, { method: 'GET' }, config.deviceToken)
+      const envelope = JSON.parse(existing.payload ?? '')
+      if (envelope.v !== 1 || typeof envelope.iv !== 'string' || typeof envelope.data !== 'string') throw new Error('Invalid envelope')
+      const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: base64UrlToBytes(envelope.iv),
+        additionalData: encoder.encode(`izumi-companion:${transport.pairingId}:client-recovery`) }, key, base64UrlToBytes(envelope.data))
+      const saved = JSON.parse(new TextDecoder().decode(plaintext))
+      if (saved.v !== 1 || saved.groupKey !== config.groupKey) throw new Error('Different sync key')
+    } catch {
+      throw new Error('This TV already has a different recovery backup. Its existing backup was preserved; recovery for this client could not be enabled.')
+    }
+  }
+}
+
+export async function saveCloudflareCompanionRecovery(transport: CloudflareCompanionTransport): Promise<boolean> {
+  const config = companionConfig()
+  if (!config.groupKey || !transport.recoveryKey) return false
+  if (normalizeCloudflareEndpoint(config.endpoint) !== normalizeCloudflareEndpoint(transport.endpoint)) return false
+  const status = await getCloudflareWorkerStatus(config.endpoint)
+  if (!status.features?.includes('companion-client-link-v1')) return false
+  await persistCompanionRecovery(transport, config)
+  return true
 }
 
 export async function removeCloudflareCompanionPairing(pairingId: string): Promise<void> {

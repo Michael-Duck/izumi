@@ -3,6 +3,7 @@
   import { activeProfileId as tvAccountProfileId } from '$lib/profiles/store'
   import { onMount, tick } from 'svelte'
   import { goto } from '$app/navigation'
+  import { page } from '$app/state'
   import { listen } from '@tauri-apps/api/event'
   import { invoke } from '@tauri-apps/api/core'
   import { openUrl } from '@tauri-apps/plugin-opener'
@@ -76,7 +77,7 @@
     deployment: CloudflareDeploymentTarget
   }
 
-  let syncSection = $state<'sync' | 'tv'>('sync')
+  let syncSection = $state<'sync' | 'tv'>(page.url.searchParams.get('section') === 'tv' ? 'tv' : 'sync')
   let connectionMethodOpen = $state(false)
   let cloudflareOption = $state<HTMLButtonElement>()
   let highlightCloudflare = $state(false)
@@ -668,6 +669,10 @@
   </nav>
   {#if syncSection === 'tv'}
     <div class="max-w-2xl">
+      <a href="/app/companion-restore" data-focusable class="mb-5 flex min-h-12 items-center gap-3 rounded-lg bg-secondary px-4 py-3">
+        <Download size={20} class="shrink-0" />
+        <span><span class="block text-sm font-bold">Restore from TV</span><span class="block text-xs text-muted-foreground">Bring your saved TV setup and progress to this device. No existing sync connection needed.</span></span>
+      </a>
   <SettingsGroup title="Samsung TV" desc="Add Izumi Companion without scanning the QR code" icon={MonitorSmartphone}>
     <div class="flex flex-col gap-3 p-3 sm:flex-row sm:items-end">
       <label for="tv-pairing-code" class="min-w-0 flex-1">

@@ -1,3 +1,4 @@
+import { companionRestorePending } from '$lib/companion/restore-state'
 import { discoveryQueueFeedback } from "$lib/recommendations/discovery-queue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -58,7 +59,7 @@ import {
   writeCloudflareRecord,
 } from './cloudflare'
 import { isCompanionSnapshot, type CompanionHomeSnapshot } from '$lib/companion/protocol'
-import { activeProfileId, profileHousehold, profilesEnabled, mergeRemoteProfiles } from '$lib/profiles/store'
+import { activeProfileId, activeProfileLocked, profileSwitcherOpen, profileHousehold, profilesEnabled, mergeRemoteProfiles } from '$lib/profiles/store'
 import { watchCategory, watchPayloadForProfile } from './profile-scope'
 
 // All playback stores bind at module initialization. Keep that identity even in the brief window
@@ -210,13 +211,14 @@ export async function listSyncMembers(): Promise<SyncMember[]> {
 }
 
 export async function pushWatchProgress(): Promise<boolean> {
+  if (get(companionRestorePending) || get(activeProfileLocked) || get(profileSwitcherOpen)) return false
   await libraryStorageReady()
   await flushLibraryStorage()
   const status = await getSyncStatus();
   if (status.state !== "ready" || !status.paired) return false;
   // Connected trackers own anime-level episode counts. Iroh still owns exact
   // per-episode resume positions because trackers cannot represent them.
-  if (get(activeProfileId) !== syncProfileId) return false
+  if (get(activeProfileId) !== syncProfileId || get(companionRestorePending) || get(activeProfileLocked) || get(profileSwitcherOpen)) return false
   try {
     await write('profiles', JSON.stringify({ app: 'izumi', kind: 'household-profiles', version: 1, household: get(profileHousehold) }))
     profileSyncError.set('')
@@ -227,18 +229,21 @@ export async function pushWatchProgress(): Promise<boolean> {
     }
   }
   const payload = { ...exportWatchBundle({ includeHistory: !trackersOwnProgress() }), exportedAt: 0, profileId: syncProfileId }
+  if (get(activeProfileId) !== syncProfileId || get(companionRestorePending) || get(activeProfileLocked) || get(profileSwitcherOpen)) return false
   await write(watchCategory(syncProfileId) as SyncCategory, JSON.stringify(payload));
   watchSyncError.set('')
   return true;
 }
 
 export async function pullWatchProgress(): Promise<number> {
+  if (get(companionRestorePending) || get(activeProfileLocked) || get(profileSwitcherOpen)) return 0
   await libraryStorageReady()
   const status = await getSyncStatus();
   if (status.state !== "ready" || !status.paired) return 0;
   let imported = 0;
   try {
     for (const record of await read('profiles')) {
+      if (get(companionRestorePending) || get(activeProfileLocked) || get(profileSwitcherOpen) || get(activeProfileId) !== syncProfileId) return imported
       try {
         const value = JSON.parse(record.payload)
         if (value?.app === 'izumi' && value.kind === 'household-profiles' && value.version === 1) mergeRemoteProfiles(value.household)
@@ -251,9 +256,10 @@ export async function pullWatchProgress(): Promise<number> {
       throw cause
     }
   }
-  if (get(activeProfileId) !== syncProfileId) return 0
+  if (get(activeProfileId) !== syncProfileId || get(companionRestorePending) || get(activeProfileLocked) || get(profileSwitcherOpen)) return 0
   const includeHistory = !trackersOwnProgress();
   for (const record of await read(watchCategory(syncProfileId) as SyncCategory)) {
+    if (get(activeProfileId) !== syncProfileId || get(companionRestorePending) || get(activeProfileLocked) || get(profileSwitcherOpen)) return imported
     try {
       if (!watchPayloadForProfile(record.payload, syncProfileId)) continue
       const merged = importJson(record.payload, { includeHistory });

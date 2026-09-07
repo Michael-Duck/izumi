@@ -226,6 +226,7 @@ export interface CompanionCloudflareTransport {
   endpoint: string
   pairingId: string
   tvToken: string
+  recoveryKey?: string
   /** Determines whether a TV resolves in the Worker, asks this device, or uses both in order. */
   playbackMode: CompanionPlaybackMode
   /** Android may opt into browser Web Push; desktop always leaves this false. */

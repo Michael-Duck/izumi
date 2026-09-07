@@ -4,6 +4,7 @@ import { collectionOptions, collectionSnapshot, normalizeCollections } from './c
 import { commitChunkedRecord, putRecordChunk } from './record-chunks.js'
 import { validSnapshotSelector, viewerForRequest, viewerAllows, scopeSnapshot } from './profiles.js'
 import { consumeTvSourceLookup } from './tv-source-lookup.js'
+import { createClientLinkApi, companionOwnerDevice, companionMemberPairing } from './client-links.js'
 import {
   defaultResolverProfile,
   normalizeResolverProfile,
@@ -15,7 +16,7 @@ import {
   searchCatalog,
 } from './resolver.js'
 
-const VERSION = '1.10.0'
+const VERSION = '1.11.0'
 const PROTOCOL = 1
 const CATEGORIES = new Set(['watch', 'manual', 'presence', 'companion', 'profiles'])
 const MAX_BODY_BYTES = 512 * 1024
@@ -39,7 +40,7 @@ const encoder = new TextEncoder()
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Izumi-Bootstrap',
+  'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Izumi-Bootstrap, X-Izumi-Client-Link',
   'Access-Control-Max-Age': '86400',
 }
 
@@ -272,14 +273,26 @@ async function cleanupCompanion(env, now = Date.now()) {
 async function createCompanionPairing(request, env) {
   const deviceId = await authenticate(request, env)
   if (!deviceId) return json({ error: 'Authentication failed.' }, 401)
+  const ownerDeviceId = await companionOwnerDevice(env, deviceId)
   const value = await body(request)
   if (!validId(value.pairingId) || !validToken(value.tvToken)) return json({ error: 'Invalid companion pairing credentials.' }, 400)
-  const count = await env.DB.prepare('SELECT COUNT(*) AS count FROM companion_pairings WHERE owner_device_id = ?').bind(deviceId).first()
+  const tokenHash = await hash(value.tvToken)
+  const existing = await companionMemberPairing(env, deviceId, value.pairingId)
+  if (existing) {
+    const matches = await env.DB.prepare('SELECT pairing_id FROM companion_pairings WHERE pairing_id = ? AND tv_token_hash = ?')
+      .bind(value.pairingId, tokenHash).first()
+    return matches ? json({ ok: true, pairingId: value.pairingId }) : json({ error: 'This TV pairing already exists.' }, 409)
+  }
+  const count = await env.DB.prepare('SELECT COUNT(*) AS count FROM companion_pairings WHERE owner_device_id = ?').bind(ownerDeviceId).first()
   if (Number(count?.count || 0) >= MAX_COMPANION_PAIRINGS) return json({ error: 'This device already has the maximum number of paired TVs.' }, 409)
   const now = Date.now()
   try {
-    await env.DB.prepare('INSERT INTO companion_pairings (pairing_id, owner_device_id, tv_token_hash, created_at, last_seen) VALUES (?, ?, ?, ?, ?)')
-      .bind(value.pairingId, deviceId, await hash(value.tvToken), now, now).run()
+    await env.DB.batch([
+      env.DB.prepare('INSERT INTO companion_pairings (pairing_id, owner_device_id, tv_token_hash, created_at, last_seen) VALUES (?, ?, ?, ?, ?)')
+        .bind(value.pairingId, ownerDeviceId, tokenHash, now, now),
+      env.DB.prepare('INSERT INTO companion_client_members (pairing_id, device_id) SELECT ?, ? WHERE ? <> ?')
+        .bind(value.pairingId, deviceId, deviceId, ownerDeviceId),
+    ])
   } catch {
     return json({ error: 'This TV pairing already exists.' }, 409)
   }
@@ -364,8 +377,7 @@ function validCatalogScreen(value) {
 async function ownerPairing(request, env, pairingId) {
   const deviceId = await authenticate(request, env)
   if (!deviceId) return null
-  return env.DB.prepare('SELECT pairing_id, owner_device_id FROM companion_pairings WHERE pairing_id = ? AND owner_device_id = ?')
-    .bind(pairingId, deviceId).first()
+  return companionMemberPairing(env, deviceId, pairingId)
 }
 
 /** Store one already-materialized catalogue view. Izumi and the TV share the encryption key; the
@@ -382,7 +394,7 @@ async function companionSnapshot(request, env, pairingId) {
       .bind(pairingId, value.screen, value.payload, now).run()
     return json({ ok: true, updatedAt: now })
   }
-  if (!await authenticateTv(request, env, pairingId)) return json({ error: 'TV authentication failed.' }, 401)
+  if (!await authenticateTv(request, env, pairingId) && !await ownerPairing(request, env, pairingId)) return json({ error: 'Authentication failed.' }, 401)
   const screen = new URL(request.url).searchParams.get('screen') || ''
   if (screen && !validSnapshotSelector(screen)) return json({ error: 'Unknown catalogue.' }, 400)
   const row = screen
@@ -581,8 +593,9 @@ async function createCompanionRequest(request, env, pairingId, expectedRequestId
 async function companionRequestForMobile(request, env, pairingId, requestId) {
   const deviceId = await authenticate(request, env)
   if (!deviceId) return json({ error: 'Authentication failed.' }, 401)
-  const row = await env.DB.prepare('SELECT r.payload, r.state, r.issued_at AS issuedAt, r.expires_at AS expiresAt FROM companion_requests r JOIN companion_pairings p ON p.pairing_id = r.pairing_id WHERE r.pairing_id = ? AND r.request_id = ? AND p.owner_device_id = ?')
-    .bind(pairingId, requestId, deviceId).first()
+  if (!await companionMemberPairing(env, deviceId, pairingId)) return json({ error: 'Companion request not found.' }, 404)
+  const row = await env.DB.prepare('SELECT payload, state, issued_at AS issuedAt, expires_at AS expiresAt FROM companion_requests WHERE pairing_id = ? AND request_id = ?')
+    .bind(pairingId, requestId).first()
   if (!row) return json({ error: 'Companion request not found.' }, 404)
   if (Number(row.expiresAt) <= Date.now() && !['accepted', 'cancelled'].includes(String(row.state))) {
     await env.DB.prepare("UPDATE companion_requests SET state = 'expired', updated_at = ? WHERE pairing_id = ? AND request_id = ?").bind(Date.now(), pairingId, requestId).run()
@@ -593,7 +606,7 @@ async function companionRequestForMobile(request, env, pairingId, requestId) {
 
 async function companionRequestStatus(request, env, pairingId, requestId) {
   if (request.method === 'GET') {
-    const pairing = await authenticateTv(request, env, pairingId)
+    const pairing = await authenticateTv(request, env, pairingId) || await ownerPairing(request, env, pairingId)
     if (!pairing) return json({ error: 'TV authentication failed.' }, 401)
     const row = await env.DB.prepare('SELECT state, expires_at AS expiresAt, updated_at AS updatedAt FROM companion_requests WHERE pairing_id = ? AND request_id = ?')
       .bind(pairingId, requestId).first()
@@ -603,7 +616,7 @@ async function companionRequestStatus(request, env, pairingId, requestId) {
   if (!deviceId) return json({ error: 'Authentication failed.' }, 401)
   const value = await body(request)
   if (!['opened', 'accepted', 'cancelled'].includes(value.state)) return json({ error: 'Invalid companion request state.' }, 400)
-  const owned = await env.DB.prepare('SELECT pairing_id FROM companion_pairings WHERE pairing_id = ? AND owner_device_id = ?').bind(pairingId, deviceId).first()
+  const owned = await companionMemberPairing(env, deviceId, pairingId)
   if (!owned) return json({ error: 'Companion request not found.' }, 404)
   const now = Date.now()
   const result = await env.DB.prepare("UPDATE companion_requests SET state = ?, updated_at = ? WHERE pairing_id = ? AND request_id = ? AND expires_at > ? AND state NOT IN ('accepted', 'cancelled', 'expired')")
@@ -614,7 +627,9 @@ async function companionRequestStatus(request, env, pairingId, requestId) {
 async function removeCompanionPairing(request, env, pairingId) {
   const deviceId = await authenticate(request, env)
   if (deviceId) {
-    const result = await env.DB.prepare('DELETE FROM companion_pairings WHERE pairing_id = ? AND owner_device_id = ?').bind(pairingId, deviceId).run()
+    const result = await env.DB.prepare(`DELETE FROM companion_pairings WHERE pairing_id = ? AND (owner_device_id = ? OR EXISTS
+      (SELECT 1 FROM companion_client_members m WHERE m.pairing_id = companion_pairings.pairing_id AND m.device_id = ?))`)
+      .bind(pairingId, deviceId, deviceId).run()
     return Number(result.meta?.changes || 0) ? json({ ok: true }) : json({ error: 'Companion pairing not found.' }, 404)
   }
   const pairing = await authenticateTv(request, env, pairingId)
@@ -626,9 +641,11 @@ async function removeCompanionPairing(request, env, pairingId) {
 async function resolverProfile(request, env) {
   const deviceId = await authenticate(request, env)
   if (!deviceId) return json({ error: 'Authentication failed.' }, 401)
+  // Local cleanup must never delete the original owner's shared profile or accounts.
+  const ownerDeviceId = request.method === 'DELETE' ? deviceId : await companionOwnerDevice(env, deviceId)
   if (request.method === 'GET') {
     const row = await env.DB.prepare('SELECT profile_json AS profile, updated_at AS updatedAt FROM resolver_profiles WHERE owner_device_id = ?')
-      .bind(deviceId).first()
+      .bind(ownerDeviceId).first()
     if (!row) return json({ profile: publicResolverProfile(defaultResolverProfile()), updatedAt: null })
     try {
       const profile = normalizeResolverProfile(JSON.parse(row.profile), new URL(request.url).origin)
@@ -650,7 +667,7 @@ async function resolverProfile(request, env) {
     profile.collections = normalizeCollections(profile.collections)
     const now = Date.now()
     await env.DB.prepare('INSERT INTO resolver_profiles (owner_device_id, profile_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(owner_device_id) DO UPDATE SET profile_json = excluded.profile_json, updated_at = excluded.updated_at')
-      .bind(deviceId, JSON.stringify(profile), now).run()
+      .bind(ownerDeviceId, JSON.stringify(profile), now).run()
     return json({ ok: true, profile: publicResolverProfile(profile, new URL(request.url).origin), updatedAt: now })
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : 'Invalid resolver profile.' }, 400)
@@ -658,8 +675,9 @@ async function resolverProfile(request, env) {
 }
 
 async function ownerAccounts(request, env) {
-  const owner = await authenticate(request, env)
-  if (!owner) return json({ error: 'Authentication failed.' }, 401)
+  const deviceId = await authenticate(request, env)
+  if (!deviceId) return json({ error: 'Authentication failed.' }, 401)
+  const owner = await companionOwnerDevice(env, deviceId)
   const input = request.method === 'GET' ? Object.fromEntries(new URL(request.url).searchParams) : await body(request)
   const profileId = input.profileId || 'default'
   if (!/^[A-Za-z0-9_-]{1,100}$/.test(profileId)) return json({ error: 'Invalid profile.' }, 400)
@@ -989,9 +1007,17 @@ async function leave(request, env) {
   if (!deviceId) return json({ error: 'Authentication failed.' }, 401)
   const count = await env.DB.prepare('SELECT COUNT(*) AS count FROM devices').first()
   if (Number(count?.count || 0) <= 1) return json({ error: 'Add another device before removing the last device.' }, 409)
-  await env.DB.prepare('DELETE FROM devices WHERE id = ?').bind(deviceId).run()
+  // Check dependencies in the DELETE itself so a concurrent claim cannot lose its owner.
+  const removed = await env.DB.prepare(`DELETE FROM devices WHERE id = ? AND NOT EXISTS (
+    SELECT 1 FROM companion_pairings p JOIN companion_client_members m ON m.pairing_id = p.pairing_id
+    WHERE p.owner_device_id = devices.id
+  )`).bind(deviceId).run()
+  if (!Number(removed.meta?.changes)) return json({ error: 'Linked clients depend on this owner registration. Unlink the dependent clients or TVs first, or keep the owner registered.' }, 409)
   return json({ ok: true })
 }
+
+const clientLinkApi = createClientLinkApi({ authenticateTv, ownerPairing, body, json, hash, validId,
+  validToken, cleanName, normalizeResolverProfile, version: VERSION, maxDevices: MAX_DEVICES })
 
 export default {
   async fetch(request, env) {
@@ -1006,7 +1032,7 @@ export default {
           tvSourceLookup: 1,
           protocol: PROTOCOL,
           claimed: await claimed(env),
-          features: ['companion-accounts-v1', 'companion-collections-v1', 'companion-profiles-v1', 'profile-sync-v1', 'companion-wake-v1', 'web-push-v1', 'cloud-resolver-v1', 'cloud-resolver-v2', 'cloud-resolver-debrid-v1', 'companion-details-v2', 'companion-snapshot-v1', 'companion-progress-v1', 'companion-catalog-v1', 'companion-trailer-v1', 'companion-discovery-v2'],
+          features: ['companion-client-link-v1', 'companion-accounts-v1', 'companion-collections-v1', 'companion-profiles-v1', 'profile-sync-v1', 'companion-wake-v1', 'web-push-v1', 'cloud-resolver-v1', 'cloud-resolver-v2', 'cloud-resolver-debrid-v1', 'companion-details-v2', 'companion-snapshot-v1', 'companion-progress-v1', 'companion-catalog-v1', 'companion-trailer-v1', 'companion-discovery-v2'],
         })
       }
       if (request.method === 'GET' && url.pathname === '/v1/companion/enrol') return companionEnrolmentPage(request)
@@ -1021,6 +1047,11 @@ export default {
       if (request.method === 'POST' && url.pathname === '/v1/companion/subscriptions') return await subscribeCompanion(request, env)
       if (request.method === 'POST' && url.pathname === '/v1/companion/pairings') return await createCompanionPairing(request, env)
       if (request.method === 'POST' && url.pathname === '/v1/companion/enrollments') return await createCompanionEnrollment(request, env)
+      if (request.method === 'POST' && url.pathname === '/v1/companion/client-links/claim') return await clientLinkApi.claim(request, env)
+      const clientLinkMatch = url.pathname.match(/^\/v1\/companion\/pairings\/([A-Za-z0-9_-]{16,80})\/client-links$/)
+      if (clientLinkMatch && ['GET', 'POST', 'DELETE'].includes(request.method)) return await clientLinkApi.links(request, env, clientLinkMatch[1])
+      const clientRecoveryMatch = url.pathname.match(/^\/v1\/companion\/pairings\/([A-Za-z0-9_-]{16,80})\/client-recovery$/)
+      if (clientRecoveryMatch && ['GET', 'PUT'].includes(request.method)) return await clientLinkApi.recovery(request, env, clientRecoveryMatch[1])
       const openMatch = url.pathname === '/v1/companion/open'
       if (request.method === 'GET' && openMatch) {
         const pairingId = url.searchParams.get('pairing') || ''

@@ -40,6 +40,7 @@
   import { uiScale, enableDoH, doHUrl, playerCacheMb, playerCacheBytes, hotkeyBindings } from '$lib/settings/ui'
   import { catalogDefaultProvider, catalogLastProvider, catalogProvider, catalogProviders, catalogScreen, catalogScreens, enabledCatalogProviders, enabledCatalogScreens, nextCatalogScreen, previousCatalogScreen, resolveCatalogStartup, selectCatalogProvider, selectCatalogScreen } from '$lib/settings/catalog'
   import { afterNavigate, beforeNavigate, goto } from '$app/navigation'
+  import { page } from '$app/state'
   import { invoke } from '@tauri-apps/api/core'
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import { controllerMode, initInput, initDpadNav, startBrowserGamepadInput, suppressNativeContextMenus, suppressNativeTooltips } from '$lib/nav'
@@ -542,7 +543,7 @@
 {/if}
 <!-- Cross-platform update toast (available → downloading → ready); opt-in to apply. -->
 <UpdateToast />
-<FirstRunSetup />
+{#if page.url.pathname !== '/app/companion-restore'}<FirstRunSetup />{/if}
 <UpNextOverlay />
 <ProfileSwitcher />
 {#if $themeStudioOpen}

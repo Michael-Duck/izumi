@@ -39,6 +39,18 @@ describe('deep links', () => {
 })
 
 describe('deep link dispatch', () => {
+  it('routes TV restore to its review page and keeps the code exclusively in the fragment', () => {
+    const worker = 'https://restore.example.com'
+    const code = 'ABCDEFGHJKLMNPQRSTV2'
+    const expected = `/app/companion-restore?worker=${encodeURIComponent(worker)}#code=${code}`
+    expect(parseDeepLink(`izumi://companion/restore?worker=${encodeURIComponent(worker)}#code=${code}`)?.path).toBe(expected)
+    expect(parseDeepLink(`izumi://companion/restore?worker=${encodeURIComponent(worker)}&code=${code}&ignored=secret`)?.path).toBe(expected)
+    expect(parseDeepLink(`izumi://companion/restore?worker=${encodeURIComponent(worker)}#code=abcd-efgh+jklm-npqr+stv2`)?.path).toBe(expected)
+    expect(parseDeepLink(`izumi://companion/restore?worker=${encodeURIComponent(worker)}&code=22222222222222222222#code=${code}`)).toBeNull()
+    expect(parseDeepLink(`izumi://companion/restore?worker=https%3A%2F%2F127.0.0.1#code=${code}`)).toBeNull()
+    expect(parseDeepLink(`izumi://companion/restore?worker=${encodeURIComponent(worker)}#code=${code}!`)).toBeNull()
+  })
+
   it('does nothing when the launch carried no links', () => {
     expect(resolveDeepLinks(null)).toBeNull()
     expect(resolveDeepLinks([])).toBeNull()
