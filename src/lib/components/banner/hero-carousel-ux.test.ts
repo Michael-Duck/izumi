@@ -15,9 +15,16 @@ describe('featured carousel UX', () => {
 
   it('combines airing context and genres beneath a compact discovery-facts row', () => {
     expect(hero).toContain("current?.studios?.nodes?.[0]?.name || season(current)")
-    expect(hero).toContain('{#if nextAiringLabel || current.genres?.length}')
+    expect(hero.match(/\{#if nextAiringLabel \|\| featuredRankLabel \|\| current\.genres\?\.length\}/g)?.length).toBe(2)
     expect(hero).toContain('{current.averageScore}% score')
     expect(hero).toContain('{totalEpisodes(current)} episodes')
+  })
+
+  it('renders the featured rank inline in the pill rows, never as a floating chip', () => {
+    expect(hero.match(/\{featuredRankLabel\}/g)?.length).toBe(2)
+    expect(hero).toContain('border-orange-300/25')
+    expect(hero).not.toContain('pointer-events-none absolute right-8')
+    expect(hero).not.toContain('flex justify-end')
   })
 
   it('uses provider title artwork with a readable text fallback', () => {

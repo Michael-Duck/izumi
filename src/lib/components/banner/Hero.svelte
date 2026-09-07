@@ -310,8 +310,13 @@
           {#if current.averageScore}<span class={scoreColor(current.averageScore)}>{current.averageScore}% score</span>{/if}
           {#if !nextAiringLabel && status(current)}<span>{status(current)}</span>{/if}
         </div>
-        {#if nextAiringLabel || current.genres?.length}
+        {#if nextAiringLabel || featuredRankLabel || current.genres?.length}
           <div class="flex flex-wrap items-center gap-1.5">
+            {#if featuredRankLabel}
+              <span class="inline-flex items-center gap-1.5 rounded-full border border-orange-300/25 bg-black/65 px-2.5 py-1 text-[0.7rem] font-black text-white shadow-lg backdrop-blur">
+                <TrendingUp size={12} class="text-orange-300" aria-hidden="true" />{featuredRankLabel}
+              </span>
+            {/if}
             {#if nextAiringLabel}
               <span aria-label={nextAiringAccessibleLabel} class="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-black/55 px-2.5 py-1 text-[0.7rem] font-black tabular-nums text-white shadow-lg backdrop-blur">
                 <Clock3 size={12} aria-hidden="true" />{nextAiringLabel}
@@ -333,13 +338,6 @@
             <Info size={18} /> Details
           </button>
         </div>
-        {#if featuredRankLabel}
-          <div class="flex justify-end">
-            <span class="inline-flex items-center gap-1.5 rounded-md border border-white/15 bg-black/70 px-2.5 py-1 text-[0.68rem] font-black text-white shadow-lg backdrop-blur">
-              <TrendingUp size={12} class="text-orange-300" aria-hidden="true" />{featuredRankLabel}
-            </span>
-          </div>
-        {/if}
         {#if medias.length > 1}
           <div class="mt-1.5 flex justify-center gap-1.5">
             {#each medias as _, idx (idx)}
@@ -414,16 +412,6 @@
       </button>
     {/if}
 
-    {#if showOverlay && featuredRankLabel}
-      <span
-        class="pointer-events-none absolute right-8 z-20 hidden items-center gap-2 rounded-md border border-white/15 bg-black/65 px-3 py-1.5 text-sm font-black text-white shadow-lg backdrop-blur sm:inline-flex"
-        class:bottom-16={medias.length > 1}
-        class:bottom-8={medias.length <= 1}
-      >
-        <TrendingUp size={15} class="text-orange-300" aria-hidden="true" />{featuredRankLabel}
-      </span>
-    {/if}
-
     {#if showOverlay}
       <div class="absolute inset-x-0 bottom-0 flex flex-col gap-3 px-4 pb-6 sm:px-8 sm:pb-8">
         {#key current.id}
@@ -456,8 +444,15 @@
             {#if !nextAiringLabel && status(current)}<span>{status(current)}</span>{/if}
           </div>
 
-          {#if nextAiringLabel || current.genres?.length}
+          {#if nextAiringLabel || featuredRankLabel || current.genres?.length}
             <div class="mt-3 flex flex-wrap items-center gap-2">
+              {#if featuredRankLabel}
+                <!-- Rank reads as one inline fact of the carousel, in the same pill language as the
+                     airing countdown and genres, instead of a floating chip over the artwork. -->
+                <span class="inline-flex items-center gap-1.5 rounded-full border border-orange-300/25 bg-black/55 px-3 py-1.5 text-xs font-black text-white shadow-lg backdrop-blur">
+                  <TrendingUp size={14} class="text-orange-300" aria-hidden="true" />{featuredRankLabel}
+                </span>
+              {/if}
               {#if nextAiringLabel}
                 <span aria-label={nextAiringAccessibleLabel} class="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-black/50 px-3 py-1.5 text-xs font-black tabular-nums text-white shadow-lg backdrop-blur">
                   <Clock3 size={14} aria-hidden="true" />{nextAiringLabel}
