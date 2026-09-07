@@ -15,16 +15,20 @@ describe('featured carousel UX', () => {
 
   it('combines airing context and genres beneath a compact discovery-facts row', () => {
     expect(hero).toContain("current?.studios?.nodes?.[0]?.name || season(current)")
-    expect(hero.match(/\{#if nextAiringLabel \|\| featuredRankLabel \|\| current\.genres\?\.length\}/g)?.length).toBe(2)
+    expect(hero).toContain('{#if nextAiringLabel || current.genres?.length}')
     expect(hero).toContain('{current.averageScore}% score')
     expect(hero).toContain('{totalEpisodes(current)} episodes')
   })
 
-  it('renders the featured rank inline in the pill rows, never as a floating chip', () => {
+  it('anchors the featured rank to the bottom right of the banner', () => {
     expect(hero.match(/\{featuredRankLabel\}/g)?.length).toBe(2)
-    expect(hero).toContain('border-orange-300/25')
-    expect(hero).not.toContain('pointer-events-none absolute right-8')
-    expect(hero).not.toContain('flex justify-end')
+    // Desktop: pinned to the artwork's bottom-right corner, clearing the carousel dots when the
+    // carousel has more than one title. Mobile has no room for an overlay, so its copy is
+    // right-aligned under the actions — the same corner of the content it belongs to.
+    expect(hero).toContain('pointer-events-none absolute right-8')
+    expect(hero).toContain('class:bottom-16={medias.length > 1}')
+    expect(hero).toContain('class:bottom-8={medias.length <= 1}')
+    expect(hero).toContain('flex justify-end')
   })
 
   it('uses provider title artwork with a readable text fallback', () => {
