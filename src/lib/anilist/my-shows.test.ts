@@ -1,7 +1,7 @@
 import { beforeEach, describe, it, expect } from 'vitest'
 import { get } from 'svelte/store'
 import {
-  classifyMine, isDropped, isMine, hasMySources, emptyMySets, splitAniListIds, withLocalMyShows, type MySets,
+  classifyMine, classifyAiring, isDropped, isMine, hasMySources, emptyMySets, splitAniListIds, withLocalMyShows, type MySets,
 } from './my-shows'
 import type { Media } from './types'
 import type { HistoryEntry } from '$lib/player/history'
@@ -9,6 +9,48 @@ import { localLibrary, removeLocalTracking, saveLocalTracking } from '$lib/libra
 
 const media = (id: number, idMal?: number) => ({ id, idMal }) as Media
 const sets = (over: Partial<MySets>): MySets => ({ ...emptyMySets(), ...over })
+
+describe('episode schedule badges', () => {
+  const show = { id: 7, idMal: 70, title: { romaji: 'Example' } } as Media
+  const slot = (episode: number) => ({ media: show, episode, airingAt: 100 })
+  const library = { lists: [], entries: {} }
+
+  it('marks only the completed MAL episodes Watched while later slots stay Watching', () => {
+    const mine = sets({ malWatching: new Set([70]), malProgress: new Map([[70, 3]]) })
+    expect(classifyAiring(slot(3), mine)).toBe('watched')
+    expect(classifyAiring(slot(4), mine)).toBe('watching')
+    expect(classifyAiring({ ...slot(3), delayPlaceholder: true }, mine)).toBe('watching')
+    expect(classifyAiring(slot(3), mine, 50_000)).toBe('watching')
+  })
+
+  it('reads AniList progress and keeps completed finales visible', () => {
+    const mine = sets({ aniProgress: new Map([[7, 12]]) })
+    expect(classifyAiring(slot(12), mine)).toBe('watched')
+    expect(classifyAiring(slot(13), mine)).toBeNull()
+  })
+
+  it('does not mark an opened but unfinished episode watched', () => {
+    const history = { 7: { media: show, episode: 4, progress: 3, updatedAt: 1 } }
+    const mine = withLocalMyShows(emptyMySets(), history, library)
+    expect(classifyAiring(slot(3), mine)).toBe('watched')
+    expect(classifyAiring(slot(4), mine)).toBe('watching')
+  })
+
+  it('updates from session completion with persisted history disabled', () => {
+    const mine = withLocalMyShows(sets({ malWatching: new Set([70]) }), {}, library, { 7: 4 })
+    expect(classifyAiring(slot(4), mine)).toBe('watched')
+  })
+
+  it('matches a Kitsu play to the canonical schedule and honours marking an episode unwatched', () => {
+    const kitsu = { ...show, id: -99, catalog: { provider: 'kitsu', type: 'anime', id: '42' }, externalIds: { anilist: 7 } } as Media
+    const history = { [-99]: { media: kitsu, episode: 4, progress: 4, updatedAt: 1 } }
+    const remote = sets({ aniWatching: new Set([7]), malProgress: new Map([[70, 4]]) })
+    const mine = withLocalMyShows(remote, history, library)
+    expect(classifyAiring(slot(4), mine)).toBe('watched')
+    const reset = withLocalMyShows(remote, history, library, {}, { [-99]: 3 })
+    expect(classifyAiring(slot(4), reset)).toBe('watching')
+  })
+})
 
 describe('local schedule membership', () => {
   const bleach = { id: 185874, title: { english: 'BLEACH' } } as Media

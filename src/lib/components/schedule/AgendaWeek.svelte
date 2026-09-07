@@ -7,12 +7,12 @@
   import { title, cover, mediaHref } from '$lib/anilist/media'
   import { agendaScrollTop, agendaTargetDay, isAgendaScrollKey } from './agenda-scroll'
   import type { Media } from '$lib/anilist/types'
-  import type { MineKind } from '$lib/anilist/my-shows'
+  import type { ScheduleBadge } from '$lib/anilist/my-shows'
   import { delayLines, type ScheduleInfo } from '$lib/anime/animeschedule'
   import ScheduleRemove from './ScheduleRemove.svelte'
 
   let { days, start, todayIdx, badgeOf, infoOf, headerOffset = 0 }:
-    { days: Airing[][]; start: number; todayIdx: number; badgeOf?: (m: Media) => MineKind | null
+    { days: Airing[][]; start: number; todayIdx: number; badgeOf?: (airing: Airing) => ScheduleBadge | null
       infoOf?: (m: Media) => ScheduleInfo | null; headerOffset?: number } = $props()
 
   // Only the leading delay line fits a schedule row; the detail page carries the full set.
@@ -71,7 +71,7 @@
         </h3>
         <div class="flex flex-col gap-2">
           {#each d as a (a.media.id + '-' + a.episode + '-' + a.airingAt)}
-            {@const mine = badgeOf?.(a.media)}
+            {@const mine = badgeOf?.(a)}
             {@const delay = delayOf(a.media)}
             {@const source = scheduleSourceLabel(a)}
             <div class="relative" data-schedule-item>
@@ -85,7 +85,7 @@
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2">
                   <p class="line-clamp-2 text-base font-bold leading-tight">{title(a.media)}</p>
-                  {#if mine}<span class="shrink-0 rounded bg-foreground/[0.08] px-1.5 py-0.5 text-[0.6rem] font-black uppercase tracking-wide text-foreground/70">{mine === 'watching' ? 'Watching' : 'Planning'}</span>{/if}
+                  {#if mine}<span class="shrink-0 rounded bg-foreground/[0.08] px-1.5 py-0.5 text-[0.6rem] font-black uppercase tracking-wide text-foreground/70">{mine === 'watched' ? 'Watched' : mine === 'watching' ? 'Watching' : 'Planning'}</span>{/if}
                   {#if source}<span class="shrink-0 rounded bg-foreground/[0.08] px-1.5 py-0.5 text-[0.6rem] font-black text-foreground/70">{source}</span>{/if}
                 </div>
                 <p class="mt-1 text-sm text-muted-foreground">{scheduleItemLabel(a)}{#if !a.delayPlaceholder && a.timeKnown !== false} · {airTime(a.airingAt)}{/if}</p>

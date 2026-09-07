@@ -67,12 +67,12 @@ export function parseKitsuDetailRequest(body: BodyInit | null | undefined): Kits
   } catch { return null }
 }
 
-function directAniListIds(page: KitsuPage): Map<number, number> {
+function directAniListIds(page: KitsuPage, site = 'anilist/anime'): Map<number, number> {
   const included = new Map((page.included ?? []).flatMap((mapping) => {
     const id = mapping.id
     const anilistId = n(mapping.attributes?.externalId)
     return id && mapping.type === 'mappings'
-      && mapping.attributes?.externalSite === 'anilist/anime' && anilistId != null
+      && mapping.attributes?.externalSite === site && anilistId != null
       ? [[id, anilistId] as const] : []
   }))
   const out = new Map<number, number>()
@@ -211,10 +211,12 @@ export async function fetchKitsuScheduleIndex(
 ): Promise<Map<string, Media>> {
   const entries: KitsuAnime[] = []
   const direct = new Map<number, number>()
+  const malIds = new Map<number, number>()
   const append = (page: KitsuPage | null) => {
     if (!page) return
     entries.push(...(page.data ?? []))
     for (const [kitsuId, anilistId] of directAniListIds(page)) direct.set(kitsuId, anilistId)
+    for (const [kitsuId, malId] of directAniListIds(page, 'myanimelist/anime')) malIds.set(kitsuId, malId)
   }
   // Schedule is already in a degraded path. Keep every successful page if a later page is
   // throttled instead of turning useful partial metadata into a total failure.
@@ -266,6 +268,7 @@ export async function fetchKitsuScheduleIndex(
       : direct.get(kitsuId) ?? lookupAnilistByKitsu(idMap, kitsuId)
     if (anilistId == null) continue
     const media = mapKitsuMedia(raw, anilistId)
+    media.idMal = kitsuId == null ? undefined : malIds.get(kitsuId)
     const a = raw.attributes ?? {}
     const keys = [a.slug, a.canonicalTitle, a.titles?.en, a.titles?.en_jp, a.titles?.ja_jp, ...(a.abbreviatedTitles ?? [])]
     for (const key of keys) if (key) {

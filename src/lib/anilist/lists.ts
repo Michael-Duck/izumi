@@ -48,7 +48,7 @@ export const READING_LIST_QUERY = gql`
 export const LIST_IDS_QUERY = gql`
   query ListIds($userName: String!, $statuses: [MediaListStatus]) {
     MediaListCollection(userName: $userName, type: ANIME, status_in: $statuses) {
-      lists { entries { status media { id idMal } } }
+      lists { entries { status progress media { id idMal } } }
     }
     current: MediaListCollection(userName: $userName, type: ANIME, status: CURRENT) {
       lists { entries { media {

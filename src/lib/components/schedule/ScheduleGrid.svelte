@@ -12,16 +12,16 @@
   import { groupByDay, weekRange, type Airing } from '$lib/anilist/schedule'
   import { cachedScheduleWeek, loadScheduleWeek } from '$lib/anilist/schedule-cache'
   import {
-    loadMySets, classifyMine, isMine, hasMySources, emptyMySets, withLocalMyShows, type MySets, type MineKind,
+    loadMySets, classifyAiring, isMine, hasMySources, emptyMySets, withLocalMyShows, type MySets, type ScheduleBadge,
   } from '$lib/anilist/my-shows'
   import {
     delayPlaceholder, getScheduleInfoMany, getWeeklySchedule, mergeScheduleAirings, scheduleTitles,
     type ScheduleInfo,
   } from '$lib/anime/animeschedule'
   import { markAniListDegraded, markCatalogProvider, markJikanCatalogUnavailable } from '$lib/anilist/degraded'
-  import { anilistUserName, malToken } from '$lib/trackers/config'
+  import { anilistUserName, malToken, malUser } from '$lib/trackers/config'
   import { anilistUser } from '$lib/anilist/account'
-  import { localHistory } from '$lib/player/history'
+  import { localHistory, sessionProgress, manualProgressOverrides } from '$lib/player/history'
   import { localLibrary } from '$lib/library/local-lists'
   import { gameMode } from '$lib/player/session'
   import { controllerMode } from '$lib/nav/input'
@@ -107,6 +107,7 @@
   $effect(() => {
     const u = listUser
     void $malToken // re-run when MAL connects/disconnects
+    void $malUser
     let cancelled = false
     mySetsReady = false
     loadMySets(u).then((s) => {
@@ -114,8 +115,8 @@
     })
     return () => { cancelled = true }
   })
-  const sets = $derived<MySets>(withLocalMyShows(netSets, $localHistory, $localLibrary))
-  const badgeOf = (m: Media): MineKind | null => classifyMine(m, sets)
+  const sets = $derived<MySets>(withLocalMyShows(netSets, $localHistory, $localLibrary, $sessionProgress, $manualProgressOverrides))
+  const badgeOf = (airing: Airing): ScheduleBadge | null => classifyAiring(airing, sets)
 
   // View: My Shows vs All. Default to My Shows once we know the viewer has any source; flips to All
   // for a user with nothing tracked. Sticks once the user picks a side. `view`/`viewTouched` are
@@ -165,7 +166,7 @@
   }))
   const combinedAirings = $derived(mergeScheduleAirings(airings, restoredDelays))
   const days = $derived(groupByDay(combinedAirings, start))
-  const mineDays = $derived(days.map((d) => d.filter((a) => isMine(a.media, sets))))
+  const mineDays = $derived(days.map((d) => d.filter((a) => badgeOf(a) !== null)))
   const shownDays = $derived(view === 'mine' ? mineDays : days)
   // mineCount is an OUTPUT, not shared state: making it bindable meant this component would read a
   // one-flush-stale copy of its own derivation back (an $effect writing a bindable runs AFTER the

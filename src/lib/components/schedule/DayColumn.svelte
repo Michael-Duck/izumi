@@ -2,14 +2,14 @@
   import { type Airing, airTime, aired, scheduleItemLabel, scheduleSourceLabel, until } from '$lib/anilist/schedule'
   import { title, cover, mediaHref } from '$lib/anilist/media'
   import type { Media } from '$lib/anilist/types'
-  import type { MineKind } from '$lib/anilist/my-shows'
+  import type { ScheduleBadge } from '$lib/anilist/my-shows'
   import { delayLines, type ScheduleInfo } from '$lib/anime/animeschedule'
   import { scheduleCardNav } from './schedule-nav'
   import ScheduleRemove from './ScheduleRemove.svelte'
 
   let { label, airings, today = false, big = false, badgeOf, infoOf, navFirst }:
     { label: string; airings: Airing[]; today?: boolean; big?: boolean
-      badgeOf?: (m: Media) => MineKind | null; infoOf?: (m: Media) => ScheduleInfo | null
+      badgeOf?: (airing: Airing) => ScheduleBadge | null; infoOf?: (m: Media) => ScheduleInfo | null
       navFirst?: string } = $props()
 
   // Only the leading delay line fits a schedule row; the detail page carries the full set.
@@ -23,7 +23,7 @@
   <div class={big ? 'grid grid-cols-1 gap-2 sm:grid-cols-2' : 'flex flex-col gap-2'}>
     {#if airings.length}
       {#each airings as a, i (a.media.id + '-' + a.episode + '-' + a.airingAt)}
-        {@const mine = badgeOf?.(a.media)}
+        {@const mine = badgeOf?.(a)}
         {@const delay = delayOf(a.media)}
         {@const nav = scheduleCardNav(big ? navFirst : undefined, i, airings.length)}
         {@const source = scheduleSourceLabel(a)}
@@ -44,7 +44,7 @@
               {#if a.context}<p class="mt-1 line-clamp-1 text-[0.7rem] text-muted-foreground">{a.context}</p>{/if}
               {#if delay}<p class="mt-1 text-xs font-bold text-amber-400">{delay}</p>{/if}
               <div class="mt-2 flex items-center gap-2">
-                {#if mine}<span class="rounded-full bg-foreground/[0.08] px-2 py-1 text-[0.65rem] font-black uppercase tracking-wide text-foreground/70">{mine === 'watching' ? 'Watching' : 'Planning'}</span>{/if}
+                {#if mine}<span class="rounded-full bg-foreground/[0.08] px-2 py-1 text-[0.65rem] font-black uppercase tracking-wide text-foreground/70">{mine === 'watched' ? 'Watched' : mine === 'watching' ? 'Watching' : 'Planning'}</span>{/if}
                 {#if source}<span class="rounded-full bg-foreground/[0.08] px-2 py-1 text-[0.65rem] font-black text-foreground/70">{source}</span>{/if}
                 {#if !a.delayPlaceholder}<span class="text-[0.7rem] font-bold {aired(a.airingAt) ? 'text-muted-foreground' : 'text-emerald-400'}">{aired(a.airingAt) ? (a.kind === 'movie' ? 'Released' : 'Aired') : until(a.airingAt)}</span>{/if}
               </div>
