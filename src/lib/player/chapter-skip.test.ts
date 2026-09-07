@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyChapter, mergeSkipSegments, segmentsFromChapters, type Chapter } from './chapter-skip'
+import { classifyChapter, classifyChapterMark, mergeSkipSegments, segmentsFromChapters, type Chapter } from './chapter-skip'
 import { mergeOverlapping, type Segment } from '$lib/stremio/aniskip'
 
 describe('chapter title classification', () => {
@@ -16,8 +16,34 @@ describe('chapter title classification', () => {
   })
 
   it('recognises recaps', () => {
-    for (const t of ['Recap', 'Previously', 'Previously On', 'Summary']) {
+    for (const t of [
+      'Recap', 'Previously', 'Previously On', 'Summary',
+      'Last Time', 'Last Time On', 'Last On', 'Story So Far', 'The Story So Far',
+    ]) {
       expect(classifyChapter(t), t).toBe('recap')
+    }
+  })
+
+  it('reads a paired edge mark as that edge, not as the whole segment', () => {
+    // "Recap Start" satisfies the plain recap pattern too. Resolving it as a span is the misread
+    // that lets the closing mark open a second segment over real content.
+    expect(classifyChapterMark('Recap Start')).toEqual({ type: 'recap', boundary: 'start' })
+    expect(classifyChapterMark('recap end')).toEqual({ type: 'recap', boundary: 'end' })
+    expect(classifyChapterMark('Intro Start')).toEqual({ type: 'op', boundary: 'start' })
+    expect(classifyChapterMark('OP - End')).toEqual({ type: 'op', boundary: 'end' })
+    expect(classifyChapterMark('Credits_Begin')).toEqual({ type: 'ed', boundary: 'start' })
+    expect(classifyChapterMark('Ending Finish')).toEqual({ type: 'ed', boundary: 'end' })
+  })
+
+  it('keeps names that merely look like edge marks as whole segments', () => {
+    for (const t of ['Ending', 'End Credits', 'Opening', 'Closing']) {
+      expect(classifyChapterMark(t)?.boundary ?? null, t).toBeNull()
+    }
+  })
+
+  it('does not invent a type from the edge word alone', () => {
+    for (const t of ['Part A Start', 'Scene End', 'Start', 'End']) {
+      expect(classifyChapterMark(t), t).toBeNull()
     }
   })
 
@@ -98,6 +124,76 @@ describe('segmentsFromChapters', () => {
     expect(segmentsFromChapters(
       [{ time: 24, title: 'OP' }, { time: 1_300, title: 'ED' }], 1_400,
     ).map((s) => s.type)).toEqual(['ed'])
+  })
+})
+
+describe('paired edge marks', () => {
+  it('bounds a recap by its own closing mark', () => {
+    expect(segmentsFromChapters([
+      { time: 0, title: 'Recap Start' },
+      { time: 85, title: 'Recap End' },
+      { time: 85, title: 'Opening' },
+      { time: 175, title: 'Part A' },
+    ], 1_420)).toEqual([
+      { start: 0, end: 85, type: 'recap', label: 'Recap' },
+      { start: 85, end: 175, type: 'op', label: 'Opening' },
+    ])
+  })
+
+  it('never lets a closing mark open a segment over the content after it', () => {
+    // The regression this pair exists for: "Recap End" also reads as a recap, so before the pairing
+    // it started a second band running to the next mark five minutes into the episode.
+    const segs = segmentsFromChapters([
+      { time: 0, title: 'Recap Start' },
+      { time: 85, title: 'Recap End' },
+      { time: 400, title: 'Part B' },
+    ], 1_420)
+    expect(segs).toEqual([{ start: 0, end: 85, type: 'recap', label: 'Recap' }])
+  })
+
+  it('spans an unnamed mark sitting between the pair', () => {
+    expect(segmentsFromChapters([
+      { time: 12, title: 'Recap Start' },
+      { time: 40, title: 'Chapter 02' },
+      { time: 96, title: 'Recap End' },
+    ], 1_420)).toEqual([{ start: 12, end: 96, type: 'recap', label: 'Recap' }])
+  })
+
+  it('falls back to the next chapter when the pair never closes', () => {
+    expect(segmentsFromChapters([
+      { time: 24, title: 'Opening Start' },
+      { time: 114, title: 'Part A' },
+    ], 1_420)).toEqual([{ start: 24, end: 114, type: 'op', label: 'Opening' }])
+  })
+
+  it('does not span a dangling opening mark across the next one', () => {
+    // Two starts and one end: the first was left unclosed, so it takes the next-chapter bound
+    // instead of swallowing everything up to the surviving closer.
+    expect(segmentsFromChapters([
+      { time: 0, title: 'Recap Start' },
+      { time: 90, title: 'Intro Start' },
+      { time: 180, title: 'Intro End' },
+    ], 1_420)).toEqual([
+      { start: 0, end: 90, type: 'recap', label: 'Recap' },
+      { start: 90, end: 180, type: 'op', label: 'Opening' },
+    ])
+  })
+
+  it('trusts a stated recap span past the inferred ceiling, but not a whole-episode one', () => {
+    const marked = segmentsFromChapters(
+      [{ time: 0, title: 'Recap Start' }, { time: 450, title: 'Recap End' }], 1_420,
+    )
+    expect(marked).toEqual([{ start: 0, end: 450, type: 'recap', label: 'Recap' }])
+    expect(segmentsFromChapters(
+      [{ time: 0, title: 'Recap Start' }, { time: 1_380, title: 'Recap End' }], 1_420,
+    )).toEqual([])
+  })
+
+  it('holds a stated theme to the same ceiling as an inferred one', () => {
+    // An "opening" running four minutes is a mis-tag whether or not both edges were written down.
+    expect(segmentsFromChapters(
+      [{ time: 24, title: 'Opening Start' }, { time: 300, title: 'Opening End' }], 1_420,
+    )).toEqual([])
   })
 })
 
