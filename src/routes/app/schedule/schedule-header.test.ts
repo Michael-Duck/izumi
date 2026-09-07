@@ -65,6 +65,22 @@ describe('schedule page header', () => {
     expect(headerRow).toContain("pick('all')")
   })
 
+  it('keeps the header row the same height on every tab', () => {
+    // `stickyActive` gates on `tab !== 'watchlist'`, so any vertical metric that lives only in its
+    // pinned branch disappears when Watchlist is selected. Padding and the rule used to sit there,
+    // which made the page jump up 25px on that one tab. Everything that takes up vertical space is
+    // now shared; only the pinned treatment (position, bleed, background, rule colour) branches.
+    const headerRow = headerRowSlice(page)
+    const openTag = headerRow.slice(0, headerRow.indexOf('>') + 1)
+    const shared = openTag.slice(0, openTag.indexOf('{stickyActive'))
+    expect(shared).toContain('py-3')
+    expect(shared).toContain('border-b')
+    expect(shared).toContain('mb-4')
+    expect(shared).toContain('sm:mb-7')
+    // The unpinned tab keeps the rule's 1px box without drawing a divider under the tabs.
+    expect(openTag).toContain('border-transparent')
+  })
+
   it('keeps Today to the left of week navigation so repeated Next clicks stay on Next', () => {
     const headerRow = headerRowSlice(page)
     const today = headerRow.indexOf('onclick={() => (offset = 0)}')

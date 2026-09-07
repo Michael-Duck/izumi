@@ -107,10 +107,15 @@
        widths rather than squashing — this row already carried week nav before the filter joined
        it. Gets the sticky toolbar treatment only while actually pinned, so the plain tab row isn't
        boxed in when the "Pin schedule header" setting is off. -->
+  <!-- Every metric that occupies vertical space — the row padding, the 1px rule and the margin
+       below it — is shared, never branch-local. `stickyActive` is false on Watchlist, so anything
+       that lives only in the pinned branch shortens the header by exactly that much the moment
+       that tab is selected and drags the whole page up with it. Only the pinned branch's own
+       treatment (position, bleed, background, rule COLOUR) is allowed to differ. -->
   <div bind:clientHeight={headerH}
-       class="flex flex-wrap items-center gap-2 sm:gap-4 {stickyActive
-         ? `sticky ${stickyTop} z-20 -mx-4 mb-4 border-b border-border/60 bg-background/95 px-4 py-3 backdrop-blur sm:-mx-8 sm:mb-7 sm:px-8`
-         : 'mb-4 sm:mb-7'}">
+       class="mb-4 flex flex-wrap items-center gap-2 border-b py-3 sm:mb-7 sm:gap-4 {stickyActive
+         ? `sticky ${stickyTop} z-20 -mx-4 border-border/60 bg-background/95 px-4 backdrop-blur sm:-mx-8 sm:px-8`
+         : 'border-transparent'}">
     <div class="mr-auto inline-flex rounded-lg bg-secondary p-1 text-xs font-black sm:text-sm">
       <button data-focusable onclick={() => (tab = 'schedule')}
         class="rounded-md px-2.5 py-2 transition-colors sm:px-4 {tab === 'schedule' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}">
