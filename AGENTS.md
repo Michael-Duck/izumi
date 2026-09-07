@@ -12,3 +12,8 @@
 
 - Put research, audit, and implementation notes in `docs/`, not the repository root.
 - Keep repository entry points and policies (README, CONTRIBUTING, RELEASING, AGENTS, and third-party notices) in the root.
+
+# Source wording
+
+- Use generic source wording in new repository text, user-facing errors, release notes,
+  and commit messages. Do not name upstream stream sources or include their endpoints.

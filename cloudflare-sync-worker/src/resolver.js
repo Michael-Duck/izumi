@@ -213,7 +213,7 @@ async function fetchJson(fetcher, url, timeoutMs, onFailure = () => {}) {
     })
     if (!response.ok) {
       onFailure(response.status === 403
-        ? 'blocked the Worker request (HTTP 403). Use a source that allows cloud requests or connected-device playback.'
+        ? 'could not be reached from the cloud (HTTP 403).'
         : `returned HTTP ${response.status}.`)
       await response.body?.cancel()
       return null
@@ -434,8 +434,22 @@ export async function resolveMediaDetails(value, profileOrFetcher = defaultResol
 export async function streamRequestPlan(request, fetcher = fetch, profile = defaultResolverProfile()) {
   if (request.streamIds.length) {
     const identity = request.ref.provider === 'stremio' ? decodeStremioRef(request.ref.id) : null
+    let ids = request.streamIds
+    // Catalogue hints are not necessarily IDs accepted by stream sources. Enrich them before
+    // deciding that the cloud or TV has nothing to query, retaining exact episode coordinates.
+    if (profile.catalog?.tmdbToken && ids.every((id) => /^tmdb:\d+(?::\d+:\d+)?$/.test(id))) {
+      const mapped = await mapLimit(ids, 2, async (id) => {
+        const [, title, season, episode] = id.split(':')
+        const kind = request.streamType === 'movie' ? 'movie' : 'tv'
+        const external = await catalogInternals.tmdbRequest(profile.catalog.tmdbToken,
+          `/${kind}/${title}/external_ids`, {}, fetcher).catch(() => null)
+        if (!/^tt\d+$/.test(external?.imdb_id ?? '')) return []
+        return [external.imdb_id + (episode != null ? `:${season}:${episode}` : '')]
+      })
+      ids = [...new Set([...mapped.flat(), ...ids])].slice(0, MAX_STREAM_IDS)
+    }
     return {
-      ids: request.streamIds,
+      ids,
       want: request.episode ? { episode: request.episode, season: request.season } : undefined,
       addonId: identity?.addonId,
     }
@@ -707,7 +721,7 @@ async function mapLimit(values, limit, operation) {
 
 async function resolveAddon(base, ids, type, fetcher, allowPrivate = false, addonIndex = 0, deadline = Infinity) {
   const failures = []
-  const failed = (message) => failures.push(`${new URL(base).hostname}: ${message}`)
+  const failed = (message) => failures.push(`A configured source ${message}`)
   const manifest = await fetchJson(fetcher, addonEndpoint(base, '/manifest.json'), Math.min(MANIFEST_TIMEOUT_MS, deadline - Date.now()), failed)
   const ask = ids.filter((id) => acceptsStreamId(manifest, type, id))
   const responses = await mapLimit(ask, 2, async (id) => {
@@ -788,8 +802,8 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
   const batches = options.tvContinuation
     ? [{ streams: options.tvContinuation.streams.flatMap((raw, upstreamRank) => {
       const stream = sanitizeStream(raw)
-      return stream ? [normalizeStreamBehavior({ ...stream, __addonName: 'Torrentio (TV)',
-        __origin: { kind: 'addon', id: 'tv-torrentio', name: 'Torrentio (TV)' }, __evidence: { upstreamRank } })] : []
+      return stream ? [normalizeStreamBehavior({ ...stream, __addonName: 'TV source',
+        __origin: { kind: 'addon', id: 'tv-source', name: 'TV source' }, __evidence: { upstreamRank } })] : []
     }), failures: [] }]
     : embedded.declared
     ? [{ streams: embedded.streams, failures: [] }]

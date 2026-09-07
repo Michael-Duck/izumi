@@ -58,6 +58,29 @@ function continuation(lookup: { ticket: string; requests: Array<{id: string}> })
 }
 
 describe('TV-assisted Worker source lookup', () => {
+  it.each([
+    { type: 'movie', id: '808', hinted: 'tmdb:808', mapped: 'tt0126029' },
+    { type: 'series', id: '101359', hinted: 'tmdb:101359:2:3', mapped: 'tt10589968:2:3', season: 2, episode: 3 },
+  ])('offers the TV handoff for catalogue-only $type hints sent by the client', async value => {
+    const { sql, call, fetcher, profile } = fixture()
+    try {
+      sql.prepare('UPDATE resolver_profiles SET profile_json = ?').run(JSON.stringify({
+        ...profile, catalog: { tmdbToken: 'catalogue-key' },
+      }))
+      const original = fetcher.getMockImplementation()!
+      fetcher.mockImplementation(async (raw, init) => String(raw).includes('/external_ids')
+        ? Response.json({ imdb_id: value.mapped.split(':')[0] }) : original(raw, init))
+      const request = { ref: { provider: 'tmdb', type: value.type, id: value.id },
+        streamType: value.type, streamIds: [value.hinted], season: value.season, episode: value.episode, tvSourceLookup: 1 }
+      const response = await call(request)
+      expect(response.status).toBe(200)
+      const result = await response.json()
+      expect(result.queriedIds).toEqual([value.mapped, value.hinted])
+      expect(result.tvSourceLookup.requests).toHaveLength(1)
+      expect(decodeURIComponent(result.tvSourceLookup.requests[0].url)).toContain(`/stream/${value.type}/${value.mapped}.json`)
+    } finally { sql.close() }
+  })
+
   it('only constructs public Torrentio requests from known non-secret options', () => {
     const requests = tvSourceRequests(`https://torrentio.strem.fun/sort=qualitysize%7Ctorbox=${key}%7Cunknown=secret?token=private`, ['tt0126029', 'tmdb:808'], 'movie', 0)
     expect(requests).toEqual([{ id: 'torrentio-0-0', url: 'https://torrentio.strem.fun/sort=qualitysize/stream/movie/tt0126029.json' }])

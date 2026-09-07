@@ -58,7 +58,8 @@ describe('self-hosted Cloudflare source resolver', () => {
       debrid: { provider: 'torbox', credential: 'secret-torbox-key' },
     }, { ref: { provider: 'tmdb', type: 'movie', id: '808' } }, fetcher)
     expect(result.candidates).toEqual([])
-    expect(result.failures).toEqual(['source.example: blocked the Worker request (HTTP 403). Use a source that allows cloud requests or connected-device playback.'])
+    expect(result.failures).toEqual(['A configured source could not be reached from the cloud (HTTP 403).'])
+    expect(JSON.stringify(result.failures)).not.toContain('source.example')
     expect(JSON.stringify(result)).not.toContain('secret-')
   })
 
