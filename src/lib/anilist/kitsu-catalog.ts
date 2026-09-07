@@ -161,43 +161,9 @@ export function mapKitsuMedia(raw: KitsuAnime, anilistId?: number): Media {
   } as unknown as Media
 }
 
-/** Kitsu's `episodeCount` is the commissioned total, not the released count. AnimeSchedule's
- * title page carries the missing current/next episode state; enrich detail records so every player
- * surface can keep future episodes gated. This stays best-effort because Kitsu is itself a
- * failover, and the safe fallback for an unknown count is now zero playable episodes. */
-export async function hydrateKitsuAiring(media: Media): Promise<Media> {
-  if (!['RELEASING', 'HIATUS', 'NOT_YET_RELEASED'].includes(media.status ?? '')) return media
-  const anilistId = media.externalIds?.anilist
-  if (anilistId == null) return media
-  try {
-    // Dynamic import avoids the schedule fallback's reverse dependency on this catalogue module.
-    const { getAiringProgress, scheduleTitles } = await import('$lib/anime/animeschedule')
-    const progress = await getAiringProgress(anilistId, scheduleTitles(media.title))
-    if (!progress) return media
-    const total = media.episodes && media.episodes > 0 ? media.episodes : Number.POSITIVE_INFINITY
-    media.airedEpisodes = Math.min(total, progress.airedEpisodes)
-    const next = progress.nextEpisode
-    const at = progress.nextAiringAt
-    if (next != null && at != null && next <= total) {
-      media.nextAiringEpisode = {
-        __typename: 'AiringSchedule',
-        episode: next,
-        airingAt: at,
-        timeUntilAiring: Math.max(0, at - Math.floor(Date.now() / 1000)),
-      } as unknown as NonNullable<Media['nextAiringEpisode']>
-    }
-    // AniList's GraphQL detail projection cannot ask for the provider-only `airedEpisodes` field.
-    // Leave one honest "already aired" schedule marker so graphcache carries the count through the
-    // Kitsu failover response even when AnimeSchedule has no next-air countdown.
-    if (media.airedEpisodes > 0 && !media.nextAiringEpisode) {
-      media.airingSchedule = {
-        __typename: 'AiringScheduleConnection',
-        nodes: [{ __typename: 'AiringSchedule', episode: media.airedEpisodes, airingAt: Math.floor(Date.now() / 1000) - 1 }],
-      } as unknown as NonNullable<Media['airingSchedule']>
-    }
-  } catch { /* optional enrichment; conservative episode gating remains in force */ }
-  return media
-}
+// Shared with MAL-backed Continue Watching, which needs the same confirmed release counts.
+export { hydrateAnimeAiring as hydrateKitsuAiring } from '$lib/anime/airing'
+import { hydrateAnimeAiring as hydrateKitsuAiring } from '$lib/anime/airing'
 
 function animeUrl(request: JikanCatalogRequest): string {
   const v = request.variables

@@ -8,6 +8,7 @@ vi.mock('$lib/anime/animeschedule', () => ({
 
 import { hydrateKitsuAiring, mapKitsuMedia } from './kitsu-catalog'
 import { mapKitsuRelations } from '$lib/catalog/providers/kitsu'
+import { airedCount } from './media'
 
 describe('native Kitsu media mapping', () => {
   const raw = {
@@ -45,6 +46,16 @@ describe('native Kitsu media mapping', () => {
       nextAiringEpisode: { episode: 9, airingAt: 2_000_000_000 },
     })
     expect(schedule.getAiringProgress).toHaveBeenCalledWith(7, ['Example', 'Example'])
+  })
+
+  it('replaces an expired countdown when refreshing a saved fallback card', async () => {
+    const saved = mapKitsuMedia(raw, 7)
+    saved.nextAiringEpisode = { episode: 4, timeUntilAiring: 0 }
+    schedule.getAiringProgress.mockResolvedValue({ airedEpisodes: 5, nextEpisode: null, nextAiringAt: null })
+    const refreshed = await hydrateKitsuAiring(saved)
+    expect(refreshed.nextAiringEpisode).toBeNull()
+    expect(airedCount(refreshed)).toBe(5)
+    expect(saved.nextAiringEpisode.episode).toBe(4)
   })
 
   it('maps Kitsu media relationships to provider-native related cards', () => {
