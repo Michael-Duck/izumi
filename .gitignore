@@ -49,3 +49,16 @@ flatpak/izumi-key.gpg
 
 # Local build output (packaged bundles, not committed)
 /output/
+/.codex-tmp
+/.superpowers/
+/tmp/
+/tv-installer/
+
+# Local native probe/stub artifacts from Windows link checks and gamescope timing probes
+/.probe-gm-*.exe
+/.probe-gm-*.pdb
+/mpv-stub.*
+
+# Session scratch under scripts/ci/; shared CI helpers keep unprefixed names and stay tracked
+scripts/ci/_*
+scripts/ci/__pycache__/
