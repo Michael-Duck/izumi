@@ -5,7 +5,8 @@ import { LIST_QUERY, MEDIA_BY_IDS_QUERY, flattenEntries } from '$lib/anilist/lis
 import { getMalAnimeListMediaOrThrow, setStatus } from '$lib/trackers'
 import { cwDismissAction } from '$lib/settings/ui'
 import type { CatalogSelection, ContinueWatchingCatalogScope } from '$lib/settings/catalog'
-import { hasAiredEpisodeToWatch } from '$lib/anilist/media'
+import { airedCount, hasAiredEpisodeToWatch } from '$lib/anilist/media'
+import { hydrateAnimeAiring } from '$lib/anime/airing'
 import { localHistory, durableHistory, sessionProgress, historyEntries, mediaSnapshot, type HistoryEntry } from './history'
 import { incognito, onIncognitoPurge } from '$lib/stores/incognito'
 import type { Media } from '$lib/anilist/types'
@@ -262,28 +263,51 @@ async function refreshContinueMedia(
   // those canonical AniList ids alongside local-history cards; otherwise RELEASING rows have an
   // unknown aired count and Continue Watching can invent progress + 1 before it airs. Keep only the
   // CAP most-recent candidates because buildSnapshot applies that same final bound.
-  const candidates = new Map<number, number>()
-  for (const item of malItems) candidates.set(item.media.id, item.updatedAt)
+  const candidates = new Map<number, Item>()
+  for (const item of malItems) candidates.set(item.media.id, item)
   for (const item of historyEntries(get(durableHistory))) {
-    if (item.media.catalog && item.media.catalog.provider !== 'anilist') continue
-    if (item.media.id < 0) continue
-    candidates.set(item.media.id, Math.max(candidates.get(item.media.id) ?? 0, item.updatedAt))
+    if (item.media.catalog && !['anilist', 'kitsu'].includes(item.media.catalog.provider)) continue
+    const previous = candidates.get(item.media.id)
+    if (!previous || item.updatedAt > previous.updatedAt) candidates.set(item.media.id, item)
   }
-  const ids = [...candidates]
-    .sort((left, right) => right[1] - left[1])
+  const wanted = [...candidates.values()]
+    .sort((left, right) => right.updatedAt - left.updatedAt)
     .slice(0, CAP)
-    .map(([id]) => id)
-  if (!ids.length) return { media: {}, failed: false }
+  // Preserve native Kitsu identity; its metadata refresh uses the same fallback as its detail page.
+  const ids = wanted.filter((item) => !item.media.catalog || item.media.catalog.provider === 'anilist')
+    .map((item) => item.media.id).filter((id) => id >= 0)
+  const media: Record<number, Media> = {}
+  let failed = false
   try {
-    const media: Record<number, Media> = {}
     for (let i = 0; i < ids.length; i += 50) {
       const res = await client.query(MEDIA_BY_IDS_QUERY, { ids: ids.slice(i, i + 50) }, MEDIA_DEFAULT).toPromise()
-      if (res.error) return { media: {}, failed: true }
+      if (res.error) { failed = true; break }
       for (const m of (res.data as { Page?: { media?: Media[] } })?.Page?.media ?? []) media[m.id] = m
     }
-    return { media, failed: false }
   }
-  catch { return { media: {}, failed: true } }
+  catch { failed = true }
+
+  // MediaByIds has no Kitsu failover in the GraphQL transport. MAL cards still supply titles and
+  // ids, so resolve only missing release counts through the existing AnimeSchedule cache. Bound
+  // concurrent lookups; never mistake a planned total for released episodes when both are offline.
+  const prior = new Map(get(cwSnapshot).map((item) => [item.media.id, item.media]))
+  const unknown = wanted.filter((item) => {
+    const refreshed = media[item.media.id]
+    return !Number.isFinite(airedCount(refreshed ?? item.media))
+      || (!refreshed && ['RELEASING', 'HIATUS'].includes(item.media.status ?? ''))
+  })
+  let next = 0
+  await Promise.all(Array.from({ length: Math.min(4, unknown.length) }, async () => {
+    while (next < unknown.length) {
+      const item = unknown[next++]
+      const fresh = await hydrateAnimeAiring(media[item.media.id] ?? item.media)
+      const cached = prior.get(item.media.id)
+      media[item.media.id] = !Number.isFinite(airedCount(fresh)) && cached && Number.isFinite(airedCount(cached))
+        ? { ...fresh, airedEpisodes: airedCount(cached) }
+        : fresh
+    }
+  }))
+  return { media, failed }
 }
 
 // Throttle + de-dupe the background reconcile. ContinueRow runs it on every mount, so bouncing

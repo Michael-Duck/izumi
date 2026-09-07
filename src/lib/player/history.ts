@@ -81,6 +81,7 @@ export function mediaSnapshot(m: Media): Media {
     coverImage: m.coverImage,
     bannerImage: m.bannerImage,
     episodes: m.episodes,
+    airedEpisodes: m.airedEpisodes,
     format: m.format,
     status: m.status,
     seasonYear: m.seasonYear,

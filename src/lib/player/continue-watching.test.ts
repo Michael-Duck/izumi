@@ -2,8 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { get } from 'svelte/store'
 
 // Isolate the module from the real trackers stack (client/mal-auth/queue) — it only needs this one fn.
-const mocks = vi.hoisted(() => ({ malList: vi.fn() }))
+const mocks = vi.hoisted(() => ({ malList: vi.fn(), airing: vi.fn() }))
 vi.mock('$lib/trackers', () => ({ getMalAnimeListMediaOrThrow: mocks.malList }))
+vi.mock('$lib/anime/animeschedule', () => ({
+  getAiringProgress: mocks.airing,
+  scheduleTitles: (title: Media['title']) => [title.romaji, title.english],
+}))
 
 import {
   mergeInstant, buildSnapshot, reconcileContinueWatching, filterContinueWatching,
@@ -29,6 +33,7 @@ beforeEach(() => {
   cwSnapshot.set([])
   localHistory.set({})
   sessionProgress.set({})
+  mocks.airing.mockReset()
   reconciling.set(false)
   reconciledOnce.set(false)
   mocks.malList.mockReset()
@@ -231,6 +236,54 @@ describe('buildSnapshot (reconcile merge)', () => {
 })
 
 describe('reconcileContinueWatching', () => {
+  it('refreshes Kitsu-backed automatic history after another episode airs', async () => {
+    const kitsu = media(101, {
+      status: 'RELEASING', airedEpisodes: 3,
+      catalog: { provider: 'kitsu', type: 'anime', id: '42' }, externalIds: { anilist: 101 },
+    })
+    localHistory.set({ 101: hist(101, { media: kitsu, episode: 3, progress: 3, catalogSelection: 'auto' }) })
+    mocks.malList.mockResolvedValue([])
+    mocks.airing.mockResolvedValue({ airedEpisodes: 4, nextEpisode: null, nextAiringAt: null })
+    const query = vi.fn()
+    await reconcileContinueWatching({ query } as never, undefined, true, true)
+    const visible = filterContinueWatching(mergeInstant(get(cwSnapshot), get(localHistory), {}), 'auto', 'provider')
+    expect(visible).toHaveLength(1)
+    expect(visible[0].media.catalog).toEqual(kitsu.catalog)
+    expect(visible[0].media.airedEpisodes).toBe(4)
+    expect(query).not.toHaveBeenCalled()
+  })
+
+  it.each([0, 3])('shows unwatched MAL episodes during an AniList outage (progress %i)', async (progress) => {
+    const mal = media(101, { status: 'RELEASING', episodes: 24 })
+    mocks.malList.mockResolvedValue([{ media: mal, progress, updatedAt: 1234 }])
+    mocks.airing.mockResolvedValue({ airedEpisodes: 5, nextEpisode: null, nextAiringAt: null })
+    const offline = { query: () => ({ toPromise: async () => ({ error: new Error('AniList unavailable') }) }) }
+
+    await reconcileContinueWatching(offline as never, undefined, true, true)
+
+    const visible = filterContinueWatching(mergeInstant(get(cwSnapshot), {}, {}), 'auto', 'provider')
+    expect(visible).toHaveLength(1)
+    expect(visible[0].progress).toBe(progress)
+    expect(visible[0].media.airedEpisodes).toBe(5)
+    expect(mocks.airing).toHaveBeenCalledWith(101, ['Show 101', undefined])
+  })
+
+  it('keeps caught-up MAL entries hidden when fallback data confirms only watched episodes', async () => {
+    mocks.malList.mockResolvedValue([{ media: media(101, { status: 'RELEASING', episodes: 24 }), progress: 5, updatedAt: 1234 }])
+    mocks.airing.mockResolvedValue({ airedEpisodes: 5, nextEpisode: null, nextAiringAt: null })
+    await reconcileContinueWatching(okClient([]) as never, undefined, true, true)
+    expect(get(cwSnapshot)[0].media.airedEpisodes).toBe(5)
+    expect(mergeInstant(get(cwSnapshot), {}, {})).toEqual([])
+  })
+
+  it('preserves confirmed cached airing data when both metadata services fail', async () => {
+    cwSnapshot.set([{ ...entry(101, 2, 100), media: media(101, { status: 'RELEASING', airedEpisodes: 5 }) }])
+    mocks.malList.mockResolvedValue([{ media: media(101, { status: 'RELEASING' }), progress: 3, updatedAt: 1234 }])
+    mocks.airing.mockResolvedValue(null)
+    await reconcileContinueWatching(okClient([]) as never, undefined, true, true)
+    expect(mergeInstant(get(cwSnapshot), {}, {}).map((item) => item.progress)).toEqual([3])
+  })
+
   it('local-only user (no tracker): no network, snapshot untouched, marks reconciledOnce', async () => {
     cwSnapshot.set([entry(1, 3, 100)])
     await reconcileContinueWatching(okClient([]) as never, undefined, false)

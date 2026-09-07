@@ -3,6 +3,11 @@ import type { Media } from '$lib/anilist/types'
 import { historyCatalogSelection, mediaSnapshot } from './history'
 
 describe('provider media history snapshot', () => {
+  it('retains a fallback released-episode count across persistence', () => {
+    const snapshot = mediaSnapshot({ id: 7, title: { romaji: 'Example' }, status: 'RELEASING', episodes: 12, airedEpisodes: 4 })
+    expect(JSON.parse(JSON.stringify(snapshot)).airedEpisodes).toBe(4)
+  })
+
   it('retains the native identity and compact episode coordinates needed after restart', () => {
     const media = {
       id: -10,
