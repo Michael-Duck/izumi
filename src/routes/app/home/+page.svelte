@@ -17,7 +17,7 @@
   import * as h from '$lib/haptics'
   import { effectiveNav, NAV_META } from '$lib/settings/nav'
   import type { Media } from '$lib/anilist/types'
-  import { anilistDegraded } from '$lib/anilist/degraded'
+  import { anilistDegraded, anilistDegradedBannerVisible } from '$lib/anilist/degraded'
   import { catalogHomeLayouts, resolveCatalogHomeRows } from '$lib/catalog/home-layout'
   import { ANILIST_HOME_ROWS } from '$lib/catalog/home-options'
   import { markClientPerformance } from '$lib/performance/client'
@@ -111,7 +111,7 @@
       .sort((a, b) => ((a.id * 2654435761) >>> 0) - ((b.id * 2654435761) >>> 0))
       .slice(0, 7)
   })
-  const homeNeedsAlertInset = $derived(legacyCatalog && !!$anilistDegraded && heroMedias.length === 0)
+  const homeNeedsAlertInset = $derived(legacyCatalog && $anilistDegradedBannerVisible && heroMedias.length === 0)
   let homePaintMarked = false
   $effect(() => {
     const contentReady = $offlineMode || !hero.fetching || catalogUnavailable
@@ -133,7 +133,7 @@
        double-counted the status-bar inset and left a big black gap above the logo. -->
   <!-- The degraded strip is fixed at the same safe-area edge as this in-flow toolbar. Reserve its
        height while visible so the logo and top actions remain fully tappable on Android. -->
-  <div class="px-4 pb-3 pt-3 {usesAniListHome && $anilistDegraded ? 'mt-7' : ''}">
+  <div class="px-4 pb-3 pt-3 {usesAniListHome && $anilistDegradedBannerVisible ? 'mt-7' : ''}">
     <div class="flex items-center justify-between">
       {#if !$offlineMode && switcherPlacement === 'integrated' && canCycleCatalog}
         <CatalogSwitcher display="brand" showWordmark />

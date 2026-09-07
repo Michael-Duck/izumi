@@ -103,9 +103,9 @@ describe('schedule page header', () => {
   })
 
   it('keeps both the normal and sticky schedule header below the degraded alert', () => {
-    expect(page).toContain("$anilistDegraded ? 'pt-[3rem] sm:pt-[4.25rem]' : ''")
-    expect(page).toContain("$anilistDegraded ? 'top-[3.75rem]' : 'top-8'")
-    expect(page).toContain('($anilistDegraded ? 28 : 0)')
+    expect(page).toContain("$anilistDegradedBannerVisible ? 'pt-[3rem] sm:pt-[4.25rem]' : ''")
+    expect(page).toContain("$anilistDegradedBannerVisible ? 'top-[3.75rem]' : 'top-8'")
+    expect(page).toContain('($anilistDegradedBannerVisible ? 28 : 0)')
   })
 
   it('hands weekday Down navigation to the first airing instead of a geometric lower row', () => {
