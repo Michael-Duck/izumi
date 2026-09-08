@@ -41,6 +41,7 @@
       { title: 'Profiles', href: '/app/settings/profiles', icon: UsersRound, subtitle: 'Household profiles and parental PINs' },
       { title: 'Interface', href: '/app/settings/interface', icon: LayoutGrid, subtitle: 'Appearance and layout' },
       { title: 'Theme Studio', href: '/app/settings/theme-studio', icon: Palette, subtitle: 'Colours, type, shape and saved themes' },
+      { title: 'Themes', href: '/app/settings/themes', icon: Palette, subtitle: 'Browse, install and manage community themes' },
       { title: 'Navigation', href: '/app/settings/navigation', icon: PanelBottom, subtitle: 'Bottom bar and shortcuts' },
       { title: 'History', href: '/app/settings/history', icon: History, subtitle: 'Watch history and progress' },
       { title: 'Scene bookmarks', href: '/app/settings/scenes', icon: Bookmark, subtitle: 'Saved moments, quotes and notes' },

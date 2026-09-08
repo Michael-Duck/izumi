@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ThemeLayoutEditor from '$lib/components/themes/ThemeLayoutEditor.svelte'
   import { onDestroy, tick } from 'svelte'
   import X from '@lucide/svelte/icons/x'
   import Minus from '@lucide/svelte/icons/minus'
@@ -39,7 +40,7 @@
   const clone = (theme: StudioTheme): StudioTheme => JSON.parse(JSON.stringify(theme)) as StudioTheme
   let draft = $state<StudioTheme>(clone(get(themeStudioPreview) ?? get(activeStudioTheme)))
   let notice = $state('')
-  let category = $state<'palette' | 'type' | 'backdrop' | 'saved'>('palette')
+  let category = $state<'palette' | 'type' | 'backdrop' | 'layout' | 'saved'>('palette')
   let baseline = $state(JSON.stringify(get(themeStudioPreview) ?? get(activeStudioTheme)))
   let confirmDelete = $state(false)
   let confirmClose = $state(false)
@@ -113,6 +114,7 @@
   }
 
   function saveAndApply(close = false) {
+    try {
     const saved = saveStudioTheme(clone(draft))
     draft = clone(saved)
     baseline = JSON.stringify(saved)
@@ -120,19 +122,23 @@
     notice = 'Theme saved.'
     confirmClose = false
     if (close) closeThemeStudio()
+    } catch (error) { notice = ioErrorMessage(error, 'Could not save the theme.') }
   }
 
   function makeCopy() {
     if ($studioThemes.length >= 24) return
+    try {
     const copy = duplicateStudioTheme(clone(draft), Date.now(), false)
     draft = clone(copy)
     baseline = JSON.stringify(copy)
     notice = 'Created a separate editable copy.'
+    } catch (error) { notice = ioErrorMessage(error, 'Could not copy the theme.') }
   }
 
   function removeCurrent() {
     if (!confirmDelete) { confirmDelete = true; return }
     confirmDelete = false
+    try {
     const remaining = $studioThemes.filter((theme) => theme.id !== draft.id)
     if (!deleteStudioTheme(draft.id)) {
       notice = 'Keep at least one saved theme.'
@@ -141,6 +147,7 @@
     draft = clone(remaining[0] ?? defaultStudioTheme())
     baseline = JSON.stringify(draft)
     notice = 'Theme deleted.'
+    } catch (error) { notice = ioErrorMessage(error, 'Could not remove the theme.') }
   }
 
   function discardChanges() {
@@ -244,7 +251,7 @@
   </header>
 
   <nav aria-label="Theme controls" class="studio-tabs">
-    {#each [{ id: 'palette', label: 'Colours' }, { id: 'type', label: 'Type & shape' }, { id: 'backdrop', label: 'Backdrop' }, { id: 'saved', label: 'Saved' }] as item}
+    {#each [{ id: 'palette', label: 'Colours' }, { id: 'type', label: 'Type & shape' }, { id: 'backdrop', label: 'Backdrop' }, { id: 'layout', label: 'Layout' }, { id: 'saved', label: 'Saved' }] as item}
       <button type="button" data-focusable aria-pressed={category === item.id} onclick={() => { category = item.id as typeof category; confirmDelete = false; notice = '' }}>{item.label}</button>
     {/each}
   </nav>
@@ -291,6 +298,8 @@
         </div>
         <p class="help-text">A ratio of 4.5:1 meets AA for normal text.</p>
       </details>
+    {:else if category === 'layout'}
+      <ThemeLayoutEditor bind:presentation={draft.presentation} />
     {:else if category === 'type'}
       <section class="control-section">
         <h3>Typeface</h3>
@@ -405,8 +414,8 @@
   .studio-intro { display: flex; align-items: center; gap: 7px; margin-top: 12px; font-size: 12px; font-weight: 700; }
   .live-dot { width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: #8bc8ac; }
   .studio-hint { margin-top: 5px; font-size: 12px; line-height: 1.5; color: var(--editor-muted); max-width: 265px; }
-  .studio-tabs { display: grid; grid-template-columns: 1fr 1.35fr 1.15fr .85fr; padding: 0 12px; border-bottom: 1px solid var(--editor-line); }
-  .studio-tabs button { min-height: 42px; padding: 0 5px; border-bottom: 2px solid transparent; font-size: 12px; font-weight: 700; white-space: nowrap; color: var(--editor-muted); }
+  .studio-tabs { display: flex; overflow-x: auto; padding: 0 12px; border-bottom: 1px solid var(--editor-line); }
+  .studio-tabs button { flex: 1; min-height: 42px; padding: 0 7px; border-bottom: 2px solid transparent; font-size: 11px; font-weight: 700; white-space: nowrap; color: var(--editor-muted); }
   .studio-tabs button[aria-pressed='true'] { border-bottom-color: var(--editor-fg); color: var(--editor-fg); }
   .studio-content { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--editor-line) transparent; }
   .studio-content::-webkit-scrollbar { display: block; width: 4px; }
