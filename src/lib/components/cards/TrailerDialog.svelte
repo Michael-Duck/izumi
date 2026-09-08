@@ -2,12 +2,18 @@
   import { trailerPopup, closeTrailerPopup } from '$lib/stores/trailer'
   import { youtubeEmbedSource, type YoutubeEmbedSource } from './youtube-embed'
 
-  let dialog = $state<HTMLDivElement>()
+  let dialog = $state<HTMLDialogElement>()
   let embed = $state<YoutubeEmbedSource>()
   let embedFailed = $state(false)
   $effect(() => {
-    if (!$trailerPopup) return
-    requestAnimationFrame(() => dialog?.focus({ preventScroll: true }))
+    if (!$trailerPopup || !dialog) return
+    const element = dialog
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    element.showModal()
+    return () => {
+      element.close()
+      if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true })
+    }
   })
   $effect(() => {
     const popup = $trailerPopup
@@ -22,14 +28,12 @@
   })
 </script>
 
-<svelte:window onkeydown={(e) => { if ($trailerPopup && e.key === 'Escape') closeTrailerPopup() }} />
-
 {#if $trailerPopup}
-  <div bind:this={dialog} data-nav-trap role="dialog" aria-modal="true"
+  <dialog bind:this={dialog} data-nav-trap aria-modal="true"
        aria-label={`${$trailerPopup.title} trailer`} tabindex="-1"
-       class="fixed inset-0 z-[80] grid place-items-center bg-black/80 sm:p-4"
+       class="fixed inset-0 z-[80] m-0 grid h-full max-h-none w-full max-w-none place-items-center bg-black/80 p-0 sm:p-4"
        onclick={(e) => { if (e.target === e.currentTarget) closeTrailerPopup() }}
-       onkeydown={(e) => { if (e.key === 'Escape') closeTrailerPopup() }}
+       oncancel={(e) => { e.preventDefault(); closeTrailerPopup() }}
        onwheel={(e) => e.preventDefault()}>
     <div class="aspect-video w-full max-w-4xl sm:px-0">
       {#key $trailerPopup.id}
@@ -46,8 +50,8 @@
       {/key}
     </div>
     <button data-focusable onclick={closeTrailerPopup}
-            class="absolute right-4 top-[max(1rem,env(safe-area-inset-top))] rounded-md bg-secondary px-3 py-2 text-sm font-bold">
+            class="absolute right-4 top-[max(1rem,env(safe-area-inset-top))] min-h-11 rounded-md bg-secondary px-3 py-2 text-sm font-bold">
       Close
     </button>
-  </div>
+  </dialog>
 {/if}
