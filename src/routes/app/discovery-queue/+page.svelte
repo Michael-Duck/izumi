@@ -12,7 +12,7 @@
   import { catalogProviders, catalogLabel, mergedCatalogProviders } from '$lib/settings/catalog'
   import { activeProfile } from '$lib/profiles/store'
   import { profileAllowsMedia } from '$lib/profiles/content'
-  import { showAdult } from '$lib/settings/ui'
+  import { developerLogging, showAdult } from '$lib/settings/ui'
   import { openTrailerPopup, closeTrailerPopup } from '$lib/stores/trailer'
   import Play from '@lucide/svelte/icons/play'
   import ChevronLeft from '@lucide/svelte/icons/chevron-left'
@@ -325,7 +325,7 @@
         <div class="recommendation-reason">
           <Sparkles size={18} aria-hidden="true" />
           <div><h3>Why this pick</h3><p>{current.reason}</p>
-            {#if current.evidence.length}<details><summary>What connects it to you</summary><ul>{#each current.evidence as fact}<li>{fact}</li>{/each}</ul></details>{/if}
+            {#if $developerLogging && current.evidence.length}<details><summary>What connects it to you</summary><ul>{#each current.evidence as fact}<li>{fact}</li>{/each}</ul></details>{/if}
           </div>
         </div>
         <div class="feedback-actions">
