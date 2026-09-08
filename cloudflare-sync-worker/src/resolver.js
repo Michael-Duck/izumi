@@ -928,6 +928,10 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
     rejected,
     failures: [...new Set(failures)].slice(0, 3),
     skipSegments: await skipSegmentsPromise,
+    ...(profile.subtitleLang || profile.audioLang ? { trackPreferences: {
+      ...(profile.audioLang ? { audio: { language: profile.audioLang } } : {}),
+      ...(profile.subtitleLang && profile.subtitleLang !== 'none' ? { subtitle: { language: profile.subtitleLang } } : {}),
+    } } : {}),
     ...(profile.subtitleStyle ? { subtitleStyle: profile.subtitleStyle } : {}),
     ...(tvSourceLookup ? { tvSourceLookup } : {}),
   }

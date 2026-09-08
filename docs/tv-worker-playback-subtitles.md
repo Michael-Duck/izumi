@@ -4,7 +4,7 @@ The cloud resolver keeps up to three successful converted releases instead of st
 
 Subtitle-only add-ons are queried according to manifest type/identifier capabilities. Subtitle data already discovered before a signed TV continuation is carried in its bounded plan, avoiding a second stream scrape. Embedded stream metadata can still query subtitle capabilities without invoking stream resources.
 
-The desktop profile now supplies enabled portable subtitle-service configuration, the preferred language, appearance, and an unexpired session when available. Passwords are excluded. Public profile responses expose only configured status. Search uses the exact film/episode identifier; downloading happens only after track selection.
+The desktop profile now supplies enabled portable subtitle-service configuration, the preferred language, appearance, and an unexpired session when available. Passwords are excluded. Public profile responses expose only configured status. Search uses the exact film/episode identifier; downloading happens only after track selection. Playback responses carry preferred track languages so the TV can select matching embedded subtitles; a saved off preference remains off.
 
 The Worker signs six-hour subtitle references with an owner credential digest and scopes each reference to its TV pairing. Download references contain a service index and file identifier, not service credentials. The delivery route verifies signatures and expiry, resolves the selected file, validates public addresses at each redirect, bounds redirects/bytes/time, and returns plain text with CORS. Error pages are rejected as subtitle files. Removing the owner or pairing invalidates delivery.
 

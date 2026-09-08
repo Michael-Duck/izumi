@@ -28,14 +28,15 @@ it('filters preview and unsupported video before ranking while keeping valid alt
     ] }))
   expect(result.candidates.map(item => item.url)).toEqual(['https://media.example/full.mkv'])
 })
-it('queries subtitle-only add-ons and preserves descriptive track names', async () => {
+it('queries subtitle-only add-ons and preserves descriptive track names and language preferences', async () => {
   const fetcher = vi.fn(async (url: string) => {
     if (url === 'https://captions.example/manifest.json') return json({ resources: [{ name: 'subtitles', types: ['movie'], idPrefixes: ['tt'] }] })
     if (url.includes('/manifest.json')) return json({ resources: ['stream'] })
     if (url.includes('/subtitles/movie/tt0123456.json')) return json({ subtitles: [{ url: 'https://subs.example/en.srt', lang: 'eng', title: 'English SDH' }] })
     return json({ streams: [{ url: 'https://media.example/full.mp4' }] })
   })
-  const result = await resolveDirectSources({ enabled: true, addons: ['https://source.example', 'https://captions.example'] }, movie, fetcher)
+  const result = await resolveDirectSources({ enabled: true, subtitleLang: 'eng', addons: ['https://source.example', 'https://captions.example'] }, movie, fetcher)
+  expect(result.trackPreferences.subtitle).toEqual({ language: 'eng' })
   expect(result.candidates[0].subtitles).toContainEqual({ url: 'https://subs.example/en.srt', title: 'English SDH', lang: 'eng' })
   expect(fetcher.mock.calls.some(([url]) => url.startsWith('https://captions.example/stream/'))).toBe(false)
 })
