@@ -1,5 +1,7 @@
 /** Data-only presentation API. No HTML, executable expressions, selectors, or remote assets. */
 export type DisplayField = 'title' | 'description' | 'rank' | 'rankPosition' | 'score' | 'format' | 'year'
+/** Host numbers. `when.atMost` compares these; text nodes render them through `displayText`. */
+export type NumericDisplayField = 'rankPosition' | 'score'
 export type ThemeAction = 'play' | 'details' | 'favorite' | 'previous' | 'next'
 export interface ThemeNode {
   type: 'stack' | 'row' | 'grid' | 'overlay' | 'text' | 'artwork' | 'action'
@@ -25,10 +27,12 @@ export interface ThemePresentation {
   hero?: { hidden?: boolean; height?: number; mobileHeight?: number; rotate?: boolean; interval?: number; rankHidden?: boolean; rank?: ThemeNode; template?: ThemeNode }
   rows?: { defaults?: RowPresentation; byId?: Record<string, RowPresentation> }
 }
-export type DisplayModel = Partial<Record<DisplayField | 'poster' | 'backdrop' | 'logo', string | number>>
+/** Every host binds the same shapes: `rankPosition` and `score` (0-100) are numbers, the rest strings. */
+export type DisplayModel = Partial<Record<Exclude<DisplayField, NumericDisplayField> | 'poster' | 'backdrop' | 'logo', string> & Record<NumericDisplayField, number>>
 export const ROW_CONTEXT = Symbol('theme-row')
 export interface RowScope { id: string; title: string }
 const fields = ['title', 'description', 'rank', 'rankPosition', 'score', 'format', 'year']
+const numericFields: string[] = ['rankPosition', 'score'] satisfies NumericDisplayField[]
 const actions = ['play', 'details', 'favorite', 'previous', 'next']
 const numericStyles: Record<string, [number, number, string]> = {
   gap: [0, 96, 'px'], padding: [0, 96, 'px'], fontSize: [10, 96, 'px'], fontWeight: [400, 900, ''],
@@ -74,7 +78,10 @@ export function parseNode(value: unknown, budget = { count: 0 }, depth = 0, inte
   if (raw.when !== undefined) {
     const condition = record(raw.when); only(condition, ['field', 'atMost'])
     node.when = { field: choice(condition.field, fields) as DisplayField }
-    if (condition.atMost !== undefined) node.when.atMost = number(condition.atMost, 0, 10000)
+    if (condition.atMost !== undefined) {
+      if (!numericFields.includes(node.when.field)) throw new Error('atMost only applies to the numeric fields rankPosition and score.')
+      node.when.atMost = number(condition.atMost, 0, 10000)
+    }
   }
   if (raw.style !== undefined) {
     const style = record(raw.style); node.style = {}
@@ -137,6 +144,12 @@ export function visibleNode(node: ThemeNode, model: DisplayModel): boolean {
   if (!node.when) return true
   const value = model[node.when.field]
   return value !== undefined && value !== '' && (node.when.atMost === undefined || (typeof value === 'number' && value > 0 && value <= node.when.atMost))
+}
+/** Text for a bound field. The host owns number formatting so `score` reads the same in every template. */
+export function displayText(field: DisplayField, model: DisplayModel): string {
+  const value = model[field]
+  if (value === undefined || value === '') return ''
+  return field === 'score' ? `${value}%` : String(value)
 }
 export function nodeStyle(node: ThemeNode): string {
   const styles: Record<string, string> = { 'min-width': '0', 'box-sizing': 'border-box' }

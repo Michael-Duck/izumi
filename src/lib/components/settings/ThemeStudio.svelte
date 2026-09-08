@@ -398,7 +398,7 @@
 <style>
   /* The editor stays legible even while the user experiments with low-contrast client colours. */
   .studio-panel, .studio-resume {
-    --editor-bg: #19191d; --editor-fg: #f1f1f4; --editor-muted: #a5a5af; --editor-line: #34343d; --editor-control: #26262d;
+    --editor-bg: #19191d; --editor-fg: #f1f1f4; --editor-muted: #a5a5af; --editor-line: #34343d; --editor-control: #26262d; --editor-accent: #d6d6df; --editor-focus: #c8c8e0;
     color: var(--editor-fg); background: var(--editor-bg); color-scheme: dark;
     font-family: 'Nunito Variable', sans-serif; font-size: 14px; line-height: 1.4;
     border: 1px solid var(--editor-line); box-shadow: 0 16px 48px #07070c55, 0 2px 6px #07070c33;
@@ -459,7 +459,7 @@
   [data-font='mono'] { font-family: 'Geist Mono', monospace; }
   .slider-label { display: flex; align-items: center; justify-content: space-between; font-size: 13px; font-weight: 600; }
   output { color: var(--editor-muted); font-family: 'Geist Mono', monospace; font-size: 11px; }
-  input[type='range'] { display: block; width: 100%; height: 30px; margin-top: 7px; accent-color: #d6d6df; cursor: pointer; }
+  input[type='range'] { display: block; width: 100%; height: 30px; margin-top: 7px; accent-color: var(--editor-accent); cursor: pointer; }
   .range-ends { display: flex; justify-content: space-between; font-size: 10px; color: var(--editor-muted); }
   .range-ends + label { display: block; margin-top: 24px; }
   .backdrop-options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
@@ -492,7 +492,7 @@
   .studio-panel button:hover:not(:disabled) { background-color: #35353f; color: var(--editor-fg); }
   .studio-panel button.primary:hover:not(:disabled) { background: #fff; color: #202026; }
   .studio-panel button:active:not(:disabled), .studio-resume:active { transform: translateY(1px); }
-  .studio-panel :is(button, input, select, summary):focus-visible, .studio-resume:focus-visible { outline: 2px solid #c8c8e0; outline-offset: 2px; border-radius: 5px; }
+  .studio-panel :is(button, input, select, summary):focus-visible, .studio-resume:focus-visible { outline: 2px solid var(--editor-focus); outline-offset: 2px; border-radius: 5px; }
   .studio-panel :disabled { opacity: .4; cursor: not-allowed; }
   .studio-notice { padding: 12px 20px; background: var(--editor-control); font-size: 12px; line-height: 1.5; }
   .close-prompt { margin-bottom: 12px; font-size: 13px; }

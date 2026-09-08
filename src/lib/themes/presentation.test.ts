@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseNode, parsePresentation, nodeStyle, resolveRow, visibleNode } from './presentation'
+import { parseNode, parsePresentation, nodeStyle, resolveRow, visibleNode, displayText, type DisplayModel } from './presentation'
 
 describe('theme presentation contract', () => {
   it('composes new layouts from primitives with bounded styles', () => {
@@ -26,7 +26,21 @@ describe('theme presentation contract', () => {
     const node = parseNode({ type: 'text', text: 'TOP 10', when: { field: 'rankPosition', atMost: 10 } })
     expect(visibleNode(node, { rankPosition: 1 })).toBe(true)
     expect(visibleNode(node, { rankPosition: 10 })).toBe(true)
-    for (const model of [{}, { rankPosition: 11 }, { rankPosition: 0 }, { rankPosition: '1' }]) expect(visibleNode(node, model)).toBe(false)
+    for (const model of [{}, { rankPosition: 11 }, { rankPosition: 0 }, { rankPosition: '1' }] as DisplayModel[]) expect(visibleNode(node, model)).toBe(false)
+  })
+  it('compares score conditions numerically and renders the score as a percentage', () => {
+    const node = parseNode({ type: 'text', field: 'score', when: { field: 'score', atMost: 70 } })
+    expect(visibleNode(node, { score: 65 })).toBe(true)
+    expect(visibleNode(node, { score: 70 })).toBe(true)
+    for (const model of [{}, { score: 78 }, { score: 0 }, { score: '65%' }] as DisplayModel[]) expect(visibleNode(node, model)).toBe(false)
+    expect(displayText('score', { score: 78 })).toBe('78%')
+    expect(displayText('rankPosition', { rankPosition: 3 })).toBe('3')
+    expect(displayText('title', { title: 'Sakura' })).toBe('Sakura')
+    expect(displayText('score', {})).toBe('')
+  })
+  it('rejects atMost on fields that are not numeric', () => {
+    expect(() => parseNode({ type: 'text', text: 'New', when: { field: 'year', atMost: 2020 } })).toThrow('numeric')
+    expect(() => parseNode({ type: 'text', text: 'New', when: { field: 'year' } })).not.toThrow()
   })
   it('resolves global, semantic row, and exact row preferences in order', () => {
     const layout = parsePresentation({ rows: { defaults: { width: 128, layout: 'grid' }, byId: { continue: { width: 264, layout: 'carousel' }, 'merged:continue': { gap: 24 } } } })

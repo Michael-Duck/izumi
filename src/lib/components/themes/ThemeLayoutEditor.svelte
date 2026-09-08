@@ -77,13 +77,13 @@
   label { display: block; margin-top: 18px; font-size: 12px; font-weight: 700; }
   select, textarea { display: block; width: 100%; margin-top: 7px; background: var(--editor-control); color: var(--editor-fg); border: 1px solid var(--editor-line); border-radius: 6px; padding: 9px; }
   textarea { font: 11px 'Geist Mono', monospace; resize: vertical; }
-  input[type='range'] { display: block; width: 100%; height: 30px; accent-color: #d6d6df; }
+  input[type='range'] { display: block; width: 100%; height: 30px; accent-color: var(--editor-accent); }
   .toggle { display: flex; justify-content: space-between; align-items: center; min-height: 36px; }
-  input[type='checkbox'] { width: 18px; height: 18px; accent-color: #d6d6df; }
+  input[type='checkbox'] { width: 18px; height: 18px; accent-color: var(--editor-accent); }
   output { float: right; color: var(--editor-muted); font-weight: 400; }
   .help { font-size: 11px; color: var(--editor-muted); line-height: 1.6; margin-top: 10px; }
   .text-button, a { display: block; padding: 9px 0; min-height: 36px; font-size: 12px; text-align: start; text-decoration: underline; text-underline-offset: 4px; }
   details { margin: 20px 0; padding-top: 16px; border-top: 1px solid var(--editor-line); }
   summary { font-size: 12px; font-weight: 700; cursor: pointer; }
-  :is(button, input, select, textarea, summary, a):focus-visible { outline: 2px solid #c8c8e0; outline-offset: 3px; }
+  :is(button, input, select, textarea, summary, a):focus-visible { outline: 2px solid var(--editor-focus); outline-offset: 3px; }
 </style>

@@ -260,7 +260,7 @@
   const cleanDesc = (d?: string) => (d ?? '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
   const themeModel: DisplayModel = $derived(current ? { title: title(current), description: cleanDesc(current.description), rank: featuredRankLabel,
     rankPosition: current.featuredRank?.position, poster: cover(current), backdrop: banner(current), logo: currentLogo || '',
-    score: current.averageScore ? `${current.averageScore}%` : '', format: format(current), year: season(current) } : {})
+    score: current.averageScore || undefined, format: format(current), year: season(current) } : {})
   function themeAction(action: () => void) {
     if (swiped) { swiped = false; return }
     action()

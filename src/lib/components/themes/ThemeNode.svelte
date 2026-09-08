@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { nodeStyle, visibleNode, type ThemeNode, type DisplayModel, type ThemeAction } from '$lib/themes/presentation'
+  import { nodeStyle, visibleNode, displayText, type ThemeNode, type DisplayModel, type ThemeAction } from '$lib/themes/presentation'
   let { node, model, actions = {}, eager = false, titleHeading = false }: { node: ThemeNode; model: DisplayModel; actions?: Partial<Record<ThemeAction, () => void>>; eager?: boolean; titleHeading?: boolean } = $props()
   const labels: Record<ThemeAction, string> = { play: 'Watch', details: 'Details', favorite: 'Favorite', previous: 'Previous slide', next: 'Next slide' }
 </script>
@@ -7,7 +7,7 @@
 {#snippet renderNode(item: ThemeNode)}
   {#if visibleNode(item, model)}
     {#if item.type === 'text'}
-      <svelte:element this={titleHeading && item.field === 'title' ? 'h1' : 'span'} style={nodeStyle(item)} class="theme-text">{item.field ? model[item.field] ?? '' : item.text ?? ''}</svelte:element>
+      <svelte:element this={titleHeading && item.field === 'title' ? 'h1' : 'span'} style={nodeStyle(item)} class="theme-text">{item.field ? displayText(item.field, model) : item.text ?? ''}</svelte:element>
     {:else if item.type === 'artwork'}
       {#if model[item.artwork ?? 'poster']}<img src={String(model[item.artwork ?? 'poster'])} alt="" draggable="false" loading={eager ? 'eager' : 'lazy'} decoding="async" style={nodeStyle(item)} />{/if}
     {:else if item.type === 'action'}

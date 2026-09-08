@@ -151,7 +151,7 @@
      aria-label={title(media)} style:width={themeRow.width || themeRow.card ? '100%' : undefined}
      class="group block {fill ? 'w-full' : $isTv ? 'w-44' : 'w-36 sm:w-[152px]'} {$isAndroid ? 'android-card-press' : ''}">
     {#if themeRow.card}
-      <ThemeNode node={themeRow.card} model={{ title: title(media), poster: coverSrc, backdrop: media.bannerImage ?? coverSrc, format: format(media), year: season(media), score: media.averageScore ?? '' }} />
+      <ThemeNode node={themeRow.card} model={{ title: title(media), poster: coverSrc, backdrop: media.bannerImage ?? coverSrc, format: format(media), year: season(media), score: media.averageScore || undefined }} />
     {:else}
     <div class="focus-cover relative aspect-[2/3] w-full overflow-hidden rounded-md bg-muted" style:aspect-ratio={themeRow.aspect === 'landscape' ? '16 / 9' : themeRow.aspect === 'square' ? '1' : undefined} style:border-radius={themeRow.radius !== undefined ? `${themeRow.radius}px` : undefined}>
       <!-- No `transform-gpu`/`will-change`: those permanently promote EVERY cover to its own
