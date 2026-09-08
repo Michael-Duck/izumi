@@ -213,10 +213,12 @@ export function normalizeResolveRequest(value) {
     ? input.nativeType
     : undefined
   const title = cleanText(input.title, 240)
+  const excludeCandidateIds = Array.isArray(input.excludeCandidateIds) ? [...new Set(input.excludeCandidateIds
+    .filter(id => typeof id === 'string' && /^[A-Za-z0-9_-]{1,160}$/.test(id)))].slice(0, 60) : []
   const videoCapabilities = input.videoCapabilities && typeof input.videoCapabilities === 'object'
     ? Object.fromEntries(['hdr', 'uhd', 'av1'].flatMap(key => typeof input.videoCapabilities[key] === 'boolean' ? [[key, input.videoCapabilities[key]]] : [])) : undefined
   return { ref: { provider, type, id }, episode, season, streamType, nativeType, streamIds,
-    ...(title ? { title } : {}), ...(videoCapabilities ? { videoCapabilities } : {}) }
+    ...(title ? { title } : {}), ...(excludeCandidateIds.length ? { excludeCandidateIds } : {}), ...(videoCapabilities ? { videoCapabilities } : {}) }
 }
 
 function addonEndpoint(base, suffix) {
@@ -462,6 +464,8 @@ export async function streamRequestPlan(request, fetcher = fetch, profile = defa
   if (request.streamIds.length) {
     const identity = request.ref.provider === 'stremio' ? decodeStremioRef(request.ref.id) : null
     let ids = request.streamIds
+    const titleIds = ids.filter(id => /^(?:tt\d+|tmdb:\d+)$/.test(id))
+    if (request.streamType === 'movie' && titleIds.length) ids = titleIds
     // Catalogue hints are not necessarily IDs accepted by stream sources. Enrich them before
     // deciding that the cloud or TV has nothing to query, retaining exact episode coordinates.
     if (profile.catalog?.tmdbToken && ids.every((id) => /^tmdb:\d+(?::\d+:\d+)?$/.test(id))) {
@@ -805,6 +809,9 @@ async function embeddedStremioStreams(request, bases, plan, fetcher, allowPrivat
       && Number(entry?.episode) === request.episode
       && (request.season == null || Number(entry?.season) === request.season))
   if (!selected || !Array.isArray(selected.streams)) return { declared: false, streams: [] }
+  if (isSupplementalVideo({ title: selected.title ?? selected.name, description: selected.overview, name: selected.type }, request.title)) {
+    return { declared: false, streams: [] }
+  }
   const streams = selected.streams.slice(0, MAX_STREAMS_PER_ADDON).flatMap((raw, upstreamRank) => {
     const clean = sanitizeStream(raw, allowPrivate)
     if (!clean) return []
@@ -834,10 +841,12 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
   const skipSegmentsPromise = resolveSkipSegments(plan, request, fetcher).catch(() => [])
   // IMDb/TMDB identifiers belong to the title, not the catalogue that displayed it.
   // Keep custom namespaces scoped, but let every configured stream add-on answer global IDs.
-  const globalIds = plan.ids.every((id) => /^(?:tt\d+|tmdb:\d+)(?::\d+:\d+)?$/.test(id))
-  const resolverAddons = plan.addonId && !globalIds
-    ? profile.addons.filter((base) => catalogInternals.fnv(catalogInternals.normalizeBase(base)) === plan.addonId)
+  const globalIds = plan.ids.filter((id) => /^(?:tt\d+|tmdb:\d+)(?::\d+:\d+)?$/.test(id))
+  const resolverAddons = plan.addonId && !globalIds.length
+    ? profile.addons.filter(base => catalogInternals.fnv(catalogInternals.normalizeBase(base)) === plan.addonId)
     : profile.addons
+  const idsForAddon = base => plan.addonId && catalogInternals.fnv(catalogInternals.normalizeBase(base)) !== plan.addonId
+    ? globalIds : plan.ids
   const embedded = options.tvContinuation ? { declared: false, streams: [] } : await embeddedStremioStreams(
     request, resolverAddons, plan, fetcher, profile.allowPrivateNetworkSources,
   )
@@ -849,9 +858,10 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
       return stream ? [normalizeStreamBehavior({ ...stream, __addonName: 'TV source',
         __origin: { kind: 'addon', id: 'tv-source', name: 'TV source' }, __evidence: { upstreamRank } })] : []
     }), failures: [] }]
-    : embedded.declared
-    ? [{ streams: embedded.streams, failures: [] }]
-    : await mapLimit(resolverAddons, 3, (base, index) => resolveAddon(base, plan.ids, resourceType, fetcher, profile.allowPrivateNetworkSources, index, sourceDeadline))
+    : [
+      { streams: embedded.streams, failures: [] },
+      ...await mapLimit(resolverAddons, 3, (base, index) => resolveAddon(base, idsForAddon(base), resourceType, fetcher, profile.allowPrivateNetworkSources, index, sourceDeadline)),
+    ]
   const normalized = dedupeStreams(batches.flatMap((batch) => batch.streams).filter((stream) => !isNotice(stream) && !isSupplementalVideo(stream, request.title) && isTvVideoCompatible(stream, request.videoCapabilities)))
   // TV lookup returns plain torrent hashes. Check the configured provider before choosing a
   // release so a cached result is not stuck behind several full torrent downloads.
@@ -864,23 +874,27 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
       if (state) { stream.__cache = state; stream.__cacheSource = 'native' }
     }
   }
-  const ordered = pickCandidates(normalized, profile.quality, plan.want, undefined, {
+  const preferred = pickCandidates(normalized, profile.quality, plan.want, undefined, {
     audioLang: profile.audioLang || undefined,
     cacheCheck: 'none',
     allowUncached: !!profile.debrid,
   })
+  // Automatic language preferences must not erase usable choices from the manual picker.
+  const ordered = [...new Set([...preferred, ...pickCandidates(normalized, profile.quality, plan.want, undefined, {
+    cacheCheck: 'none', allowUncached: !!profile.debrid,
+  })])]
   const candidates = []
   const failures = batches.flatMap((batch) => batch.failures)
   let rejected = 0
   const attemptedDebridHashes = new Set()
-  let debridAttempts = 0
   for (const stream of ordered) {
     const candidate = directCandidate(stream, profile)
+    const candidateId = candidate?.id ?? `${stream.__candidate?.routeId ?? stream.infoHash}-${profile.debrid?.provider}-direct`
+    if (request.excludeCandidateIds?.includes(candidateId)) continue
     if (candidate) candidates.push({ ...candidate, delivery: 'direct' })
-    else if (debridAttempts < 3 && profile.debrid && stream.infoHash
+    else if (candidates.length < MAX_RESPONSE_CANDIDATES && Date.now() < debridDeadline && profile.debrid && stream.infoHash
       && !attemptedDebridHashes.has(stream.infoHash)) {
       attemptedDebridHashes.add(stream.infoHash)
-      debridAttempts += 1
       try {
         const remaining = debridDeadline - Date.now()
         if (remaining <= 0) throw new Error('Source resolution timed out. Try another cached release.')
@@ -898,9 +912,7 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
   }
   candidates.splice(MAX_RESPONSE_CANDIDATES)
   // Sidecars remain first; independently installed subtitle add-ons fill the remaining slots.
-  const subtitleBatches = !options.tvContinuation && embedded.declared
-    ? await mapLimit(profile.addons, 3, (base, index) => resolveAddon(base, plan.ids, resourceType, fetcher, false, index, Date.now() + 5_000, true)) : []
-  const addonSubtitles = [...batches, ...subtitleBatches].flatMap(batch => batch.subtitles ?? []).concat(plan.subtitleTracks ?? [], await serviceSubtitlesPromise)
+  const addonSubtitles = batches.flatMap(batch => batch.subtitles ?? []).concat(plan.subtitleTracks ?? [], await serviceSubtitlesPromise)
   for (const candidate of candidates) {
     const seen = new Set()
     candidate.subtitles = [...candidate.subtitles, ...addonSubtitles].filter(track => {
@@ -910,7 +922,7 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
       return true
     }).slice(0, 40)
   }
-  const tvSourceLookup = !candidates.length && requestValue.tvSourceLookup === 1 && !options.tvContinuation && options.tvLookupContext
+  const tvSourceLookup = candidates.length < MAX_RESPONSE_CANDIDATES && requestValue.tvSourceLookup === 1 && !options.tvContinuation && options.tvLookupContext
     ? await createTvSourceLookup(profile, request, { ...plan, subtitleTracks: addonSubtitles.filter((track, index, tracks) =>
       encoder.encode(JSON.stringify(tracks.slice(0, index + 1))).length < 8_000) }, batches.flatMap((batch) => batch.tvRequests ?? []), options.tvLookupContext)
     : undefined

@@ -2,6 +2,7 @@
 // model its provider response shapes.
 // Runtime-neutral companion catalogue adapter. The full client remains the canonical rich mapper;
 // this Worker boundary deliberately emits the existing compact CompanionMedia/HomeSnapshot shape.
+import { isSupplementalVideo } from './generated/resolver-core/playback-suitability.ts'
 const ANI = 'https://graphql.anilist.co'
 const KITSU = 'https://kitsu.io/api/edge'
 const TMDB = 'https://api.themoviedb.org/3'
@@ -255,7 +256,10 @@ function stremioMedia(raw, base, forcedType) {
   const rating = Number(raw.imdbRating)
   const imdbId = /^tt\d+$/i.test(raw.id) ? raw.id : undefined
   const tmdbId = /^tmdb:(?:(?:movie|tv|series):)?(\d+)/i.exec(raw.id)?.[1]
-  const videoId = type === 'movie' ? raw.videos?.[0]?.id ?? raw.id : undefined
+  const fullVideo = (Array.isArray(raw.videos) ? raw.videos : []).find(video => !isSupplementalVideo({
+    title: video?.title ?? video?.name, description: video?.overview, name: video?.type,
+  }, raw.name))
+  const videoId = type === 'movie' ? (imdbId || tmdbId ? raw.id : fullVideo?.id ?? raw.id) : undefined
   return {
     isAdult: raw.isAdult === true,
     contentRating: clean(raw.contentRating ?? raw.certification, 32),

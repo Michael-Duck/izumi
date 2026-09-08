@@ -102,7 +102,7 @@ function defaultHeader(
 /** Pick the largest real video from a {name,bytes} list (drops samples/extras). */
 export function pickLargestVideo<T extends { name: string; bytes: number }>(files: T[]): T | undefined {
   const vids = files.filter((f) => VIDEO.test(f.name) && !JUNK.test(f.name))
-  const pool = vids.length ? vids : files
+  const pool = vids.length ? vids : files.filter((f) => !JUNK.test(f.name))
   return [...pool].sort((a, b) => b.bytes - a.bytes)[0]
 }
 

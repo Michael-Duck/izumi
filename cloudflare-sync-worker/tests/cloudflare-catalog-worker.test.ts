@@ -103,7 +103,7 @@ describe('Cloudflare-first companion catalogue', () => {
     if (!media) throw new Error('Expected a valid Stremio catalogue item.')
     expect(media.resolver).toEqual({
       streamType: 'movie', nativeType: 'movie', imdbId: 'tt1234567', tmdbId: undefined,
-      videoId: 'native-movie-id',
+      videoId: 'tt1234567',
     })
     const requested: string[] = []
     const fetcher = vi.fn(async (raw: RequestInfo | URL) => {
@@ -123,7 +123,7 @@ describe('Cloudflare-first companion catalogue', () => {
     expect(requested.some((url) => url.includes('unrelated.example'))).toBe(true)
   })
 
-  it('uses video streams embedded in Stremio metadata without calling a stream resource', async () => {
+  it('keeps embedded video while also querying stream resources for alternatives', async () => {
     const base = 'https://catalog.example/configured'
     const media = catalogInternals.stremioMedia({ id: 'tt7654321', name: 'Embedded show' }, base, 'series')
     if (!media) throw new Error('Expected a valid Stremio catalogue item.')
@@ -138,6 +138,8 @@ describe('Cloudflare-first companion catalogue', () => {
           streams: [{ url: 'https://media.example/embedded.m3u8', name: 'Embedded 1080p' }],
         }],
       } })
+      if (url.endsWith('/manifest.json')) return json({ resources: ['stream'] })
+      if (url.includes('/stream/')) return json({ streams: [{ url: 'https://media.example/alternative.mp4', name: 'Alternative 720p' }] })
       return json({}, 404)
     })
 
@@ -150,7 +152,8 @@ describe('Cloudflare-first companion catalogue', () => {
     }, fetcher)
 
     expect(result.candidates[0]?.url).toBe('https://media.example/embedded.m3u8')
-    expect(requested.some((url) => url.includes('/stream/'))).toBe(false)
+    expect(result.candidates).toHaveLength(2)
+    expect(requested.some((url) => url.includes('/stream/'))).toBe(true)
     expect(requested.some((url) => url.endsWith('/manifest.json'))).toBe(true)
   })
 })

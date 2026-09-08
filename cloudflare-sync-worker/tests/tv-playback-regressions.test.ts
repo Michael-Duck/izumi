@@ -4,19 +4,23 @@ vi.mock('../src/generated/resolver-core/debrid/index.ts', async importOriginal =
   ...await importOriginal<object>(), resolveHash: adapters.resolve, resolveSidecars: adapters.sidecars, cacheCheckMode: () => 'none',
 }))
 import { providers } from '../src/generated/resolver-core/debrid/index.ts'
-import { publicResolverProfile, resolveDirectSources } from '../src/resolver.js'
+import { normalizeResolveRequest, publicResolverProfile, resolveDirectSources, streamRequestPlan } from '../src/resolver.js'
 import { resolveSubtitleDownload, searchSubtitleServices } from '../src/subtitle-services.js'
 const json = (value: unknown) => new Response(JSON.stringify(value), { headers: { 'Content-Type': 'application/json' } })
 const movie = { ref: { provider: 'tmdb', type: 'movie', id: '123' }, streamType: 'movie', streamIds: ['tt0123456'], title: 'Example Film' }
 beforeEach(() => { adapters.resolve.mockReset(); adapters.sidecars.mockReset().mockResolvedValue([]) })
+it('resolves the full movie identity instead of an unrelated metadata video hint', async () => {
+  const plan = await streamRequestPlan(normalizeResolveRequest({ ...movie, streamIds: ['video:promotional', ...movie.streamIds] }))
+  expect(plan.ids).toEqual(movie.streamIds)
+})
 it('returns multiple converted choices and does not let a subtitle failure discard video', async () => {
   adapters.resolve.mockImplementation(async (_provider, _key, magnet: string) => `https://media.example/${magnet.slice(-40)}.mkv`)
   adapters.sidecars.mockRejectedValue(new Error('Subtitle service unavailable'))
   const result = await resolveDirectSources({ enabled: true, addons: ['https://source.example'], debrid: { provider: providers.keys().next().value, credential: 'private-key' } }, movie,
     async (url: string) => json(url.endsWith('/manifest.json') ? { resources: ['stream'] } : { streams: ['a', 'b', 'c', 'd'].map(char => ({ infoHash: char.repeat(40), title: `Example Film 1080p ${char}` })) }))
-  expect(result.candidates).toHaveLength(3)
-  expect(new Set(result.candidates.map(item => item.url)).size).toBe(3)
-  expect(adapters.resolve).toHaveBeenCalledTimes(3)
+  expect(result.candidates).toHaveLength(4)
+  expect(new Set(result.candidates.map(item => item.url)).size).toBe(4)
+  expect(adapters.resolve).toHaveBeenCalledTimes(4)
   expect(JSON.stringify(result)).not.toContain('private-key')
 })
 it('filters preview and unsupported video before ranking while keeping valid alternatives', async () => {
@@ -27,6 +31,41 @@ it('filters preview and unsupported video before ranking while keeping valid alt
       { title: 'Example Film 1080p', url: 'https://media.example/full.mkv' },
     ] }))
   expect(result.candidates.map(item => item.url)).toEqual(['https://media.example/full.mkv'])
+})
+
+it('keeps manual alternatives when only one release advertises the preferred audio', async () => {
+  const result = await resolveDirectSources({ enabled: true, audioLang: 'eng', addons: ['https://source.example'] }, movie,
+    async (url: string) => json(url.endsWith('/manifest.json') ? { resources: ['stream'] } : { streams: [
+      { title: 'Example 1080p English', url: 'https://media.example/en.mkv' },
+      { title: 'Example 1080p French', url: 'https://media.example/fr.mkv' },
+      { title: 'Example 1080p German', url: 'https://media.example/de.mkv' },
+    ] }))
+  expect(result.candidates).toHaveLength(3)
+  expect(result.candidates[0].url).toBe('https://media.example/en.mkv')
+})
+
+it('skips previously offered releases when the TV asks for more choices', async () => {
+  const profile = { enabled: true, addons: ['https://source.example'] }
+  const fetcher = async (url: string) => json(url.endsWith('/manifest.json') ? { resources: ['stream'] } : { streams: [
+    { title: 'Example 1080p', url: 'https://media.example/one.mkv' },
+    { title: 'Example 720p', url: 'https://media.example/two.mkv' },
+  ] })
+  const initial = await resolveDirectSources(profile, movie, fetcher)
+  const next = await resolveDirectSources(profile, { ...movie, excludeCandidateIds: [initial.candidates[0].id] }, fetcher)
+  expect(next.candidates).toHaveLength(1)
+  expect(next.candidates[0].url).toBe('https://media.example/two.mkv')
+})
+
+it('continues past failed conversions instead of exposing one success from three attempts', async () => {
+  let attempt = 0
+  adapters.resolve.mockImplementation(async () => {
+    if (++attempt <= 2) throw new Error('Release unavailable')
+    return `https://media.example/release-${attempt}.mkv`
+  })
+  const result = await resolveDirectSources({ enabled: true, addons: ['https://source.example'], debrid: { provider: providers.keys().next().value, credential: 'private-key' } }, movie,
+    async (url: string) => json(url.endsWith('/manifest.json') ? { resources: ['stream'] } : { streams: ['a', 'b', 'c', 'd', 'e'].map(char => ({ infoHash: char.repeat(40), title: `Example 1080p ${char}` })) }))
+  expect(result.candidates).toHaveLength(3)
+  expect(adapters.resolve).toHaveBeenCalledTimes(5)
 })
 it('queries subtitle-only add-ons and preserves descriptive track names and language preferences', async () => {
   const fetcher = vi.fn(async (url: string) => {

@@ -124,7 +124,7 @@ export const offcloud: DebridProvider = {
     try { files = ocFiles(await oc('GET', `/cloud/explore/${rid}?format=detailed`, key, undefined, opts?.priority)) }
     catch (e) { if (!add.url) throw e }
     if (!files.length && add.url) files = ocFiles([add.url])
-    const best = pickVideoFile(files, opts?.want) ?? files[0]
+    const best = pickVideoFile(files, opts?.want)
     if (!best?.url) throw new Error('No playable file in that torrent.')
     return best.url
   },

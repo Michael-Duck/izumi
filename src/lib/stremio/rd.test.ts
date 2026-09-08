@@ -9,6 +9,9 @@ describe('debrid magnetOf', () => {
 })
 
 describe('debrid pickLargestVideo', () => {
+  it('does not fall back to promotional video when every file is an extra', () => {
+    expect(pickLargestVideo([{ name: 'Example.Prologue.mkv', bytes: 900_000_000 }, { name: 'Example.Trailer.mp4', bytes: 1_000_000_000 }])).toBeUndefined()
+  })
   it('picks the largest video, skipping samples/extras', () => {
     const files = [
       { name: 'Show/sample.mkv', bytes: 50_000_000 },
