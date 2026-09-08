@@ -102,7 +102,10 @@ export async function deployWorkerRelease(auth, manifest, fetcher) {
   const form = new FormData()
   form.set('metadata', new Blob([JSON.stringify({
     main_module: 'worker.mjs', compatibility_date: pkg.compatibilityDate, compatibility_flags: ['nodejs_compat'],
-    bindings: [{ type: 'd1', name: 'DB', id: auth.databaseId }], keep_bindings: ['secret_text', 'plain_text'],
+    bindings: [{ type: 'd1', name: 'DB', id: auth.databaseId }, ...(pkg.resolveChannel === 1
+      ? [{ type: 'durable_object_namespace', name: 'TV_RESOLVE_SESSIONS', class_name: 'CompanionResolveSession' }] : [])],
+    ...(pkg.resolveChannel === 1 ? { exports: { CompanionResolveSession: { type: 'durable-object', storage: 'sqlite' } } } : {}),
+    keep_bindings: ['secret_text', 'plain_text'],
     annotations: { 'workers/message': `Automatic Izumi Worker update ${pkg.version}` },
   })], { type: 'application/json' }))
   form.set('worker.mjs', new Blob([pkg.script], { type: 'application/javascript+module' }), 'worker.mjs')

@@ -748,11 +748,14 @@ function sanitizeStream(value, allowPrivate = false) {
   }
 }
 
-async function resolveConfiguredDebrid(stream, profile, want, budgetMs = 22_000) {
+async function resolveConfiguredDebrid(stream, profile, want, budgetMs = 22_000, signal) {
   const provider = profile.debrid?.provider
   const credential = profile.debrid?.credential
   if (!provider || !credential || !stream.infoHash) return null
+  signal?.throwIfAborted()
   const controller = new AbortController()
+  const cancel = () => controller.abort()
+  signal?.addEventListener('abort', cancel, { once: true })
   const timer = setTimeout(() => controller.abort(), budgetMs)
   try {
     const magnet = stream.__magnet || `magnet:?xt=urn:btih:${stream.infoHash}`
@@ -808,6 +811,7 @@ async function resolveConfiguredDebrid(stream, profile, want, budgetMs = 22_000)
     throw error
   } finally {
     clearTimeout(timer)
+    signal?.removeEventListener('abort', cancel)
     // The desktop implementation caches an account listing for faster repeat playback. A Worker
     // isolate can serve several owners, so do not retain a Real-Debrid credential between calls.
     if (provider === 'realdebrid') rdForgetLists(credential)
@@ -849,7 +853,7 @@ function directCandidate(stream, profile) {
     return [{ id: track.id ?? String(index + 1), url, title: cleanText(track.title, 160), lang: cleanText(track.lang, 24) }]
   })
   return {
-    id: stream.__candidate?.routeId ?? `candidate-${Math.random().toString(36).slice(2)}`,
+    id: stream.__candidate?.routeId ?? `candidate-${catalogInternals.fnv(url)}`,
     url,
     title: info.label.slice(0, 240),
     quality: info.quality,
@@ -876,7 +880,7 @@ async function mapLimit(values, limit, operation) {
   return output
 }
 
-async function resolveAddon(base, ids, type, fetcher, allowPrivate = false, addonIndex = 0, deadline = Infinity, subtitlesOnly = false) {
+async function resolveAddon(base, ids, type, fetcher, allowPrivate = false, addonIndex = 0, deadline = Infinity, subtitlesOnly = false, onStreams) {
   const failures = []
   const failed = (message) => failures.push(`A configured source ${message}`)
   const manifest = await fetchJson(fetcher, addonEndpoint(base, '/manifest.json'), Math.min(MANIFEST_TIMEOUT_MS, deadline - Date.now()), failed)
@@ -914,7 +918,9 @@ async function resolveAddon(base, ids, type, fetcher, allowPrivate = false, addo
       __evidence: { upstreamRank, requestId: ask[requestIndex] },
     })]
   }))
-  return { streams, subtitles: (await subtitlesPromise).flat(), failures, tvRequests: failures.length ? tvSourceRequests(base, ask, type, addonIndex) : [] }
+  const batch = { streams, failures, tvRequests: failures.length ? tvSourceRequests(base, ask, type, addonIndex) : [] }
+  onStreams?.(batch)
+  return { ...batch, subtitles: (await subtitlesPromise).flat() }
 }
 
 async function embeddedStremioStreams(request, bases, plan, fetcher, allowPrivate = false) {
@@ -957,8 +963,41 @@ export function prepareTvSourceContinuation(profileValue, requestValue, context)
   return verifyTvSourceLookup(normalizeResolverProfile(profileValue), normalizeResolveRequest(requestValue), requestValue.tvSourceResults, context)
 }
 
+function sourcePool(batches, request, profile, refineContext, complete = true) {
+  const normalized = dedupeStreams(batches.flatMap(batch => batch.streams).filter(stream => !isNotice(stream) && !isSupplementalVideo(stream, request.title) && isTvVideoCompatible(stream, request.videoCapabilities)))
+  const refined = refineContext ? refineStreamsLite(refineContext, normalized) : { kept: normalized, rejectedCount: 0 }
+  // Only the complete pool may use the existing empty-filter fallback.
+  const pool = applyPriorityFilter(refined.kept.length || !complete ? refined.kept : normalized, profile.sourcePriority ?? [], profile.sourcePriorityMode ?? 'prefer')
+  return { normalized, refined, pool }
+}
+
+function orderedSources(pool, profile, plan) {
+  const preferred = pickCandidates(pool, profile.quality, plan.want, undefined, {
+    audioLang: profile.audioLang || undefined, cacheCheck: 'none', allowUncached: !!profile.debrid, sourcePriority: profile.sourcePriority,
+  })
+  return [...new Set([...preferred, ...pickCandidates(pool, profile.quality, plan.want, undefined, {
+    cacheCheck: 'none', allowUncached: !!profile.debrid, sourcePriority: profile.sourcePriority,
+  })])]
+}
+
+function sourcePreferences(profile) {
+  return {
+    ...(profile.subtitleLang || profile.audioLang ? { trackPreferences: {
+      ...(profile.audioLang ? { audio: { language: profile.audioLang } } : {}),
+      ...(profile.subtitleLang && profile.subtitleLang !== 'none' ? { subtitle: { language: profile.subtitleLang } } : {}),
+    } } : {}),
+    ...(profile.subtitleStyle ? { subtitleStyle: profile.subtitleStyle } : {}),
+  }
+}
+
 export async function resolveDirectSources(profileValue, requestValue, fetcher = fetch, options = {}) {
-  const debridDeadline = Date.now() + 25_000
+  const signal = options.signal
+  signal?.throwIfAborted()
+  if (signal) {
+    const upstream = fetcher
+    fetcher = (url, init = {}) => { signal.throwIfAborted(); return upstream(url, { ...init, signal: init.signal ? AbortSignal.any([signal, init.signal]) : signal }) }
+  }
+  const debridDeadline = Date.now() + (options.fetchSource ? 40_000 : 25_000)
   const profile = normalizeResolverProfile(profileValue)
   const request = normalizeResolveRequest(requestValue)
   if (!profile.enabled) throw new Error('Cloud source resolving is disabled for this TV.')
@@ -982,6 +1021,84 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
   )
   const resourceType = request.ref.provider === 'stremio' ? request.nativeType ?? request.streamType : request.streamType
   const sourceDeadline = Date.now() + 12_000
+  const observed = []
+  const delegated = []
+  const delegatedBatches = []
+  const debridAttempts = new Map()
+  const debridResults = new Map()
+  const debridFailures = []
+  const cacheStates = new Map()
+  let preparing = Promise.resolve()
+  let progress = Promise.resolve()
+  let progressError
+  let lastProgressKey = ''
+  const availableCandidates = ordered => ordered.flatMap(stream => {
+    const direct = directCandidate(stream, profile)
+    const value = direct ? { ...direct, delivery: 'direct' } : debridResults.get(stream.infoHash)
+    return value && !request.excludeCandidateIds?.includes(value.id) ? [value] : []
+  }).slice(0, MAX_RESPONSE_CANDIDATES)
+  const publishCandidates = async candidates => {
+    const key = JSON.stringify(candidates)
+    if (!candidates.length || key === lastProgressKey) return
+    lastProgressKey = key
+    await options.onProgress({ candidates: structuredClone(candidates), selectedId: candidates[0].id, ...sourcePreferences(profile) })
+  }
+  const prepareOnce = stream => {
+    if (!debridAttempts.has(stream.infoHash)) {
+      const work = resolveConfiguredDebrid(stream, profile, plan.want, Math.min(7_500, Math.max(1, debridDeadline - Date.now())), signal)
+        .then(value => { if (value) debridResults.set(stream.infoHash, value); return value })
+        .catch(error => {
+          const message = cleanText(error instanceof Error ? error.message : String(error), 240)
+          if (message) debridFailures.push(message)
+          return null
+        })
+      debridAttempts.set(stream.infoHash, work)
+    }
+    return debridAttempts.get(stream.infoHash)
+  }
+  const checkPool = async pool => {
+    if (!profile.debrid || cacheCheckMode(profile.debrid.provider) !== 'native' || pool.some(stream => directCandidate(stream, profile))) return
+    const hashes = [...new Set(pool.map(stream => stream.infoHash).filter(hash => hash && !cacheStates.has(hash)))].slice(0, 240)
+    if (hashes.length) {
+      signal?.throwIfAborted()
+      const cached = await checkCached(profile.debrid.provider, profile.debrid.credential, hashes)
+      for (const hash of hashes) cacheStates.set(hash, cached.get(hash) ?? null)
+    }
+    for (const stream of pool) {
+      const state = cacheStates.get(stream.infoHash)
+      if (state) { stream.__cache = state; stream.__cacheSource = 'native' }
+    }
+  }
+  const showProgress = () => {
+    if (!options.onProgress) return
+    const snapshot = observed.slice()
+    progress = progress.then(async () => {
+      signal?.throwIfAborted()
+      const { pool } = sourcePool(snapshot, request, profile, await refineContextPromise, false)
+      await publishCandidates(availableCandidates(orderedSources(pool, profile, plan)))
+    }).catch(error => { progressError = error })
+  }
+  const showBatch = batch => {
+    observed.push(batch)
+    showProgress()
+    if (!options.onProgress || !profile.debrid) return
+    // Prepare releases alongside source discovery. Memoize the external job so the final
+    // ranking pass and a reconnect cannot create it again. Direct progress has a separate queue.
+    preparing = preparing.then(async () => {
+      signal?.throwIfAborted()
+      const { pool } = sourcePool(observed, request, profile, await refineContextPromise, false)
+      await checkPool(pool)
+      for (const stream of orderedSources(pool, profile, plan).slice(0, MAX_RESPONSE_CANDIDATES)) {
+        signal?.throwIfAborted()
+        if (Date.now() >= debridDeadline || debridAttempts.size >= MAX_RESPONSE_CANDIDATES) break
+        if (directCandidate(stream, profile) || !stream.infoHash || debridAttempts.has(stream.infoHash)
+          || request.excludeCandidateIds?.includes(`${stream.__candidate?.routeId ?? stream.infoHash}-${profile.debrid.provider}-direct`)) continue
+        await prepareOnce(stream)
+        showProgress()
+      }
+    }).catch(error => { progressError = error })
+  }
+  if (!options.tvContinuation) showBatch({ streams: embedded.streams, failures: [] })
   const batches = options.tvContinuation
     ? [{ streams: options.tvContinuation.streams.flatMap((raw, upstreamRank) => {
       const stream = sanitizeStream(raw)
@@ -990,59 +1107,54 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
     }), failures: [] }]
     : [
       { streams: embedded.streams, failures: [] },
-      ...await mapLimit(resolverAddons, 3, (base, index) => resolveAddon(base, idsForAddon(base), resourceType, fetcher, profile.allowPrivateNetworkSources, index, sourceDeadline)),
+      ...await mapLimit(resolverAddons, 3, (base, index) => resolveAddon(base, idsForAddon(base), resourceType, fetcher, profile.allowPrivateNetworkSources, index, sourceDeadline, false, batch => {
+        showBatch(batch)
+        if (!options.fetchSource || !profile.debrid) return
+        for (const query of batch.tvRequests) {
+          const work = options.fetchSource(query).then(raw => {
+            signal?.throwIfAborted()
+            const streams = raw.flatMap((value, upstreamRank) => {
+              const clean = sanitizeStream(value)
+              return clean ? [normalizeStreamBehavior({ ...clean, __addonName: 'TV source',
+                __origin: { kind: 'addon', id: addonOriginId(base), name: 'TV source' }, __evidence: { upstreamRank } })] : []
+            })
+            const received = { streams, failures: [] }
+            delegatedBatches.push(received)
+            showBatch(received)
+          }).catch(error => { if (signal?.aborted) progressError = error })
+          delegated.push(work)
+        }
+      })),
     ]
-  const normalized = dedupeStreams(batches.flatMap((batch) => batch.streams).filter((stream) => !isNotice(stream) && !isSupplementalVideo(stream, request.title) && isTvVideoCompatible(stream, request.videoCapabilities)))
-  // The desktop refines add-on rows by title/production/shape before ranking ever sees them; the
-  // TV path skipped that entirely, so a same-id different production could outrank the requested
-  // title. Refine with the evidence gathered above — and if the evidence rejects EVERYTHING, fall
-  // back to the unrefined pool: the TV has no "Filtered" list to rescue rows from.
+  await Promise.all(delegated)
+  batches.push(...delegatedBatches)
+  await preparing
+  await progress
+  if (progressError) throw progressError
+  signal?.throwIfAborted()
   const refineContext = await refineContextPromise
-  const refined = refineContext ? refineStreamsLite(refineContext, normalized) : { kept: normalized, rejectedCount: 0 }
-  // Strict source trust applies AFTER the empty-kept fallback and never falls back itself: an
-  // empty result under `strict` is the configured answer, exactly as in the desktop picker.
-  const pool = applyPriorityFilter(
-    refined.kept.length ? refined.kept : normalized,
-    profile.sourcePriority ?? [],
-    profile.sourcePriorityMode ?? 'prefer',
-  )
+  const { normalized, refined, pool } = sourcePool(batches, request, profile, refineContext)
   // TV lookup returns plain torrent hashes. Check the configured provider before choosing a
   // release so a cached result is not stuck behind several full torrent downloads.
-  if (profile.debrid && cacheCheckMode(profile.debrid.provider) === 'native'
-    && !pool.some((stream) => directCandidate(stream, profile))) {
-    const hashes = [...new Set(pool.map((stream) => stream.infoHash).filter(Boolean))].slice(0, 240)
-    const cached = await checkCached(profile.debrid.provider, profile.debrid.credential, hashes)
-    for (const stream of pool) {
-      const state = cached.get(stream.infoHash)
-      if (state) { stream.__cache = state; stream.__cacheSource = 'native' }
-    }
-  }
-  const preferred = pickCandidates(pool, profile.quality, plan.want, undefined, {
-    audioLang: profile.audioLang || undefined,
-    cacheCheck: 'none',
-    allowUncached: !!profile.debrid,
-    sourcePriority: profile.sourcePriority,
-  })
-  // Automatic language preferences must not erase usable choices from the manual picker.
-  const ordered = [...new Set([...preferred, ...pickCandidates(pool, profile.quality, plan.want, undefined, {
-    cacheCheck: 'none', allowUncached: !!profile.debrid, sourcePriority: profile.sourcePriority,
-  })])]
+  await checkPool(pool)
+  const ordered = orderedSources(pool, profile, plan)
   const candidates = []
   const failures = batches.flatMap((batch) => batch.failures)
   let rejected = refined.kept.length ? refined.rejectedCount : 0
   const attemptedDebridHashes = new Set()
   for (const stream of ordered) {
+    signal?.throwIfAborted()
     const candidate = directCandidate(stream, profile)
     const candidateId = candidate?.id ?? `${stream.__candidate?.routeId ?? stream.infoHash}-${profile.debrid?.provider}-direct`
     if (request.excludeCandidateIds?.includes(candidateId)) continue
     if (candidate) candidates.push({ ...candidate, delivery: 'direct' })
-    else if (candidates.length < MAX_RESPONSE_CANDIDATES && Date.now() < debridDeadline && profile.debrid && stream.infoHash
+    else if (candidates.length < MAX_RESPONSE_CANDIDATES && (Date.now() < debridDeadline || debridResults.has(stream.infoHash)) && profile.debrid && stream.infoHash
       && !attemptedDebridHashes.has(stream.infoHash)) {
       attemptedDebridHashes.add(stream.infoHash)
       try {
         const remaining = debridDeadline - Date.now()
-        if (remaining <= 0) throw new Error('Source resolution timed out. Try another cached release.')
-        const resolved = await resolveConfiguredDebrid(stream, profile, plan.want, Math.min(7_500, remaining))
+        if (remaining <= 0 && !debridResults.has(stream.infoHash)) throw new Error('Source resolution timed out. Try another cached release.')
+        const resolved = await prepareOnce(stream)
         if (resolved) {
           candidates.push(resolved)
         }
@@ -1052,6 +1164,7 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
         if (message) failures.push(message)
       }
     } else rejected += 1
+    if (options.onProgress) await publishCandidates(availableCandidates(ordered))
     if (candidates.length >= MAX_RESPONSE_CANDIDATES) break
   }
   candidates.splice(MAX_RESPONSE_CANDIDATES)
@@ -1066,11 +1179,12 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
       return true
     }).slice(0, 40)
   }
-  const tvSourceLookup = candidates.length < MAX_RESPONSE_CANDIDATES && requestValue.tvSourceLookup === 1 && !options.tvContinuation && options.tvLookupContext
+  signal?.throwIfAborted()
+  const tvSourceLookup = !options.fetchSource && candidates.length < MAX_RESPONSE_CANDIDATES && requestValue.tvSourceLookup === 1 && !options.tvContinuation && options.tvLookupContext
     ? await createTvSourceLookup(profile, request, { ...plan, subtitleTracks: addonSubtitles.filter((track, index, tracks) =>
       encoder.encode(JSON.stringify(tracks.slice(0, index + 1))).length < 8_000) }, batches.flatMap((batch) => batch.tvRequests ?? []), options.tvLookupContext)
     : undefined
-  if (!candidates.length && !failures.length) {
+  if (!candidates.length && !failures.length && !debridFailures.length) {
     failures.push(!normalized.length
       ? 'Your configured source add-ons returned no playable streams for this title.'
       : !profile.debrid && normalized.some((stream) => stream.infoHash)
@@ -1082,13 +1196,9 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
     selectedId: candidates[0]?.id ?? null,
     queriedIds: plan.ids,
     rejected,
-    failures: [...new Set(failures)].slice(0, 3),
+    failures: [...new Set([...failures, ...debridFailures])].slice(0, 3),
     skipSegments: await skipSegmentsPromise,
-    ...(profile.subtitleLang || profile.audioLang ? { trackPreferences: {
-      ...(profile.audioLang ? { audio: { language: profile.audioLang } } : {}),
-      ...(profile.subtitleLang && profile.subtitleLang !== 'none' ? { subtitle: { language: profile.subtitleLang } } : {}),
-    } } : {}),
-    ...(profile.subtitleStyle ? { subtitleStyle: profile.subtitleStyle } : {}),
+    ...sourcePreferences(profile),
     ...(tvSourceLookup ? { tvSourceLookup } : {}),
   }
 }
