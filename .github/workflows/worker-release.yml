@@ -37,6 +37,8 @@ jobs:
       - name: Verify the shipped Worker
         run: |
           node scripts/build-cloudflare-direct-upload.mjs --check
+          npm run paraglide
+          npx svelte-kit sync
           npx vitest run cloudflare-sync-worker/tests --maxWorkers 2
           npm run check --prefix cloudflare-sync-worker
       - name: Package and publish the stable feed
