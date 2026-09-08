@@ -93,7 +93,7 @@
 
 <svelte:head><title>Themes · izumi</title></svelte:head>
 <div class="themes-page">
-  <header class="page-heading"><div><p class="eyebrow">Make it yours</p><h2>Themes</h2><p class="intro">A different look. Still your client.</p></div><a class="control" href="/app/settings/theme-studio" data-focusable>Edit current theme</a></header>
+  <header class="page-heading"><div><p class="eyebrow">Make it yours</p><h2>Themes</h2><p class="intro">A different look. Still your client.</p></div><a class="control gap-2" href="/app/settings/theme-studio" data-focusable><Palette size={16} aria-hidden="true" /> Theme Studio</a></header>
   {#if $themeStudioOpen}<p class="message">Finish or discard your Theme Studio draft before applying another theme.</p>{/if}
   <div class="toolbar"><nav aria-label="Theme library"><button type="button" data-focusable aria-pressed={tab === 'browse'} onclick={() => { tab = 'browse'; selected = null; prepared = null }}>Browse</button><button type="button" data-focusable aria-pressed={tab === 'installed'} onclick={() => { tab = 'installed'; selected = null; prepared = null }}>Installed <span>{$installedThemes.length}</span></button></nav><div class="toolbar-actions"><button class="control" data-focusable onclick={() => showLink = !showLink}>Add from link</button><button class="control" data-focusable onclick={() => fileInput.click()}>Import file</button></div></div>
   <input bind:this={fileInput} type="file" accept=".json,application/json" class="hidden" onchange={fromFile} aria-label="Import theme package" />

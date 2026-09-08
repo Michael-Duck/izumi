@@ -2,6 +2,8 @@
 
 Settings → Themes opens the community catalog at [izumi-themes](https://github.com/nickEatsBread/izumi-themes). Users can browse, search, inspect a theme, preview it on their client, and install it. **Add from link** accepts a public HTTPS package or release descriptor, including GitHub file links. **Import file** accepts JSON packages and existing Theme Studio exports.
 
+The Theme Studio button inside Themes opens the live design editor. Themes is the single settings-menu entry for browsing and customizing themes; the editor remains directly searchable.
+
 The shipped appearance remains the default. Cinema demonstrates an optional top-ten rank treatment; Meridian replaces the hero composition and media cards; Ink hides the hero and uses wrapping rows. Installing a theme is an explicit choice. No appearance update is applied automatically.
 
 ## Theme API 1 coverage
