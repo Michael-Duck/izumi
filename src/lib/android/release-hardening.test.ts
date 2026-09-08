@@ -40,7 +40,11 @@ describe('Android release hardening', () => {
     }
     expect(verifyNative).toContain('ZIPALIGN" -c -P 16 -v 4')
     expect(verifyNative).toContain('alignment < 0x4000')
-    expect(release).toContain('needs: [create-release, build, flatpak, android, cleanup-release-signatures]')
+    const requiredJobs = release.match(/  publish-release:[\s\S]*?\n    needs: \[([^\]]+)\]/)?.[1]
+      .split(',').map(name => name.trim())
+    expect(requiredJobs).toEqual(expect.arrayContaining([
+      'create-release', 'build', 'flatpak', 'android', 'cleanup-release-signatures', 'worker-package',
+    ]))
   })
 
   it('builds the shipped player from the libass 0.17.5 source pin', () => {
