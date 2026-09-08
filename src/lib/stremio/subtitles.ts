@@ -193,3 +193,8 @@ export async function fetchAddonSubtitles(
     .filter((c) => !!c.url && (seen.has(c.url) ? false : (seen.add(c.url), true)))
     .map((c) => ({ url: c.url!, lang: c.lang, id: c.id }))
 }
+
+/** Copy enabled portable search configuration into the private TV resolver profile. */
+export function cloudSubtitleServices() {
+  return externalProviders().flatMap(provider => provider.cloudConfiguration ? [provider.cloudConfiguration] : [])
+}

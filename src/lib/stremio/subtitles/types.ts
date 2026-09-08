@@ -36,5 +36,6 @@ export interface SubtitleCandidate {
 
 export interface SubtitleProvider {
   id: SubProviderId
+  cloudConfiguration?: { kind: 'rest-v1'; base: string; apiKey: string; token?: string; expires?: number }
   search(q: SubQuery): Promise<SubtitleCandidate[]>   // best-effort, [] on failure
 }

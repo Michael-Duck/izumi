@@ -86,6 +86,9 @@ export interface CloudflareCompanionRequest {
 }
 
 export interface CloudflareResolverProfile {
+  subtitleServices?: Array<{ kind: 'rest-v1'; base: string; apiKey: string; token?: string; expires?: number }>
+  subtitleLang?: string
+  subtitleStyle?: Record<string, unknown>
   collections?: import('$lib/catalog/collections/model').HomeCollection[]
   household?: import('$lib/profiles/store').ProfileState
   enabled: boolean
@@ -111,7 +114,8 @@ export interface CloudflareResolverProfile {
   }
 }
 
-export interface CloudflareResolverProfileState extends Omit<CloudflareResolverProfile, 'debrid' | 'catalog'> {
+export interface CloudflareResolverProfileState extends Omit<CloudflareResolverProfile, 'debrid' | 'catalog' | 'subtitleServices'> {
+  subtitleServices?: Array<{ kind: 'rest-v1'; configured: boolean }>
   /** The Worker reports only whether a credential exists; it never echoes the secret. */
   debrid: { provider: string; configured: true } | null
   catalog?: Omit<NonNullable<CloudflareResolverProfile['catalog']>, 'tmdbToken'> & { tmdbConfigured?: boolean }

@@ -151,6 +151,6 @@ describe('Cloudflare-first companion catalogue', () => {
 
     expect(result.candidates[0]?.url).toBe('https://media.example/embedded.m3u8')
     expect(requested.some((url) => url.includes('/stream/'))).toBe(false)
-    expect(requested.some((url) => url.endsWith('/manifest.json'))).toBe(false)
+    expect(requested.some((url) => url.endsWith('/manifest.json'))).toBe(true)
   })
 })

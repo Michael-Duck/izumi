@@ -1,3 +1,5 @@
+import { get } from 'svelte/store'
+import { cloudSubtitleSession } from '$lib/settings/ui'
 import { phttp } from '$lib/net/http'
 import type { SubQuery, SubtitleCandidate, SubtitleProvider } from './types'
 
@@ -69,8 +71,17 @@ function toCandidate(d: OsData): SubtitleCandidate | null {
 }
 
 export function createOpenSubtitles(): SubtitleProvider {
+  const session = get(cloudSubtitleSession)
+  const base = new URL(OPEN_SUBS_BASE)
+  if (session.host) {
+    try {
+      const loginHost = new URL(session.host.includes('://') ? session.host : `https://${session.host}`)
+      if (loginHost.protocol === 'https:' && !loginHost.username && !loginHost.password) base.host = loginHost.host
+    } catch { /* Keep the standard service endpoint for malformed optional login metadata. */ }
+  }
   return {
     id: 'opensubtitles',
+    cloudConfiguration: { kind: 'rest-v1', base: base.toString(), apiKey: OPEN_SUBS_API_KEY, ...(session.token && session.expires > Date.now() ? { token: session.token, expires: session.expires } : {}) },
     async search(q: SubQuery): Promise<SubtitleCandidate[]> {
       const qs = osSearchParams(q)
       if (!qs.includes('imdb_id') && !qs.includes('moviehash=')) return []

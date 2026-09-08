@@ -458,6 +458,12 @@ export const enabledSubtitleProviders = derived(
     (p === 'jimaku' && !!$jimaku)),
 )
 
+/** Portable, expiring subtitle session used by the private TV resolver; excludes saved passwords. */
+export const cloudSubtitleSession = derived(
+  [openSubtitlesToken, openSubtitlesExpiry, openSubtitlesBaseUrl],
+  ([$token, $expires, $host]) => ({ token: $token, expires: $expires, host: $host }),
+)
+
 // --- Offline downloads ---
 /** Where downloaded episodes are written. Empty = app-data/downloads (resolved in Rust). */
 export const downloadDir = persisted<string>('download-dir', '')

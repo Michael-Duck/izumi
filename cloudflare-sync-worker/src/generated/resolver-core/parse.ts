@@ -44,6 +44,7 @@ export interface StremioStreamSubtitle {
   id?: string
   url: string
   lang?: string
+  title?: string
 }
 
 export interface Stream {

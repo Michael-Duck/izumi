@@ -58,6 +58,7 @@ export function normalizeStreamBehavior(stream: Stream): Stream {
     .map((subtitle) => ({
       id: typeof subtitle.id === 'string' ? subtitle.id : undefined,
       url: subtitle.url.trim(),
+      title: typeof subtitle.title === 'string' ? subtitle.title.trim().slice(0, 160) : undefined,
       lang: typeof subtitle.lang === 'string' && subtitle.lang.trim() ? subtitle.lang.trim() : undefined,
     }))
   const countryWhitelist = (Array.isArray(stream.behaviorHints?.countryWhitelist)

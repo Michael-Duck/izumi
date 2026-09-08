@@ -1,5 +1,6 @@
 // @ts-nocheck -- Wrangler validates this Worker module; the root app checker cannot model its
 // cross-package TypeScript import without changing the browser application's compiler contract.
+import { searchSubtitleServices } from './subtitle-services.js'
 import { normalizeHousehold } from './profiles.js'
 import { createTvSourceLookup, tvSourceRequests, verifyTvSourceLookup } from './tv-source-lookup.js'
 import {
@@ -8,6 +9,8 @@ import {
   dedupeStreams,
   describe,
   isNotice,
+  isSupplementalVideo,
+  isTvVideoCompatible,
   normalizeStreamBehavior,
   pickCandidates,
 } from './generated/resolver-core/resolver-core.ts'
@@ -86,6 +89,15 @@ export function normalizeAddonBase(value, workerOrigin = '') {
   return url.toString().replace(/\/$/, '')
 }
 
+function normalizeSubtitleStyle(style) {
+  const bounded = (value, min, max) => Number.isFinite(Number(value)) ? Math.min(max, Math.max(min, Number(value))) : undefined
+  const color = value => /^#[0-9a-f]{6}$/i.test(value ?? '') ? value : undefined
+  return { enabled: style.enabled === true, scope: style.scope === 'all' ? 'all' : 'dialogue',
+    font: cleanText(style.font, 80), bold: style.bold === true, fontSize: bounded(style.fontSize, 18, 100),
+    textColor: color(style.textColor), borderColor: color(style.borderColor), borderSize: bounded(style.borderSize, 0, 8),
+    shadow: bounded(style.shadow, 0, 8), position: bounded(style.position, 0, 100) }
+}
+
 export function normalizeResolverProfile(value, workerOrigin = '') {
   if (!value || typeof value !== 'object') throw new Error('Resolver profile must be a JSON object.')
   const input = value
@@ -125,6 +137,16 @@ export function normalizeResolverProfile(value, workerOrigin = '') {
     ...(Array.isArray(input.collections) ? { collections: input.collections } : {}),
     ...(input.household ? { household: normalizeHousehold(input.household) } : {}),
     addons,
+    ...(Array.isArray(input.subtitleServices) ? { subtitleServices: input.subtitleServices.slice(0, 3).map(service => {
+      if (service?.kind !== 'rest-v1') throw new Error('Invalid subtitle service.')
+      const base = normalizeAddonBase(service.base, workerOrigin)
+      const apiKey = cleanText(service.apiKey, 512)
+      if (!apiKey || /[\r\n]/.test(apiKey)) throw new Error('Invalid subtitle service credential.')
+      const token = cleanText(service.token, 4096)
+      return { kind: 'rest-v1', base, apiKey, ...(token && !/[\r\n]/.test(token) && Number.isFinite(service.expires) ? { token, expires: service.expires } : {}) }
+    }) } : {}),
+    ...(typeof input.subtitleLang === 'string' ? { subtitleLang: input.subtitleLang.slice(0, 16) } : {}),
+    ...(input.subtitleStyle && typeof input.subtitleStyle === 'object' ? { subtitleStyle: normalizeSubtitleStyle(input.subtitleStyle) } : {}),
     quality,
     sort,
     audioLang,
@@ -146,6 +168,7 @@ export function publicResolverProfile(profileValue, workerOrigin = '') {
   const profile = normalizeResolverProfile(profileValue, workerOrigin)
   return {
     ...profile,
+    ...(profile.subtitleServices ? { subtitleServices: profile.subtitleServices.map(service => ({ kind: service.kind, configured: true })) } : {}),
     debrid: profile.debrid
       ? { provider: profile.debrid.provider, configured: true }
       : null,
@@ -189,7 +212,11 @@ export function normalizeResolveRequest(value) {
     && /^[A-Za-z0-9._-]{1,80}$/.test(input.nativeType)
     ? input.nativeType
     : undefined
-  return { ref: { provider, type, id }, episode, season, streamType, nativeType, streamIds }
+  const title = cleanText(input.title, 240)
+  const videoCapabilities = input.videoCapabilities && typeof input.videoCapabilities === 'object'
+    ? Object.fromEntries(['hdr', 'uhd', 'av1'].flatMap(key => typeof input.videoCapabilities[key] === 'boolean' ? [[key, input.videoCapabilities[key]]] : [])) : undefined
+  return { ref: { provider, type, id }, episode, season, streamType, nativeType, streamIds,
+    ...(title ? { title } : {}), ...(videoCapabilities ? { videoCapabilities } : {}) }
 }
 
 function addonEndpoint(base, suffix) {
@@ -562,7 +589,7 @@ function sanitizeStream(value, allowPrivate = false) {
   const subtitles = Array.isArray(value.subtitles) ? value.subtitles.slice(0, 8).flatMap((track) => {
     if (!track || typeof track !== 'object') return []
     const subtitleUrl = cleanUrl(track.url)
-    return subtitleUrl ? [{ id: cleanText(track.id, 80), url: subtitleUrl, lang: cleanText(track.lang, 24) }] : []
+    return subtitleUrl ? [{ id: cleanText(track.id, 80), url: subtitleUrl, title: cleanText(track.title ?? track.name, 160), lang: cleanText(track.lang, 24) }] : []
   }) : []
   const sources = Array.isArray(value.sources) ? value.sources.slice(0, 16).flatMap((source) => (
     typeof source === 'string' && source.length <= 1_024 && /^tracker:(?:https?|udp):\/\//i.test(source)
@@ -624,7 +651,7 @@ async function resolveConfiguredDebrid(stream, profile, want, budgetMs = 22_000)
       pollMs: 1_000,
       signal: controller.signal,
       priority: true,
-    })
+    }).catch(() => [])
     const subtitles = sidecars.slice(0, 8).flatMap((track, index) => {
       const sidecarUrl = cleanUrl(track?.url)
       if (!sidecarUrl) return []
@@ -638,7 +665,7 @@ async function resolveConfiguredDebrid(stream, profile, want, budgetMs = 22_000)
     return {
       id: `${stream.__candidate?.routeId ?? stream.infoHash}-${provider}-direct`,
       url,
-      title: info.label.slice(0, 500),
+      title: info.label.slice(0, 240),
       quality: info.quality,
       badges: [...new Set([...info.badges, name])].slice(0, 10),
       source: name,
@@ -694,7 +721,7 @@ function directCandidate(stream, profile) {
   return {
     id: stream.__candidate?.routeId ?? `candidate-${Math.random().toString(36).slice(2)}`,
     url,
-    title: info.label.slice(0, 500),
+    title: info.label.slice(0, 240),
     quality: info.quality,
     badges: info.badges.slice(0, 10),
     source: cleanText(info.addon ?? stream.__origin?.name, 120),
@@ -719,11 +746,27 @@ async function mapLimit(values, limit, operation) {
   return output
 }
 
-async function resolveAddon(base, ids, type, fetcher, allowPrivate = false, addonIndex = 0, deadline = Infinity) {
+async function resolveAddon(base, ids, type, fetcher, allowPrivate = false, addonIndex = 0, deadline = Infinity, subtitlesOnly = false) {
   const failures = []
   const failed = (message) => failures.push(`A configured source ${message}`)
   const manifest = await fetchJson(fetcher, addonEndpoint(base, '/manifest.json'), Math.min(MANIFEST_TIMEOUT_MS, deadline - Date.now()), failed)
-  const ask = ids.filter((id) => acceptsStreamId(manifest, type, id))
+  const subtitleResources = Array.isArray(manifest?.resources) ? manifest.resources : []
+  const subtitleIds = ids.filter(id => subtitleResources.some(resource => {
+    const spec = typeof resource === 'string' ? { name: resource } : resource
+    if (!spec || typeof spec !== 'object') return false
+    const types = spec.types ?? manifest.types
+    const prefixes = spec.idPrefixes ?? manifest.idPrefixes
+    return spec.name === 'subtitles' && (!Array.isArray(types) || !types.length || types.includes(type))
+      && (!Array.isArray(prefixes) || !prefixes.length || prefixes.some(prefix => typeof prefix === 'string' && id.startsWith(prefix)))
+  })).slice(0, 2)
+  const subtitlesPromise = mapLimit(subtitleIds, 2, async id => {
+    const result = await fetchJson(fetcher, addonEndpoint(base, `/subtitles/${type}/${encodeURIComponent(id)}.json`), Math.min(5_000, deadline - Date.now()))
+    return (Array.isArray(result?.subtitles) ? result.subtitles : []).slice(0, 32).flatMap(track => {
+      const url = cleanUrl(track?.url)
+      return url ? [{ url, title: cleanText(track.title ?? track.name, 160), lang: cleanText(track.lang, 24) }] : []
+    })
+  })
+  const ask = subtitlesOnly ? [] : ids.filter((id) => acceptsStreamId(manifest, type, id))
   const responses = await mapLimit(ask, 2, async (id) => {
     const result = await fetchJson(fetcher, addonEndpoint(base, `/stream/${type}/${encodeURIComponent(id)}.json`), Math.min(STREAM_TIMEOUT_MS, deadline - Date.now()), failed)
     return Array.isArray(result?.streams) ? result.streams.slice(0, MAX_STREAMS_PER_ADDON) : []
@@ -739,7 +782,7 @@ async function resolveAddon(base, ids, type, fetcher, allowPrivate = false, addo
       __evidence: { upstreamRank, requestId: ask[requestIndex] },
     })]
   }))
-  return { streams, failures, tvRequests: failures.length ? tvSourceRequests(base, ask, type, addonIndex) : [] }
+  return { streams, subtitles: (await subtitlesPromise).flat(), failures, tvRequests: failures.length ? tvSourceRequests(base, ask, type, addonIndex) : [] }
 }
 
 async function embeddedStremioStreams(request, bases, plan, fetcher, allowPrivate = false) {
@@ -787,6 +830,7 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
   if (!profile.addons.length) throw new Error('No cloud resolver add-ons are configured.')
   const plan = options.tvContinuation?.plan ?? await streamRequestPlan(request, fetcher, profile)
   if (!plan.ids.length) return { candidates: [], selectedId: null, queriedIds: [], rejected: 0 }
+  const serviceSubtitlesPromise = searchSubtitleServices(profile, request, plan, fetcher).catch(() => [])
   const skipSegmentsPromise = resolveSkipSegments(plan, request, fetcher).catch(() => [])
   // IMDb/TMDB identifiers belong to the title, not the catalogue that displayed it.
   // Keep custom namespaces scoped, but let every configured stream add-on answer global IDs.
@@ -808,7 +852,7 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
     : embedded.declared
     ? [{ streams: embedded.streams, failures: [] }]
     : await mapLimit(resolverAddons, 3, (base, index) => resolveAddon(base, plan.ids, resourceType, fetcher, profile.allowPrivateNetworkSources, index, sourceDeadline))
-  const normalized = dedupeStreams(batches.flatMap((batch) => batch.streams).filter((stream) => !isNotice(stream)))
+  const normalized = dedupeStreams(batches.flatMap((batch) => batch.streams).filter((stream) => !isNotice(stream) && !isSupplementalVideo(stream, request.title) && isTvVideoCompatible(stream, request.videoCapabilities)))
   // TV lookup returns plain torrent hashes. Check the configured provider before choosing a
   // release so a cached result is not stuck behind several full torrent downloads.
   if (profile.debrid && cacheCheckMode(profile.debrid.provider) === 'native'
@@ -830,11 +874,10 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
   let rejected = 0
   const attemptedDebridHashes = new Set()
   let debridAttempts = 0
-  let debridResolved = false
   for (const stream of ordered) {
     const candidate = directCandidate(stream, profile)
     if (candidate) candidates.push({ ...candidate, delivery: 'direct' })
-    else if (!debridResolved && debridAttempts < 3 && profile.debrid && stream.infoHash
+    else if (debridAttempts < 3 && profile.debrid && stream.infoHash
       && !attemptedDebridHashes.has(stream.infoHash)) {
       attemptedDebridHashes.add(stream.infoHash)
       debridAttempts += 1
@@ -844,7 +887,6 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
         const resolved = await resolveConfiguredDebrid(stream, profile, plan.want, Math.min(7_500, remaining))
         if (resolved) {
           candidates.push(resolved)
-          debridResolved = true
         }
       } catch (error) {
         rejected += 1
@@ -855,8 +897,22 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
     if (candidates.length >= MAX_RESPONSE_CANDIDATES) break
   }
   candidates.splice(MAX_RESPONSE_CANDIDATES)
+  // Sidecars remain first; independently installed subtitle add-ons fill the remaining slots.
+  const subtitleBatches = !options.tvContinuation && embedded.declared
+    ? await mapLimit(profile.addons, 3, (base, index) => resolveAddon(base, plan.ids, resourceType, fetcher, false, index, Date.now() + 5_000, true)) : []
+  const addonSubtitles = [...batches, ...subtitleBatches].flatMap(batch => batch.subtitles ?? []).concat(plan.subtitleTracks ?? [], await serviceSubtitlesPromise)
+  for (const candidate of candidates) {
+    const seen = new Set()
+    candidate.subtitles = [...candidate.subtitles, ...addonSubtitles].filter(track => {
+      const key = track.url ?? JSON.stringify(track.download)
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    }).slice(0, 40)
+  }
   const tvSourceLookup = !candidates.length && requestValue.tvSourceLookup === 1 && !options.tvContinuation && options.tvLookupContext
-    ? await createTvSourceLookup(profile, request, plan, batches.flatMap((batch) => batch.tvRequests ?? []), options.tvLookupContext)
+    ? await createTvSourceLookup(profile, request, { ...plan, subtitleTracks: addonSubtitles.filter((track, index, tracks) =>
+      encoder.encode(JSON.stringify(tracks.slice(0, index + 1))).length < 8_000) }, batches.flatMap((batch) => batch.tvRequests ?? []), options.tvLookupContext)
     : undefined
   if (!candidates.length && !failures.length) {
     failures.push(!normalized.length
@@ -872,6 +928,7 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
     rejected,
     failures: [...new Set(failures)].slice(0, 3),
     skipSegments: await skipSegmentsPromise,
+    ...(profile.subtitleStyle ? { subtitleStyle: profile.subtitleStyle } : {}),
     ...(tvSourceLookup ? { tvSourceLookup } : {}),
   }
 }

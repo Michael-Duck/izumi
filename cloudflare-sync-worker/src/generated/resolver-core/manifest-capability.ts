@@ -45,7 +45,7 @@ export function acceptsStreamId(manifest: AddonManifest | null, type: string, id
   for (const resource of resources) {
     if (typeof resource === 'string') {
       if (resource === 'stream' && matches(manifest?.types, manifest?.idPrefixes)) return true
-    } else if (resource.name === 'stream'
+    } else if (resource && resource.name === 'stream'
       && matches(resource.types ?? manifest?.types, resource.idPrefixes ?? manifest?.idPrefixes)) {
       return true
     }

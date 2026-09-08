@@ -1,3 +1,5 @@
+import { resolveSubtitleDownload } from './subtitle-services.js'
+import { subtitleTicket, downloadSubtitle } from './subtitle-delivery.js'
 import webpush from 'web-push'
 import { accountScope, accountServices, accountSources, accountMedia, withAccount, readAccounts, manageAccount, pullAccount, pullAccountCollections, pushAccountProgress } from './accounts.js'
 import { collectionOptions, collectionSnapshot, normalizeCollections } from './collection-catalog.js'
@@ -820,6 +822,19 @@ async function resolveForTv(request, env, pairingId) {
       if (!viewerAllows(metadata, viewer)) throw new Error('This title is above this profile’s viewing limit.')
     }
     const result = await resolveDirectSources(profile, input, fetch, { tvLookupContext, tvContinuation })
+    const ownerKey = await env.DB.prepare('SELECT token_hash FROM devices WHERE id = ?').bind(String(pairing.owner_device_id)).first()
+    if (ownerKey?.token_hash) {
+      const tickets = new Map()
+      for (const candidate of result.candidates) for (const track of candidate.subtitles) {
+        try {
+          const target = track.download ?? track.url
+          const key = JSON.stringify(target)
+          if (!tickets.has(key)) tickets.set(key, await subtitleTicket(target, pairingId, ownerKey.token_hash))
+          track.url = `${new URL(request.url).origin}/v1/companion/pairings/${pairingId}/subtitles?ticket=${tickets.get(key)}`
+          delete track.download
+        } catch { /* Direct delivery remains available for unsupported addresses. */ }
+      }
+    }
     return json({
       ok: true,
       ...result,
@@ -1070,6 +1085,13 @@ export default {
       const companionStatusMatch = url.pathname.match(/^\/v1\/companion\/pairings\/([A-Za-z0-9_-]{16,80})\/requests\/([A-Za-z0-9_-]{16,80})\/status$/)
       if (companionStatusMatch && (request.method === 'GET' || request.method === 'POST')) {
         return await companionRequestStatus(request, env, companionStatusMatch[1], companionStatusMatch[2])
+      }
+      const subtitleMatch = url.pathname.match(/^\/v1\/companion\/pairings\/([A-Za-z0-9_-]{16,80})\/subtitles$/)
+      if (subtitleMatch && request.method === 'GET') {
+        const owner = await env.DB.prepare('SELECT d.token_hash, r.profile_json FROM devices d JOIN companion_pairings p ON p.owner_device_id = d.id LEFT JOIN resolver_profiles r ON r.owner_device_id = d.id WHERE p.pairing_id = ?').bind(subtitleMatch[1]).first()
+        if (!owner?.token_hash) return json({ error: 'Subtitle link is no longer available.' }, 401)
+        try { return await downloadSubtitle(url.searchParams.get('ticket'), subtitleMatch[1], owner.token_hash, fetch, Date.now(), target => resolveSubtitleDownload(target, JSON.parse(owner.profile_json || '{}').subtitleServices)) }
+        catch { return json({ error: 'The subtitle could not be loaded. Reopen the title or choose another track.' }, 409) }
       }
       const companionResolveMatch = url.pathname.match(/^\/v1\/companion\/pairings\/([A-Za-z0-9_-]{16,80})\/resolve$/)
       const accountMatch = url.pathname.match(/^\/v1\/companion\/pairings\/([A-Za-z0-9_-]{16,80})\/accounts$/)

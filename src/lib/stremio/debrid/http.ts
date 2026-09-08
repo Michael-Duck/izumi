@@ -5,7 +5,7 @@ import type { DebridInfo, ResolveOpts } from './types'
 // client (bypasses webview CORS, keeps TLS warm). Never log the credential.
 
 export const VIDEO = /\.(?:mkv|mp4|avi|mov|webm|flv|wmv|m4v|ts)$/i
-export const JUNK = /\b(?:sample|trailer|extras?|ncop|nced|preview|pv)\b/i
+export const JUNK = /\b(?:sample|trailer|teaser|prologue|featurette|promo|extras?|ncop|nced|preview|pv)\b/i
 
 const ARCHIVE_RE = /\.(?:rar|zip|7z|tar|gz|bz2|r\d{2,}|part\d+)$/i
 

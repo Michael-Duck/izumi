@@ -13,6 +13,7 @@ export {
   type AddonResource,
 } from './manifest-capability'
 export { dedupeStreams } from './dedupe'
+export { isSupplementalVideo, isTvVideoCompatible } from './playback-suitability'
 export { normalizeStreamBehavior, safeProxyHeaders } from './stream-behavior'
 export {
   describe,

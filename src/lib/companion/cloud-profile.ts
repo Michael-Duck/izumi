@@ -1,7 +1,13 @@
+import { cloudSubtitleServices } from '$lib/stremio/subtitles'
 import { get, type Readable } from 'svelte/store'
 import { profileHousehold } from '$lib/profiles/store'
 import { catalogScreen, enabledCatalogScreens, tmdbReadToken } from '$lib/settings/catalog'
-import { debridKey, debridProvider, hideSpoilers, preferredAudioLang, preferredQuality, preferredStreamSort, showAdult } from '$lib/settings/ui'
+import {
+  debridKey, debridProvider, hideSpoilers, preferredAudioLang, preferredQuality, preferredStreamSort, showAdult,
+  enabledSubtitleProviders, preferredSubLang, cloudSubtitleSession, subtitleStyleEnabled, subtitleOverrideScope,
+  subtitleFont, subtitleBold, subtitleFontSize, subtitleTextColor, subtitleBorderColor, subtitleBorderSize,
+  subtitleShadow, subtitlePosition,
+} from '$lib/settings/ui'
 import { enabledAddonUrls } from '$lib/stremio/sources'
 import { providerMeta } from '$lib/stremio/debrid'
 import type { CloudflareResolverProfile } from '$lib/sync/cloudflare'
@@ -17,6 +23,13 @@ export function currentCloudflareCompanionProfile(connectedDeviceFallback: boole
     collections: get(homeCollections),
     household: get(profileHousehold),
     addons: [...get(enabledAddonUrls)],
+    subtitleServices: cloudSubtitleServices(),
+    subtitleLang: get(preferredSubLang),
+    subtitleStyle: {
+      enabled: get(subtitleStyleEnabled), scope: get(subtitleOverrideScope), font: get(subtitleFont),
+      bold: get(subtitleBold), fontSize: get(subtitleFontSize), textColor: get(subtitleTextColor),
+      borderColor: get(subtitleBorderColor), borderSize: get(subtitleBorderSize), shadow: get(subtitleShadow), position: get(subtitlePosition),
+    },
     quality: get(preferredQuality),
     sort: get(preferredStreamSort),
     audioLang: get(preferredAudioLang),
@@ -36,6 +49,7 @@ export function currentCloudflareCompanionProfile(connectedDeviceFallback: boole
 /** Debounce all source/catalog settings into one free-tier-friendly profile update. */
 export function watchCloudflareCompanionProfile(onChange: () => void): () => void {
   const stores: Readable<unknown>[] = [
+    enabledSubtitleProviders, preferredSubLang, cloudSubtitleSession, subtitleStyleEnabled, subtitleOverrideScope, subtitleFont, subtitleBold, subtitleFontSize, subtitleTextColor, subtitleBorderColor, subtitleBorderSize, subtitleShadow, subtitlePosition,
     enabledAddonUrls, preferredQuality, preferredStreamSort, preferredAudioLang,
     debridProvider, debridKey, enabledCatalogScreens, catalogScreen, tmdbReadToken,
     showAdult, hideSpoilers,
