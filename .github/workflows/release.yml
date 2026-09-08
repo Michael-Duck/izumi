@@ -516,14 +516,22 @@ jobs:
           cname: flatpak.izumi.watch
 
       - name: Attach the Flatpak to the release
-        uses: softprops/action-gh-release@v3
+        uses: actions/github-script@v9
         with:
-          tag_name: ${{ steps.meta.outputs.tag }}
-          draft: true
-          files: |
-            izumi-*.flatpak
-            izumi-*.flatpakref
-          fail_on_unmatched_files: true
+          script: |
+            const fs = require('node:fs');
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const release_id = ${{ needs.create-release.outputs.release_id }};
+            const release = (await github.rest.repos.getRelease({ owner, repo, release_id })).data;
+            if (!release.draft) throw new Error('Only attach build outputs to the draft release.');
+            const files = fs.readdirSync('.').filter(name => /^izumi-.*\.(flatpak|flatpakref)$/.test(name));
+            if (files.length !== 2) throw new Error('Expected the signed Flatpak bundle and installation descriptor.');
+            for (const name of files) {
+              const previous = release.assets.find(asset => asset.name === name);
+              if (previous) await github.rest.repos.deleteReleaseAsset({ owner, repo, asset_id: previous.id });
+              await github.rest.repos.uploadReleaseAsset({ owner, repo, release_id, name,
+                data: fs.readFileSync(name), headers: { 'content-type': 'application/octet-stream' } });
+            }
 
   # Android APK (arm64), signed with the release keystore so the in-app self-updater can
   # install it over a previous build. Runs independently of `build` (a hiccup here never

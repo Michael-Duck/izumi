@@ -51,6 +51,6 @@ describe('Flatpak SDK deps', () => {
     expect(workflow).toContain('--default-branch=master')
     expect(workflow).toContain('--redirect-url="https://flatpak.izumi.watch/stable/"')
     expect(workflow).toContain("if: steps.meta.outputs.branch == 'stable'")
-    expect(workflow).toContain('izumi-*.flatpakref')
+    expect(workflow).toContain('"izumi-${{ steps.meta.outputs.tag }}-steamdeck.flatpakref"')
   })
 })
