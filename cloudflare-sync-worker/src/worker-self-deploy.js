@@ -28,7 +28,7 @@ export async function downloadText(fetcher, url, init = {}, maximum = 16_384) {
   const timeout = setTimeout(() => controller.abort(), 20_000)
   try {
     const response = await fetcher(url, { ...init, signal: controller.signal })
-    if (!response.ok) throw new Error('Update service unavailable.')
+    if (!response.ok) { await response.body?.cancel(); throw new Error('Update service unavailable.') }
     // Bound streaming reads as well as Content-Length; do not buffer an unbounded response.
     const reader = response.body?.getReader()
     if (!reader) throw new Error('Empty update response.')
@@ -68,7 +68,8 @@ export async function deployWorkerRelease(auth, manifest, fetcher) {
   const account = `https://api.cloudflare.com/client/v4/accounts/${auth.accountId}`
   const api = async (path, init) => {
     const value = JSON.parse(await downloadText(fetcher, account + path, {
-      ...init, redirect: 'error', headers: { ...init.headers, Authorization: `Bearer ${auth.apiToken}` },
+      // Workers supports manual redirects; downloadText rejects every non-success status.
+      ...init, redirect: 'manual', headers: { ...init.headers, Authorization: `Bearer ${auth.apiToken}` },
     }, 256 * 1024))
     if (value.success !== true) throw new Error('Worker deployment failed.')
     return value.result

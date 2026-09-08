@@ -89,7 +89,7 @@ export async function runWorkerUpdate(env, version, { automatic = false, fetcher
       if (access) await deployWorkerRelease(access, manifest, fetcher)
       else {
         // Preserve installations that already use a private deploy hook.
-        const result = await fetchJson(fetcher, env.WORKER_DEPLOY_HOOK, { method: 'POST', redirect: 'error' })
+        const result = await fetchJson(fetcher, env.WORKER_DEPLOY_HOOK, { method: 'POST', redirect: 'manual' })
         if (result.success !== true || typeof result.result?.build_uuid !== 'string') throw new Error('Build was not accepted.')
       }
     } else next.triggeredAt = 0

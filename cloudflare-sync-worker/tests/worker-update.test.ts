@@ -51,7 +51,7 @@ describe('private Worker updates', () => {
     const result = await response.json()
     expect(result).toMatchObject({ configured: true, automatic: true, phase: 'queued', latestVersion: '9.0.0' })
     expect(JSON.stringify(result)).not.toContain(hook)
-    expect(fetcher).toHaveBeenLastCalledWith(hook, expect.objectContaining({ method: 'POST', redirect: 'error' }))
+    expect(fetcher).toHaveBeenLastCalledWith(hook, expect.objectContaining({ method: 'POST', redirect: 'manual' }))
     expect(fetcher.mock.calls[1][1]).not.toHaveProperty('headers')
   })
   it('coalesces concurrent requests across separate invocations and waits for the installed version', async () => {
@@ -114,7 +114,7 @@ describe('automatic deployment from the official release feed', () => {
       if (url === UPDATE_MANIFEST) return Response.json(descriptor)
       if (url.endsWith('/worker-package.json')) return new Response(text)
       expect(url).toMatch(new RegExp(`^https://api\\.cloudflare\\.com/client/v4/accounts/${access.accountId}/`))
-      expect(init.redirect).toBe('error')
+      expect(init.redirect).toBe('manual')
       expect(new Headers(init.headers).get('Authorization')).toBe(`Bearer ${access.apiToken}`)
       if (url.endsWith('/query')) {
         const source = JSON.parse(init.body as string).sql
