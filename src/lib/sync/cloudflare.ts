@@ -243,7 +243,8 @@ async function workerRequest<T>(
 
 export async function getCloudflareWorkerStatus(endpoint: string): Promise<WorkerStatus> {
   const status = await workerRequest<WorkerStatus>(endpoint, '/v1/status')
-  if (status.app !== 'izumi-sync' || !Number.isInteger(status.protocol)) {
+  if (status.app !== 'izumi-sync' || !Number.isInteger(status.protocol)
+    || typeof status.version !== 'string' || !/^\d+\.\d+\.\d+$/.test(status.version)) {
     throw new Error('This URL is not an Izumi sync Worker.')
   }
   if (status.protocol !== CLOUDFLARE_WORKER_PROTOCOL) {
@@ -521,12 +522,7 @@ export async function getCloudflareSyncStatus(): Promise<SyncStatus> {
   try {
     const status = await getCloudflareWorkerStatus(config.endpoint)
     await workerRequest<{ deviceId: string }>(config.endpoint, '/v1/devices/me', {}, config.deviceToken)
-    if (status.version !== config.workerVersion) {
-      cloudflareSyncConfig.set({ ...config, workerVersion: status.version })
-    }
-    cloudflareWorkerUpdateAvailable.set(compareVersions(status.version, CLOUDFLARE_WORKER_VERSION) < 0
-      ? CLOUDFLARE_WORKER_VERSION
-      : '')
+    applyCloudflareWorkerStatus(config, status)
     return { state: 'ready', endpointId: config.deviceId, paired: true }
   } catch (error) {
     return { state: 'failed', error: error instanceof Error ? error.message : String(error) }
@@ -890,18 +886,33 @@ function compareVersions(left: string, right: string): number {
   return 0
 }
 
-export async function checkCloudflareWorkerUpdate(): Promise<string> {
+/** Ignore replies for a connection that was replaced while its status request was in flight. */
+function applyCloudflareWorkerStatus(config: CloudflareSyncConfig, status: WorkerStatus): string {
+  const current = get(cloudflareSyncConfig)
+  if (current.endpoint !== config.endpoint || current.deviceId !== config.deviceId
+    || current.deviceToken !== config.deviceToken || current.groupKey !== config.groupKey) return ''
+  const available = compareVersions(status.version, CLOUDFLARE_WORKER_VERSION) < 0
+    ? CLOUDFLARE_WORKER_VERSION
+    : ''
+  cloudflareWorkerUpdateAvailable.set(available)
+  if (status.version !== current.workerVersion) {
+    cloudflareSyncConfig.set({ ...current, workerVersion: status.version })
+  }
+  return available
+}
+
+export async function checkCloudflareWorkerUpdate(options: { throwOnError?: boolean } = {}): Promise<string> {
   const config = get(cloudflareSyncConfig)
-  if (!configReady(config)) return ''
+  if (!configReady(config)) {
+    cloudflareWorkerUpdateAvailable.set('')
+    if (options.throwOnError) throw new Error('Connect this device to a Worker first.')
+    return ''
+  }
   try {
     const status = await getCloudflareWorkerStatus(config.endpoint)
-    const available = compareVersions(status.version, CLOUDFLARE_WORKER_VERSION) < 0
-      ? CLOUDFLARE_WORKER_VERSION
-      : ''
-    cloudflareWorkerUpdateAvailable.set(available)
-    if (status.version !== config.workerVersion) cloudflareSyncConfig.set({ ...config, workerVersion: status.version })
-    return available
-  } catch {
+    return applyCloudflareWorkerStatus(config, status)
+  } catch (error) {
+    if (options.throwOnError) throw error
     return ''
   }
 }

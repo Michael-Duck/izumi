@@ -41,8 +41,15 @@ uploads leave the last complete snapshot readable. Unreferenced chunks expire af
 when another upload runs; the active snapshot is retained. The Worker bounds staged ciphertext
 to 96 MiB per device/category. Chunk contents and manifests remain end-to-end encrypted.
 
-Izumi checks the Worker's public version automatically. Claiming a temporary deployment does not
-give Izumi permanent access to the Cloudflare account. To update a Worker created directly by Izumi,
+Izumi checks the Worker's public version 20 seconds after startup and every six hours while the app
+is open, comparing it with the Worker version bundled in the installed app. Install a newer Izumi
+release to receive a newer bundled Worker. Checks do not install updates automatically.
+Settings → Device sync → Sync & devices also shows an **Update Worker** button whenever a Worker
+is linked, including while sync is off. It checks immediately and shows the installation steps when
+an update is available, or confirms the installed Worker is current for this app version.
+
+Claiming a temporary deployment does not give Izumi permanent access to the Cloudflare account.
+To update a Worker created directly by Izumi,
 the owner creates and pastes a new pre-scoped setup token; Izumi updates the Worker in place while
 preserving its D1 database and device links. A manual or Git-based deployment must be updated through
 its original deployment method.

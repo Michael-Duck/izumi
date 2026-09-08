@@ -109,6 +109,7 @@
   let cloudflareTermsAccepted = $state(false)
   let cloudflarePreview = $state<CloudflarePreview | null>(null)
   let cloudflareInvite = $state('')
+  let cloudflareUpdatePanel = $state<HTMLElement>()
   let tvPairingCode = $state('')
   let confirmTvForget = $state('')
   let cloudResolverEnabled = $state(false)
@@ -440,6 +441,19 @@
     })
   }
 
+  function openCloudflareWorkerUpdate() {
+    void action('worker-check', async () => {
+      const available = await checkCloudflareWorkerUpdate({ throwOnError: true })
+      if (!available) {
+        showMessage('Your Worker is up to date with this version of Izumi.')
+        return
+      }
+      await tick()
+      cloudflareUpdatePanel?.focus({ preventScroll: true })
+      cloudflareUpdatePanel?.scrollIntoView({ block: 'nearest', behavior: 'instant' })
+    })
+  }
+
   function updateCloudflareDeployment() {
     const deployment = $cloudflareSyncConfig.deployment
     if (!deployment || !cloudflareApiToken) return
@@ -458,7 +472,9 @@
         throw new Error('Your workers.dev account address changed. Reconnect devices using the new Worker URL.')
       }
       cloudflareApiToken = ''
-      await checkCloudflareWorkerUpdate()
+      if (await checkCloudflareWorkerUpdate({ throwOnError: true })) {
+        throw new Error('The Worker update is still becoming available. Wait a moment, then check its version again.')
+      }
       showMessage('Your private Worker is up to date. The Cloudflare token was not saved.')
       h.success()
     })
@@ -821,6 +837,55 @@
 
   </details>
 
+  {#if $cloudflareSyncConfig.endpoint && $cloudflareSyncConfig.deviceToken}
+    <section class="mb-5 max-w-2xl rounded-xl border border-border p-4" aria-labelledby="worker-updates-title">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="min-w-0">
+          <h3 id="worker-updates-title" class="font-black">Worker updates</h3>
+          <p class="mt-1 text-xs text-muted-foreground">Check for the Worker included with this version of Izumi.</p>
+          {#if $cloudflareSyncConfig.workerVersion}
+            <p class="mt-1 text-xs text-muted-foreground">Installed version {$cloudflareSyncConfig.workerVersion}</p>
+          {/if}
+        </div>
+        <button type="button" data-focusable disabled={!!busy} onclick={() => { h.impact(); openCloudflareWorkerUpdate() }} class="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-lg bg-secondary px-3 py-2 text-sm font-bold disabled:opacity-50">
+          <RefreshCw size={16} class={busy === 'worker-check' ? 'animate-spin' : ''} />
+          {busy === 'worker-check' ? 'Checking…' : 'Update Worker'}
+        </button>
+      </div>
+      {#if $cloudflareWorkerUpdateAvailable}
+        <section bind:this={cloudflareUpdatePanel} tabindex="-1" aria-labelledby="worker-update-available-title" class="mt-4 border-t border-border/70 pt-4">
+          <h4 id="worker-update-available-title" class="font-black text-amber-300">Worker update {$cloudflareWorkerUpdateAvailable} is available</h4>
+          {#if $cloudflareSyncConfig.deployment}
+            <p class="mt-1 text-xs leading-5 text-muted-foreground">Create another temporary setup token and Izumi can update the Worker directly. Your D1 data and device links stay in place.</p>
+            <div class="mt-3 flex flex-wrap gap-2">
+              <button type="button" data-focusable onclick={() => openCloudflareTokenSetup()} class="inline-flex min-h-10 items-center gap-2 rounded-lg bg-secondary px-3 py-2 text-sm font-bold"><ExternalLink size={15} /> Create update token</button>
+              <button type="button" data-focusable onclick={() => openUrl(CLOUDFLARE_TOKEN_MANAGE_URL)} class="min-h-10 rounded-lg bg-secondary px-3 py-2 text-sm font-bold">Manage tokens</button>
+            </div>
+            <input
+              type="password"
+              data-focusable
+              value={cloudflareApiToken}
+              oninput={updateCloudflareToken}
+              autocomplete="off"
+              autocapitalize="off"
+              spellcheck="false"
+              aria-label="Temporary Cloudflare update token"
+              placeholder="Paste temporary Cloudflare token"
+              class="mt-3 w-full rounded-lg bg-input px-3 py-2.5 font-mono text-base sm:text-sm"
+            />
+            <button type="button" data-focusable disabled={!!busy || !cloudflareApiToken} onclick={() => { h.impact(); updateCloudflareDeployment() }} class="mt-2 inline-flex min-h-10 items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-bold text-primary-foreground disabled:opacity-50">
+              {#if busy === 'cloudflare-update'}<LoaderCircle size={16} class="animate-spin" />{/if}
+              {busy === 'cloudflare-update' ? 'Updating Worker…' : 'Install Worker update'}
+            </button>
+          {:else}
+            <p class="mt-1 text-xs leading-5 text-muted-foreground">Update from the device that created this Worker, or follow its original deployment method.</p>
+            <button type="button" data-focusable onclick={() => openUrl(CLOUDFLARE_UPDATE_GUIDE)} class="mt-2 inline-flex min-h-10 items-center gap-2 rounded-lg bg-secondary px-3 py-2 text-sm font-bold"><ExternalLink size={15} /> Open update guide</button>
+          {/if}
+        </section>
+      {/if}
+    </section>
+  {/if}
+
   {#if $syncProvider === 'cloudflare'}
     {#if status.state === 'starting'}
       <SettingsGroup title="Cloudflare sync" desc="Checking your Worker">
@@ -970,38 +1035,6 @@
           {/if}
         </section>
 
-        {#if $cloudflareWorkerUpdateAvailable}
-          <section class="rounded-xl border border-amber-400/30 bg-amber-400/10 p-4">
-            <h3 class="font-black text-amber-300">Worker update {$cloudflareWorkerUpdateAvailable} is available</h3>
-            {#if $cloudflareSyncConfig.deployment}
-              <p class="mt-1 text-xs leading-5 text-muted-foreground">Create another temporary setup token and Izumi can update the Worker directly. Your D1 data and device links stay in place.</p>
-              <div class="mt-3 flex flex-wrap gap-2">
-                <button type="button" data-focusable onclick={() => openCloudflareTokenSetup()} class="inline-flex min-h-10 items-center gap-2 rounded-lg bg-secondary px-3 py-2 text-sm font-bold"><ExternalLink size={15} /> Create update token</button>
-                <button type="button" data-focusable onclick={() => openUrl(CLOUDFLARE_TOKEN_MANAGE_URL)} class="min-h-10 rounded-lg bg-secondary px-3 py-2 text-sm font-bold">Manage tokens</button>
-              </div>
-              <input
-                type="password"
-                data-focusable
-                value={cloudflareApiToken}
-                oninput={updateCloudflareToken}
-                autocomplete="off"
-                autocapitalize="off"
-                spellcheck="false"
-                aria-label="Temporary Cloudflare update token"
-                placeholder="Paste temporary Cloudflare token"
-                class="mt-3 w-full rounded-lg bg-input px-3 py-2.5 font-mono text-base sm:text-sm"
-              />
-              <button type="button" data-focusable disabled={!!busy || !cloudflareApiToken} onclick={() => { h.impact(); updateCloudflareDeployment() }} class="mt-2 inline-flex min-h-10 items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-bold text-primary-foreground disabled:opacity-50">
-                {#if busy === 'cloudflare-update'}<LoaderCircle size={16} class="animate-spin" />{/if}
-                {busy === 'cloudflare-update' ? 'Updating Worker…' : 'Update Worker'}
-              </button>
-            {:else}
-              <p class="mt-1 text-xs leading-5 text-muted-foreground">This Worker was connected without Izumi deployment details. Follow its original deployment method to update it.</p>
-              <button type="button" data-focusable onclick={() => openUrl(CLOUDFLARE_UPDATE_GUIDE)} class="mt-2 inline-flex min-h-10 items-center gap-2 rounded-lg bg-secondary px-3 py-2 text-sm font-bold"><ExternalLink size={15} /> Open update guide</button>
-            {/if}
-          </section>
-        {/if}
-
         <section class="rounded-xl border border-border p-4">
           <label data-setting-key="device-name">
             <span class="block text-sm font-black">This device</span>
@@ -1009,10 +1042,7 @@
             <input bind:value={$syncDeviceName} placeholder={currentRoomName} data-focusable class="mt-2 w-full rounded-lg bg-input px-3 py-2.5 text-base sm:text-sm" />
           </label>
           <div class="mt-4 border-t border-border/70 pt-4">
-            <div class="flex items-center justify-between gap-3">
-              <div><h4 class="text-sm font-black">Encrypted records</h4><p class="text-xs text-muted-foreground">Cloudflare stores ciphertext only; the key stays in Izumi invite tickets.</p></div>
-              <button type="button" data-focusable disabled={!!busy} onclick={() => void action('worker-check', async () => { await checkCloudflareWorkerUpdate(); showMessage('Worker version checked.') })} class="grid min-h-10 min-w-10 place-items-center rounded-lg bg-secondary" aria-label="Check Worker version"><RefreshCw size={16} class={busy === 'worker-check' ? 'animate-spin' : ''} /></button>
-            </div>
+            <h4 class="text-sm font-black">Encrypted records</h4><p class="text-xs text-muted-foreground">Cloudflare stores ciphertext only; the key stays in Izumi invite tickets.</p>
           </div>
         </section>
 

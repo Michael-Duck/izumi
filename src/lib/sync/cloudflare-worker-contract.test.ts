@@ -14,6 +14,13 @@ const resolverGenerator = fileURLToPath(new URL('../../../scripts/generate-cloud
 const generatedDebridHttp = readFileSync(fileURLToPath(new URL('../../../cloudflare-sync-worker/src/generated/resolver-core/debrid/http.ts', import.meta.url)), 'utf8')
 
 describe('Cloudflare Worker deployment contract', () => {
+  it('keeps the client update target, native manifest and live Worker version aligned', async () => {
+    const { CLOUDFLARE_WORKER_VERSION, CLOUDFLARE_WORKER_PROTOCOL } = await import('./cloudflare')
+    expect(JSON.parse(manifest).version).toBe(CLOUDFLARE_WORKER_VERSION)
+    expect(worker.match(/const VERSION = '([^']+)'/)?.[1]).toBe(CLOUDFLARE_WORKER_VERSION)
+    expect(Number(worker.match(/const PROTOCOL = (\d+)/)?.[1])).toBe(CLOUDFLARE_WORKER_PROTOCOL)
+  })
+
   it('includes every SQL migration in the built-in native updater', async () => {
     const { readdirSync } = await import('node:fs')
     const directory = new URL('../../../cloudflare-sync-worker/migrations/', import.meta.url)

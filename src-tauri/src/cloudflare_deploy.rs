@@ -403,14 +403,22 @@ async fn d1_query(
     database_id: &str,
     sql: &str,
 ) -> Result<Value, String> {
-    api.json(
+    let result: Value = api.json(
         api.request(
             Method::POST,
             &format!("/accounts/{account_id}/d1/database/{database_id}/query"),
         )
         .json(&json!({ "sql": sql })),
     )
-    .await
+    .await?;
+    // The API envelope and each SQL result have separate success flags.
+    // Never record a failed migration as applied or upload code that needs it.
+    if result.as_array().is_some_and(|queries| {
+        queries.iter().any(|query| query.get("success") == Some(&Value::Bool(false)))
+    }) {
+        return Err("Cloudflare could not apply the database update. The Worker was not replaced.".into());
+    }
+    Ok(result)
 }
 
 async fn apply_migrations(
@@ -568,23 +576,41 @@ async fn enable_worker_subdomain(
 }
 
 async fn wait_for_worker(endpoint: &str) -> Result<(), String> {
+    wait_for_worker_with_retry(endpoint, 20, Duration::from_millis(500)).await
+}
+
+async fn wait_for_worker_with_retry(
+    endpoint: &str,
+    attempts: usize,
+    delay: Duration,
+) -> Result<(), String> {
+    let manifest: Value = serde_json::from_str(include_str!("../../cloudflare-sync-worker/package.json"))
+        .map_err(|_| "The bundled Worker version is invalid.".to_string())?;
+    let expected_version = manifest.get("version").and_then(Value::as_str)
+        .ok_or_else(|| "The bundled Worker version is missing.".to_string())?;
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
         .build()
         .map_err(|error| error.to_string())?;
-    for _ in 0..20 {
-        if let Ok(response) = client.get(format!("{endpoint}/v1/status")).send().await {
+    for attempt in 0..attempts {
+        if let Ok(response) = client.get(format!("{endpoint}/v1/status"))
+            .header(reqwest::header::CACHE_CONTROL, "no-cache")
+            .send().await {
             if response.status().is_success() {
                 if let Ok(status) = response.json::<Value>().await {
-                    if status.get("app").and_then(Value::as_str) == Some("izumi-sync") {
+                    if status.get("app").and_then(Value::as_str) == Some("izumi-sync")
+                        && status.get("version").and_then(Value::as_str) == Some(expected_version)
+                        && status.get("protocol").and_then(Value::as_u64) == Some(1) {
                         return Ok(());
                     }
                 }
             }
         }
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        if attempt + 1 < attempts {
+            tokio::time::sleep(delay).await;
+        }
     }
-    Err("The Worker was uploaded, but its workers.dev address is not ready yet. Wait a moment and try again.".into())
+    Err("The Worker was uploaded, but its expected version is not available yet. Wait a moment, then check its version again.".into())
 }
 
 #[tauri::command]
@@ -1087,6 +1113,98 @@ mod tests {
         assert!(!valid_script_name("izumi_sync"));
         assert!(valid_database_id("01234567-89ab-cdef-0123-456789abcdef"));
         assert!(!valid_database_id("../../another-database"));
+    }
+
+    fn update_target() -> CloudflareDeploymentTarget {
+        CloudflareDeploymentTarget {
+            account_id: "0123456789abcdef0123456789abcdef".into(),
+            script_name: "izumi-sync-test".into(),
+            database_id: "01234567-89ab-cdef-0123-456789abcdef".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn update_applies_only_pending_migrations_and_a_second_pass_is_empty() {
+        let previous_count = MIGRATIONS.len() - 2;
+        let recorded = |count| json!({"success": true, "result": [{"success": true,
+            "results": MIGRATIONS[..count].iter().map(|(name, _)| json!({"name": name})).collect::<Vec<_>>() }]});
+        let ok = (StatusCode::OK, json!({"success": true, "result": [{"success": true, "results": []}]}));
+        let mut replies = vec![ok.clone(), (StatusCode::OK, recorded(previous_count))];
+        replies.extend(vec![ok.clone(); 4]);
+        replies.extend([ok, (StatusCode::OK, recorded(MIGRATIONS.len()))]);
+        let (api, requests, server) = mock_api(replies).await;
+        apply_migrations(&api, &update_target()).await.unwrap();
+        apply_migrations(&api, &update_target()).await.unwrap();
+        server.abort();
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 8);
+        for (index, (name, source)) in MIGRATIONS[previous_count..].iter().enumerate() {
+            let query: Value = serde_json::from_str(&requests[2 + index * 2].2).unwrap();
+            assert_eq!(query["sql"].as_str().unwrap(), *source);
+            let marker: Value = serde_json::from_str(&requests[3 + index * 2].2).unwrap();
+            assert!(marker["sql"].as_str().unwrap().contains(name));
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_sql_result_never_records_migration_or_replaces_existing_worker() {
+        let (api, requests, server) = mock_api(vec![
+            (StatusCode::OK, json!({"success": true, "result": {"uuid": update_target().database_id}})),
+            (StatusCode::OK, json!({"success": true, "result": [{"success": true, "results": []}]})),
+            (StatusCode::OK, json!({"success": true, "result": [{"success": true, "results": []}]})),
+            (StatusCode::OK, json!({"success": true, "result": [{"success": false, "error": "SQL failed"}]})),
+        ]).await;
+        let target = update_target();
+        let result = deploy_worker_with_api(api, target.account_id.clone(), None, Some(target)).await;
+        server.abort();
+        assert!(result.unwrap_err().contains("Worker was not replaced"));
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 4);
+        assert!(requests.iter().all(|(method, path, body)|
+            *method != Method::DELETE && !path.contains("/workers/") && !body.contains("INSERT INTO izumi_deploy_migrations")));
+    }
+
+    #[tokio::test]
+    async fn update_upload_keeps_database_binding_without_recreating_bootstrap_credentials() {
+        let (api, requests, server) = mock_api(vec![
+            (StatusCode::OK, json!({"success": true})),
+        ]).await;
+        let target = update_target();
+        upload_worker(&api, &target, None).await.unwrap();
+        server.abort();
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].0, Method::PUT);
+        assert!(requests[0].1.ends_with(&format!("/workers/scripts/{}", target.script_name)));
+        // Inspect the metadata part only: the uploaded program also mentions the binding name.
+        let metadata = requests[0].2.split("\r\n\r\n").nth(1).unwrap().split("\r\n").next().unwrap();
+        let metadata: Value = serde_json::from_str(metadata).unwrap();
+        assert_eq!(metadata["bindings"], json!([{"type": "d1", "name": "DB", "id": target.database_id}]));
+    }
+
+    #[tokio::test]
+    async fn readiness_waits_for_the_bundled_version_and_protocol() {
+        let manifest: Value = serde_json::from_str(include_str!("../../cloudflare-sync-worker/package.json")).unwrap();
+        let current = json!({"app": "izumi-sync", "version": manifest["version"], "protocol": 1});
+        let (api, requests, server) = mock_api(vec![
+            (StatusCode::OK, json!({"app": "izumi-sync", "version": "0.0.0", "protocol": 1})),
+            (StatusCode::OK, json!({"app": "izumi-sync", "version": manifest["version"], "protocol": 99})),
+            (StatusCode::OK, current),
+        ]).await;
+        wait_for_worker_with_retry(&api.api_root, 3, Duration::ZERO).await.unwrap();
+        server.abort();
+        assert_eq!(requests.lock().unwrap().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn readiness_fails_when_only_the_old_version_is_live() {
+        let (api, requests, server) = mock_api(vec![
+            (StatusCode::OK, json!({"app": "izumi-sync", "version": "0.0.0", "protocol": 1})); 2
+        ]).await;
+        let result = wait_for_worker_with_retry(&api.api_root, 2, Duration::ZERO).await;
+        server.abort();
+        assert!(result.unwrap_err().contains("expected version is not available"));
+        assert_eq!(requests.lock().unwrap().len(), 2);
     }
 
     #[test]
