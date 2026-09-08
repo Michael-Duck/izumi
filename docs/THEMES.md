@@ -16,6 +16,8 @@ The shipped appearance remains the default. Cinema demonstrates an optional top-
 
 This is the first presentation API, not full replacement coverage for every screen. The shell and settings use existing global tokens; their component structures are not replaceable. Detail pages, specialized progress cards, player overlays, native surfaces and the separate TV client do not yet expose layout templates. Row arrangement can affect specialized cards, but custom card templates currently render through `SmallCard`. ZIP archives, remote font/image packs, arbitrary CSS, JavaScript and native plugins are not supported.
 
+See [the theme-system audit](THEME_SYSTEM_AUDIT.md) for remaining limitations, comparisons with established theme systems, and a proposed implementation order.
+
 ## Authoring and publishing
 
 The catalog repository owns the [format reference](https://github.com/nickEatsBread/izumi-themes/blob/main/docs/FORMAT.md), JSON editor schemas, example packages, listing metadata and CI. Authors can publish a package anywhere with public HTTPS access; a catalog listing is optional. Browser builds need the host to allow cross-origin requests. Raw GitHub URLs work for both the browser and native client.

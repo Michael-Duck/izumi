@@ -13,6 +13,7 @@ src-tauri/gen/
 !/docs/DOLBY_RESEARCH.md
 !/docs/PLAYER_ARCHITECTURE_RESEARCH.md
 !/docs/THEMES.md
+!/docs/THEME_SYSTEM_AUDIT.md
 !/docs/recommendation-watch-habits-research.md
 !/docs/recommendation-evaluation/
 

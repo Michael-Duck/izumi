@@ -25,10 +25,13 @@ describe('Carousel edge arrows', () => {
     expect(src).toContain('const mob = $derived($isMobile)')
   })
 
-  it('exposes row boundaries for low-cost controller navigation', () => {
-    expect(src).toContain('<section data-nav-row')
-    expect(src).toContain('data-carousel-scroller data-nav-row-items')
-    expect(src).toContain('use:gameModeCarouselTouch')
+  it('exposes carousel boundaries and gesture handling only for horizontal rows', () => {
+    for (const attribute of ['data-nav-row', 'data-carousel-scroller', 'data-nav-row-items']) {
+      expect(src).toContain(`${attribute}={!grid ? '' : undefined}`)
+    }
+    expect(src).toContain('use:scrollBehavior={!grid}')
+    expect(src).toContain('gameModeCarouselTouch(node)')
+    expect(src).toContain('touch.destroy()')
   })
 
   it('guards both arrows', () => {
