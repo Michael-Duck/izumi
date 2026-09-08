@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store'
+import { derived, get, writable } from 'svelte/store'
 
 export interface AniListDegradedState {
   error: string
@@ -44,6 +44,23 @@ export function clearAniListDegraded(): void {
   useFallbackUntil = 0
   anilistDegraded.set(null)
 }
+
+// The degraded strip can be dismissed without touching the fallback state above: dismissal is
+// purely visual, held in memory for the current degradation EPISODE (the `since` stamp), so the
+// same outage stays hidden while the viewer browses around, while a NEW outage lights the banner
+// again. Not persisted on purpose — a fresh launch of a still-degraded session should inform once.
+const dismissedBannerSince = writable(0)
+
+export function dismissAniListDegradedBanner(): void {
+  dismissedBannerSince.set(get(anilistDegraded)?.since ?? Date.now())
+}
+
+/** Whether the strip should be on screen. Layout reservations (sticky headers, top padding) must
+ *  read THIS, not the raw degraded state, so a dismissed banner doesn't leave reserved gaps. */
+export const anilistDegradedBannerVisible = derived(
+  [anilistDegraded, dismissedBannerSince],
+  ([$degraded, $dismissedSince]) => $degraded !== null && $degraded.since !== $dismissedSince,
+)
 
 /** Avoid repeatedly hitting a known-disabled AniList endpoint. Once a minute one catalog request is
  *  allowed through as a recovery probe; a healthy response clears the degraded state. */

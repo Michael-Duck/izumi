@@ -13,7 +13,7 @@
   import { gameMode } from '$lib/player/session'
   import { isMobile } from '$lib/platform'
   import OfflineUnavailable from '$lib/components/offline/OfflineUnavailable.svelte'
-  import { anilistDegraded } from '$lib/anilist/degraded'
+  import { anilistDegradedBannerVisible } from '$lib/anilist/degraded'
 
   // No hero on this page — clear the shared banner so it doesn't persist.
   heroMedia.set(null)
@@ -71,13 +71,15 @@
   // (app.css forces will-change:auto under .gamemode, so the layer is never promoted), and the
   // controller UI has no need for a sticky filter it can reach with one D-pad press.
   const stickyActive = $derived(tab !== 'watchlist' && $scheduleStickyHeader && !$gameMode)
+  // Reservation for the degraded strip keys off BANNER VISIBILITY, not the degraded state: once
+  // the viewer dismisses the strip, the reserved rows would read as mystery blank space.
   const stickyTop = $derived($isMobile
-    ? ($anilistDegraded ? 'top-[calc(env(safe-area-inset-top)+1.75rem)]' : 'top-[env(safe-area-inset-top)]')
-    : ($anilistDegraded ? 'top-[3.75rem]' : 'top-8'))
+    ? ($anilistDegradedBannerVisible ? 'top-[calc(env(safe-area-inset-top)+1.75rem)]' : 'top-[env(safe-area-inset-top)]')
+    : ($anilistDegradedBannerVisible ? 'top-[3.75rem]' : 'top-8'))
   // What the header actually occludes at the top of the viewport: itself plus the titlebar above
   // it. Handed down to ScheduleGrid, which forwards it to the agenda view's scroll-to-today gate.
   const headerOffset = $derived(stickyActive
-    ? headerH + ($isMobile ? 0 : TITLEBAR_H) + ($anilistDegraded ? 28 : 0)
+    ? headerH + ($isMobile ? 0 : TITLEBAR_H) + ($anilistDegradedBannerVisible ? 28 : 0)
     : 0)
 </script>
 
@@ -87,13 +89,17 @@
 <!-- Extra desktop top padding: `p-8` put the title flush against the bottom edge of the 32px window
      titlebar, so the page's top-left content read as a continuation of the window-control row. -->
 <div class="px-4 pb-8 pt-5 sm:px-8 sm:pb-8 sm:pt-10
-            {$anilistDegraded ? 'pt-[3rem] sm:pt-[4.25rem]' : ''}">
+            {$anilistDegradedBannerVisible ? 'pt-[3rem] sm:pt-[4.25rem]' : ''}">
   <!-- The global desktop titlebar is transparent so hero artwork can extend to the window edge.
        Schedule has no hero, though, and its rows would remain visible through that strip once this
        page's toolbar became sticky. Paint only that reserved 32px titlebar area while pinned; the
-       real titlebar stays above it at z-50, so the window controls and drag region are unchanged. -->
+       real titlebar stays above it at z-50, so the window controls and drag region are unchanged.
+       With the degraded strip up, the pinned header parks below it (top-[3.75rem]) — the shield
+       must grow to the same height or agenda rows scroll through the uncovered 28px band and read
+       as broken content slicing between the strip and the header. -->
   {#if stickyActive && !$isMobile}
-    <div data-schedule-titlebar-shield aria-hidden="true" class="pointer-events-none fixed inset-x-0 top-0 z-20 h-8 bg-background"></div>
+    <div data-schedule-titlebar-shield aria-hidden="true"
+         class="pointer-events-none fixed inset-x-0 top-0 z-20 {$anilistDegradedBannerVisible ? 'h-[3.75rem]' : 'h-8'} bg-background"></div>
   {/if}
 
   <!-- Schedule/Watchlist tabs, week nav, and (schedule tab only) the My Shows/All filter all share
@@ -101,10 +107,15 @@
        widths rather than squashing — this row already carried week nav before the filter joined
        it. Gets the sticky toolbar treatment only while actually pinned, so the plain tab row isn't
        boxed in when the "Pin schedule header" setting is off. -->
+  <!-- Every metric that occupies vertical space — the row padding, the 1px rule and the margin
+       below it — is shared, never branch-local. `stickyActive` is false on Watchlist, so anything
+       that lives only in the pinned branch shortens the header by exactly that much the moment
+       that tab is selected and drags the whole page up with it. Only the pinned branch's own
+       treatment (position, bleed, background, rule COLOUR) is allowed to differ. -->
   <div bind:clientHeight={headerH}
-       class="flex flex-wrap items-center gap-2 sm:gap-4 {stickyActive
-         ? `sticky ${stickyTop} z-20 -mx-4 mb-4 border-b border-border/60 bg-background/95 px-4 py-3 backdrop-blur sm:-mx-8 sm:mb-7 sm:px-8`
-         : 'mb-4 sm:mb-7'}">
+       class="mb-4 flex flex-wrap items-center gap-2 border-b py-3 sm:mb-7 sm:gap-4 {stickyActive
+         ? `sticky ${stickyTop} z-20 -mx-4 border-border/60 bg-background/95 px-4 backdrop-blur sm:-mx-8 sm:px-8`
+         : 'border-transparent'}">
     <div class="mr-auto inline-flex rounded-lg bg-secondary p-1 text-xs font-black sm:text-sm">
       <button data-focusable onclick={() => (tab = 'schedule')}
         class="rounded-md px-2.5 py-2 transition-colors sm:px-4 {tab === 'schedule' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}">

@@ -34,6 +34,6 @@ describe('search URL state', () => {
   })
 
   it('keeps browse controls below the fixed degraded alert', () => {
-    expect(page).toContain("$anilistDegraded ? 'pt-[2.75rem] sm:pt-[3.75rem]' : ''")
+    expect(page).toContain("$anilistDegradedBannerVisible ? 'pt-[2.75rem] sm:pt-[3.75rem]' : ''")
   })
 })

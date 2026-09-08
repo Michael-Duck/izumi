@@ -1,7 +1,11 @@
 <script lang="ts">
   import AlertTriangle from '@lucide/svelte/icons/triangle-alert'
   import X from '@lucide/svelte/icons/x'
-  import { anilistDegraded } from '$lib/anilist/degraded'
+  import {
+    anilistDegraded,
+    anilistDegradedBannerVisible,
+    dismissAniListDegradedBanner,
+  } from '$lib/anilist/degraded'
   import {
     catalogProvider,
     catalogScreen,
@@ -26,12 +30,18 @@
 
 <svelte:window onkeydown={(event) => { if (detailsOpen && event.key === 'Escape') detailsOpen = false }} />
 
-{#if $anilistDegraded && usesAniList}
+{#if $anilistDegradedBannerVisible && $anilistDegraded && usesAniList}
   <div data-tauri-drag-region transition:slide={{ duration: 250 }} role="status" style:--banner-offset={offset}
        class="fixed left-0 right-0 top-[calc(env(safe-area-inset-top)+var(--banner-offset))] z-[60] flex min-h-7 items-center justify-center gap-2 bg-amber-700 px-2 py-1 text-center text-xs font-semibold text-white shadow-md sm:top-[var(--banner-offset)] {desktopInset}">
     <AlertTriangle size={14} class="shrink-0" />
     <span>Degraded performance — AniList is unavailable.</span>
     <button onclick={() => (detailsOpen = true)} class="shrink-0 underline underline-offset-2 hover:text-white/80">See error</button>
+    <!-- Dismissing is display-only: the Jikan fallback and its recovery probe keep running. A new
+         outage gets a fresh `since`, which lights the banner again. -->
+    <button data-focusable onclick={dismissAniListDegradedBanner} aria-label="Dismiss degraded performance notice"
+            class="absolute right-1.5 grid size-6 shrink-0 place-items-center rounded-full text-white/75 transition-colors hover:bg-white/15 hover:text-white">
+      <X size={14} />
+    </button>
   </div>
 {/if}
 
