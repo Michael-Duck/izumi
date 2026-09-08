@@ -29,9 +29,10 @@ import {
 } from '$lib/sync/client'
 import { compatibilityMediaId } from '$lib/catalog/identity'
 import type { Media } from '$lib/anilist/types'
-import { recordPlay } from '$lib/player/history'
-import { clearPosition, savePosition } from '$lib/player/progress'
+import { durableHistory, importHistoryCheckpoint } from '$lib/player/history'
+import { importPosition } from '$lib/player/progress'
 import { markWatched } from '$lib/trackers'
+import { resolveCheckpointEpisode } from './checkpoint'
 import { getCloudflareResolverProfile, saveCloudflareResolverProfile, companionTransportForLan, type CloudflareResolverProfile } from '$lib/sync/cloudflare'
 import { currentCloudflareCompanionProfile, watchCloudflareCompanionProfile } from './cloud-profile'
 import {
@@ -494,7 +495,7 @@ function checkpointMedia(media: CompanionMedia): Media {
     bannerImage: media.backdrop,
     logoImage: media.logoImage,
     duration: media.episodeRuntimeMinutes ?? media.runtimeMinutes,
-    episodes: total || undefined,
+    episodes: media.mediaKind === 'movie' || media.ref.type === 'movie' ? 1 : total || undefined,
     genres: media.genres,
     startDate: media.releaseYear ? { year: media.releaseYear } : undefined,
     contentRating: media.contentRating,
@@ -539,7 +540,7 @@ function companionProgressRecord(value: unknown): CompanionProgressRecord | null
   }
 }
 
-function applyCompanionProgress(device: PairedCompanion, record: CompanionProgressRecord, source: 'cloud' | 'tv'): boolean {
+async function applyCompanionProgress(device: PairedCompanion, record: CompanionProgressRecord, source: 'cloud' | 'tv'): Promise<boolean> {
   if (!companionProfileReady()) return false
   if ((record.profileId ?? 'default') !== get(activeProfileId)) return false
   const owner = device.cloudflare?.pairingId ?? device.deviceId
@@ -549,15 +550,21 @@ function applyCompanionProgress(device: PairedCompanion, record: CompanionProgre
     ? `${owner}:${profilePrefix}${record.recordKey}`
     : `${device.deviceId}:tv:${profilePrefix}${record.recordKey}`
   if ((get(appliedCompanionProgress)[appliedKey] ?? 0) >= record.updatedAt) return false
-  const media = checkpointMedia(record.media)
-  const episode = Math.max(1, Math.floor(record.media.episode ?? 1))
-  recordPlay(media, episode)
-  if (record.completed) {
-    markWatched(media, episode)
-    clearPosition(media.id, episode)
-  } else if (record.durationSeconds > 0) {
-    savePosition(media.id, episode, record.positionSeconds, record.durationSeconds)
-  }
+  const snapshot = checkpointMedia(record.media)
+  const known = get(durableHistory)[snapshot.id]?.media
+    ?? get(localLibrary).entries[mediaKey(snapshot)]?.media
+  const resolved = await resolveCheckpointEpisode(record.media, known)
+  if (!resolved || !companionProfileReady() || (record.profileId ?? 'default') !== get(activeProfileId)) return false
+  // Another delivery may have completed while metadata loaded.
+  if ((get(appliedCompanionProgress)[appliedKey] ?? 0) >= record.updatedAt) return false
+  const media = { ...snapshot, ...resolved.media, id: snapshot.id }
+  const episode = resolved.episode
+  if (record.completed) markWatched(media, episode, { importedAt: record.updatedAt })
+  else importHistoryCheckpoint(media, episode, false, record.updatedAt)
+  if (record.completed || record.durationSeconds > 0) importPosition(media.id, episode, {
+    pos: record.completed ? 0 : record.positionSeconds, dur: record.durationSeconds,
+    updatedAt: record.updatedAt, ...(record.completed ? { cleared: true as const } : {}),
+  })
   appliedCompanionProgress.update((current) => ({ ...current, [appliedKey]: record.updatedAt }))
   return true
 }
@@ -575,7 +582,7 @@ async function pullCompanionProgress(device: PairedCompanion): Promise<boolean> 
   let changed = discoveryChanged
   for (const record of records.sort((left, right) => left.updatedAt - right.updatedAt)) {
     const normalized = companionProgressRecord(record)
-    if (normalized && applyCompanionProgress(device, normalized, 'cloud')) changed = true
+    if (normalized && await applyCompanionProgress(device, normalized, 'cloud')) changed = true
   }
   return changed
 }
@@ -675,7 +682,7 @@ function keepConnection(
         })
       } else sendSnapshot(connection, initialSnapshot)
     }),
-    channel.on('izumi.companion.progress-result', (value) => {
+    channel.on('izumi.companion.progress-result', async (value) => {
       const response = value as { credential?: unknown; records?: unknown } | null
       if (!response || response.credential !== device.credential || !Array.isArray(response.records)) return
       let changed = false
@@ -684,7 +691,7 @@ function keepConnection(
         .filter((record): record is CompanionProgressRecord => Boolean(record))
         .sort((left, right) => left.updatedAt - right.updatedAt)
       for (const record of records) {
-        if (applyCompanionProgress(device, record, 'tv')) changed = true
+        if (await applyCompanionProgress(device, record, 'tv')) changed = true
       }
       if (changed) pulseCompanionActivity()
     }),

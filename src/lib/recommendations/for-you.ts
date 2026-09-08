@@ -12,6 +12,8 @@ export interface ForYouSeed {
   media: Media
   /** How strongly this title represents the viewer's taste, from 0 to 1. */
   affinity: number
+  /** A direct rating must supersede incidental history even when affinity is zero. */
+  explicit?: boolean
 }
 
 export interface ForYouEdge {
@@ -38,10 +40,9 @@ export function historySeeds(
   return Object.values(history)
     .flatMap((entry) => {
       const id = anilistIdOf(entry.media)
-      if (!id) return []
-      const total = Math.max(1, entry.media.episodes ?? Math.max(entry.episode, entry.progress, 12))
-      const completion = Math.min(1, Math.max(entry.progress, entry.episode * 0.35) / total)
-      const ageDays = Math.max(0, now - entry.updatedAt) / DAY
+      if (!id || !(entry.progress > 0)) return []
+      const completion = entry.media.episodes ? Math.min(1, entry.progress / entry.media.episodes) : 0
+      const ageDays = Math.max(0, now - (entry.watchedAt ?? entry.updatedAt)) / DAY
       const recency = Math.exp(-ageDays / 120)
       return [{
         media: { ...entry.media, id },
@@ -59,10 +60,22 @@ export function accountSeed(
   status?: string,
   progress = 0,
 ): ForYouSeed {
-  const explicit = score > 0 ? clamp(score / 100, 0.35, 1) : 0.62
+  if (score > 0) return { media, affinity: score > 60 ? clamp(score / 100, 0, 1) : 0, explicit: true }
+  if (status === 'DROPPED') return { media, affinity: 0, explicit: true }
+  const explicit = 0.62
   const completion = media.episodes ? clamp(progress / media.episodes, 0, 1) : 0
   const statusBoost = status === 'COMPLETED' || status === 'REPEATING' ? 0.08 : completion * 0.05
   return { media, affinity: clamp(explicit + statusBoost, 0, 1) }
+}
+
+/** Apply account opinions after history, including neutral or negative ratings. */
+export function mergeForYouSeeds(history: ForYouSeed[], account: ForYouSeed[]): ForYouSeed[] {
+  const result = new Map(history.map(seed => [seed.media.id, seed]))
+  for (const seed of account) {
+    const previous = result.get(seed.media.id)
+    if (seed.explicit || !previous || !previous.explicit && seed.affinity > previous.affinity) result.set(seed.media.id, seed)
+  }
+  return [...result.values()]
 }
 
 /** Rank recommendation edges against the user's weighted genre profile. This stays deterministic:
@@ -78,11 +91,11 @@ export function rankForYou(
     limit?: number
   } = {},
 ): ForYouRecommendation[] {
-  const seedById = new Map(seeds.map((seed) => [seed.media.id, seed]))
+  const seedById = new Map(seeds.filter(seed => seed.affinity > 0).map((seed) => [seed.media.id, seed]))
   const excluded = new Set(options.excludedIds ?? [])
   for (const seed of seeds) excluded.add(seed.media.id)
   const dismissed = new Set(options.dismissedIds ?? [])
-  const genreWeights = tasteGenres(seeds)
+  const genreWeights = tasteGenres([...seedById.values()])
   const candidates = new Map<number, { media: Media; signals: { seed: ForYouSeed; rating: number }[] }>()
 
   for (const edge of edges) {

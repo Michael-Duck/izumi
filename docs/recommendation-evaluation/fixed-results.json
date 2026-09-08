@@ -1,0 +1,434 @@
+{
+  "derivedFrom": "fixed-existing-tests.json",
+  "success": true,
+  "numPassedTests": 34,
+  "numFailedTests": 0,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "Checkpoint controls"
+          ],
+          "fullName": "Checkpoint controls C8 a checkpoint for another profile does not enter active history",
+          "status": "passed",
+          "title": "C8 a checkpoint for another profile does not enter active history",
+          "duration": 5.405100000000061,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Checkpoint controls"
+          ],
+          "fullName": "Checkpoint controls C9 replaying the same cloud checkpoint is ignored",
+          "status": "passed",
+          "title": "C9 replaying the same cloud checkpoint is ignored",
+          "duration": 2.478900000000067,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Checkpoint regression criteria"
+          ],
+          "fullName": "Checkpoint regression criteria E9 importing an old TV checkpoint should preserve actual viewing recency",
+          "status": "passed",
+          "title": "E9 importing an old TV checkpoint should preserve actual viewing recency",
+          "duration": 1.008199999999988,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Checkpoint regression criteria"
+          ],
+          "fullName": "Checkpoint regression criteria E10 two season-relative episode-one checkpoints should retain distinct resume positions",
+          "status": "passed",
+          "title": "E10 two season-relative episode-one checkpoints should retain distinct resume positions",
+          "duration": 1.2678000000000793,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Checkpoint regression criteria"
+          ],
+          "fullName": "Checkpoint regression criteria preserves a newer local resume point and history when an older TV record arrives",
+          "status": "passed",
+          "title": "preserves a newer local resume point and history when an older TV record arrives",
+          "duration": 1.4044999999999845,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Checkpoint regression criteria"
+          ],
+          "fullName": "Checkpoint regression criteria maps specials through provider video numbers and preserves the completion clock",
+          "status": "passed",
+          "title": "maps specials through provider video numbers and preserves the completion clock",
+          "duration": 4.316000000000031,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Checkpoint regression criteria"
+          ],
+          "fullName": "Checkpoint regression criteria marks a completed movie finished even when the compact checkpoint has no episode count",
+          "status": "passed",
+          "title": "marks a completed movie finished even when the compact checkpoint has no episode count",
+          "duration": 0.9970999999999322,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Checkpoint regression criteria"
+          ],
+          "fullName": "Checkpoint regression criteria retries an unresolved season checkpoint after metadata becomes available",
+          "status": "passed",
+          "title": "retries an unresolved season checkpoint after metadata becomes available",
+          "duration": 1.246900000000096,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Checkpoint regression criteria"
+          ],
+          "fullName": "Checkpoint regression criteria rejects a catalog response for the wrong title",
+          "status": "passed",
+          "title": "rejects a catalog response for the wrong title",
+          "duration": 1.1486999999999625,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Checkpoint regression criteria"
+          ],
+          "fullName": "Checkpoint regression criteria does not apply a checkpoint when profile selection starts during metadata hydration",
+          "status": "passed",
+          "title": "does not apply a checkpoint when profile selection starts during metadata hydration",
+          "duration": 1.2942999999999074,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1788862392030,
+      "endTime": 1788862392051.2942,
+      "status": "passed",
+      "message": "",
+      "name": "C:/Users/Student/Documents/Coding projects/Testing/anAnimeThemeForStremio/src/lib/companion/checkpoint-regressions.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "Established behavior: control cases"
+          ],
+          "fullName": "Established behavior: control cases C1 matches positive genre evidence and is deterministic",
+          "status": "passed",
+          "title": "C1 matches positive genre evidence and is deterministic",
+          "duration": 6.113299999999981,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Established behavior: control cases"
+          ],
+          "fullName": "Established behavior: control cases C2 explicit dismiss reduces affinity and excludes the exact title",
+          "status": "passed",
+          "title": "C2 explicit dismiss reduces affinity and excludes the exact title",
+          "duration": 0.9876999999999612,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Established behavior: control cases"
+          ],
+          "fullName": "Established behavior: control cases C3 skip is neutral taste and expires after seven days",
+          "status": "passed",
+          "title": "C3 skip is neutral taste and expires after seven days",
+          "duration": 1.2262000000000057,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Established behavior: control cases"
+          ],
+          "fullName": "Established behavior: control cases C4 verified aliases deduplicate and propagate exclusions",
+          "status": "passed",
+          "title": "C4 verified aliases deduplicate and propagate exclusions",
+          "duration": 0.9426000000000272,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Established behavior: control cases"
+          ],
+          "fullName": "Established behavior: control cases C5 incognito recordPlay and recordProgress do not enter durable taste",
+          "status": "passed",
+          "title": "C5 incognito recordPlay and recordProgress do not enter durable taste",
+          "duration": 0.8478000000000065,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Established behavior: control cases"
+          ],
+          "fullName": "Established behavior: control cases C6 completed history contributes more than one confirmed episode",
+          "status": "passed",
+          "title": "C6 completed history contributes more than one confirmed episode",
+          "duration": 0.4567000000000121,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Established behavior: control cases"
+          ],
+          "fullName": "Established behavior: control cases C7 cached Companion metadata still reads fresh explicit taste",
+          "status": "passed",
+          "title": "C7 cached Companion metadata still reads fresh explicit taste",
+          "duration": 2.963300000000004,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Watch-habit regression criteria"
+          ],
+          "fullName": "Watch-habit regression criteria E1 an uncompleted open must carry less evidence than a completed series",
+          "status": "passed",
+          "title": "E1 an uncompleted open must carry less evidence than a completed series",
+          "duration": 0.46870000000001255,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Watch-habit regression criteria"
+          ],
+          "fullName": "Watch-habit regression criteria E2 a 2/10 completed rating should not promote related titles over an unrelated equal-quality title",
+          "status": "passed",
+          "title": "E2 a 2/10 completed rating should not promote related titles over an unrelated equal-quality title",
+          "duration": 1.2087999999999965,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Watch-habit regression criteria"
+          ],
+          "fullName": "Watch-habit regression criteria E3 an earlier save should not reverse a later explicit negative rating",
+          "status": "passed",
+          "title": "E3 an earlier save should not reverse a later explicit negative rating",
+          "duration": 0.8437999999999874,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Watch-habit regression criteria"
+          ],
+          "fullName": "Watch-habit regression criteria E4 a known director affinity should survive the actual history snapshot pipeline",
+          "status": "passed",
+          "title": "E4 a known director affinity should survive the actual history snapshot pipeline",
+          "duration": 1.199799999999982,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Watch-habit regression criteria"
+          ],
+          "fullName": "Watch-habit regression criteria E5 100 saved library titles should not erase all positive viewing evidence on TV",
+          "status": "passed",
+          "title": "E5 100 saved library titles should not erase all positive viewing evidence on TV",
+          "duration": 6.072000000000003,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Watch-habit regression criteria"
+          ],
+          "fullName": "Watch-habit regression criteria E6 completed low-rated seeds should not positively support the older anime row",
+          "status": "passed",
+          "title": "E6 completed low-rated seeds should not positively support the older anime row",
+          "duration": 0.9821000000000026,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Watch-habit regression criteria"
+          ],
+          "fullName": "Watch-habit regression criteria E7 changing catalog order should not discard richer features of the same verified title",
+          "status": "passed",
+          "title": "E7 changing catalog order should not discard richer features of the same verified title",
+          "duration": 0.570699999999988,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Watch-habit regression criteria"
+          ],
+          "fullName": "Watch-habit regression criteria E8 TV must exclude a verified watched alias even when its history seed exceeds the budget",
+          "status": "passed",
+          "title": "E8 TV must exclude a verified watched alias even when its history seed exceeds the budget",
+          "duration": 2.99350000000004,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Preference precedence and evidence boundaries"
+          ],
+          "fullName": "Preference precedence and evidence boundaries does not treat unknown episode totals as completed viewing",
+          "status": "passed",
+          "title": "does not treat unknown episode totals as completed viewing",
+          "duration": 0.7752000000000407,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Preference precedence and evidence boundaries"
+          ],
+          "fullName": "Preference precedence and evidence boundaries reopening a previously watched title does not refresh its taste clock",
+          "status": "passed",
+          "title": "reopening a previously watched title does not refresh its taste clock",
+          "duration": 0.5004000000000133,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Preference precedence and evidence boundaries"
+          ],
+          "fullName": "Preference precedence and evidence boundaries automatic progress keeps the original rating clock",
+          "status": "passed",
+          "title": "automatic progress keeps the original rating clock",
+          "duration": 1.0994000000000028,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Preference precedence and evidence boundaries"
+          ],
+          "fullName": "Preference precedence and evidence boundaries preserves a legacy rating clock before the first automatic list update",
+          "status": "passed",
+          "title": "preserves a legacy rating clock before the first automatic list update",
+          "duration": 0.7946000000000026,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Preference precedence and evidence boundaries"
+          ],
+          "fullName": "Preference precedence and evidence boundaries uses the latest direct opinion across aliases even when its magnitude is smaller",
+          "status": "passed",
+          "title": "uses the latest direct opinion across aliases even when its magnitude is smaller",
+          "duration": 0.6520000000000437,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Preference precedence and evidence boundaries"
+          ],
+          "fullName": "Preference precedence and evidence boundaries a neutral rating suppresses positive history and saved intent",
+          "status": "passed",
+          "title": "a neutral rating suppresses positive history and saved intent",
+          "duration": 0.45100000000002183,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Preference precedence and evidence boundaries"
+          ],
+          "fullName": "Preference precedence and evidence boundaries a low account rating overrides positive history in the older row merge",
+          "status": "passed",
+          "title": "a low account rating overrides positive history in the older row merge",
+          "duration": 0.4531999999999812,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Preference precedence and evidence boundaries"
+          ],
+          "fullName": "Preference precedence and evidence boundaries keeps bounded, non-spoiler metadata without images or cast payloads",
+          "status": "passed",
+          "title": "keeps bounded, non-spoiler metadata without images or cast payloads",
+          "duration": 1.2269000000000005,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [
+            "Preference precedence and evidence boundaries"
+          ],
+          "fullName": "Preference precedence and evidence boundaries preserves exclusion identities even when hundreds of history signals exceed the TV budget",
+          "status": "passed",
+          "title": "preserves exclusion identities even when hundreds of history signals exceed the TV budget",
+          "duration": 1.6083000000000425,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1788862392462,
+      "endTime": 1788862392498.6084,
+      "status": "passed",
+      "message": "",
+      "name": "C:/Users/Student/Documents/Coding projects/Testing/anAnimeThemeForStremio/src/lib/recommendations/watch-habits-regressions.test.ts"
+    }
+  ]
+}

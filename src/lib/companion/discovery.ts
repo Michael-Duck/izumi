@@ -10,7 +10,7 @@ import type { Media } from '$lib/anilist/types'
 import { loadDiscoveryCandidates } from '$lib/recommendations/candidates'
 import {
   discoveryQueueFeedback, feedbackTasteSeeds, historyTasteSeeds,
-  libraryTasteSeeds, rankDiscoveryQueue,
+  libraryTasteSeeds, rankDiscoveryQueue, discoveryTasteItem,
 } from '$lib/recommendations/discovery-queue'
 import { companionMedia, type CompanionDiscovery } from './protocol'
 
@@ -40,13 +40,17 @@ export async function companionDiscovery(fallback: Media[]): Promise<CompanionDi
   if (viewer.id !== get(activeProfile).id) return undefined
   const feedback = get(discoveryQueueFeedback)
   const signals = [...libraryTasteSeeds(get(localLibrary)), ...historyTasteSeeds(get(durableHistory)), ...feedbackTasteSeeds(feedback)]
-    .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || (b.at ?? 0) - (a.at ?? 0)).slice(0, 100)
-  const excluded = [...Object.keys(get(localLibrary).entries ?? {}), ...Object.values(get(durableHistory)).map(entry => mediaKey(entry.media))]
+  const known = [...Object.values(get(localLibrary).entries ?? {}), ...Object.values(get(durableHistory))]
+  const excluded = known.filter(entry => feedback.records[mediaKey(entry.media)]?.action !== 'save')
+    .flatMap(entry => {
+      const item = discoveryTasteItem(entry.media)
+      return [item.key, ...(item.aliases ?? [])]
+    })
   const safe = media.filter(item => profileAllowsMedia(item, viewer) && (get(showAdult) || !item.isAdult))
   // Rank in the AGPL client; the independently licensed TV consumes results, not engine code.
   // Discovery saves remain in the pool so a TV undo can restore them.
-  const hidden = excluded.filter(key => feedback.records[key]?.action !== 'save')
-  const ranked = rankDiscoveryQueue(safe, signals, { records: {} }, { limit: 60, excludedKeys: hidden })
+  const hidden = [...new Set(excluded)]
+  const ranked = rankDiscoveryQueue(safe, signals, { records: {} }, { limit: 60, signalLimit: 100, excludedKeys: hidden })
   return {
     version: 2,
     candidates: ranked.map(({ media, reason, evidence, exploration }) => ({ ...companionMedia(media), recommendation: { reason, evidence, exploration } })),

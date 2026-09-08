@@ -5,6 +5,7 @@ import { saveLocalHistory } from '$lib/settings/ui'
 import { catalogProvider, type CatalogSelection } from '$lib/settings/catalog'
 import { incognito, onIncognitoPurge } from '$lib/stores/incognito'
 import type { Media } from '$lib/anilist/types'
+import { tasteMetadata } from '$lib/catalog/taste-metadata'
 import { clearSourceOrigins, forgetSourceOrigin } from './source-origin'
 import { forgetSourceOutcomes } from './source-outcomes'
 
@@ -20,6 +21,8 @@ export interface HistoryEntry {
   episode: number
   progress: number
   updatedAt: number
+  /** Last confirmed progress event; simply reopening a title does not refresh taste recency. */
+  watchedAt?: number
   /** Catalog platform from which this title was played. Unlike `media.catalog.provider`, this can
    * be `auto`, whose fallback chain may have supplied a Kitsu-owned record. */
   catalogSelection?: CatalogSelection
@@ -84,11 +87,10 @@ export function mediaSnapshot(m: Media): Media {
     airedEpisodes: m.airedEpisodes,
     format: m.format,
     status: m.status,
-    seasonYear: m.seasonYear,
+    ...tasteMetadata(m),
     averageScore: m.averageScore,
     popularity: m.popularity,
     trending: m.trending,
-    genres: m.genres,
     nextAiringEpisode: m.nextAiringEpisode,
     // Needed so Continue Watching can cap the aired/resume episode: many OVAs/ONAs and adult
     // titles have episodes + nextAiringEpisode both null and their ONLY episode-count signal
@@ -123,6 +125,7 @@ export function recordPlay(media: Media, episode: number | undefined, release?: 
       episode,
       progress: prev?.progress ?? 0,
       updatedAt: Date.now(),
+      watchedAt: prev?.watchedAt ?? (prev?.progress ? prev.updatedAt : undefined),
       catalogSelection: historyCatalogSelection(media, get(catalogProvider)),
       release: rel ?? prev?.release,
     } }
@@ -141,6 +144,7 @@ export function recordProgress(media: Media, episode: number) {
         episode: Math.max(prev?.episode ?? 0, episode),
         progress: Math.max(prev?.progress ?? 0, episode),
         updatedAt: Date.now(),
+        watchedAt: Date.now(),
         catalogSelection: prev?.catalogSelection ?? historyCatalogSelection(media, get(catalogProvider)),
         release: prev?.release,
       } }
@@ -159,6 +163,7 @@ export function recordProgress(media: Media, episode: number) {
       episode: Math.max(prev?.episode ?? 0, episode),
       progress: Math.max(prev?.progress ?? 0, episode),
       updatedAt: Date.now(),
+      watchedAt: Date.now(),
       catalogSelection: prev?.catalogSelection ?? historyCatalogSelection(media, get(catalogProvider)),
       release: prev?.release, // keep the remembered release across a progress bump
     } }
@@ -177,6 +182,7 @@ export function setLocalProgress(media: Media, progress: number) {
         episode: value > 0 ? value : previous?.episode ?? 1,
         progress: value,
         updatedAt: Date.now(),
+        watchedAt: Date.now(),
         catalogSelection: previous?.catalogSelection ?? historyCatalogSelection(media, get(catalogProvider)),
         release: previous?.release,
       } }
@@ -195,6 +201,7 @@ export function setLocalProgress(media: Media, progress: number) {
         episode: value > 0 ? value : previous?.episode ?? 1,
         progress: value,
         updatedAt: Date.now(),
+        watchedAt: Date.now(),
         catalogSelection: previous?.catalogSelection ?? historyCatalogSelection(media, get(catalogProvider)),
         release: previous?.release,
       },
@@ -215,6 +222,27 @@ export function clearHistory() {
   incognitoHistory.set({})
   clearSourceOrigins()
   forgetSourceOutcomes()
+}
+
+/** A remote checkpoint describes a past play, not a new local playback event. Preserve its clock
+ * and newer local state; do not replay tracker writes, rewatch increments or today's dates. */
+export function importHistoryCheckpoint(media: Media, episode: number, completed: boolean, updatedAt: number): void {
+  if (!get(saveLocalHistory)) return
+  durableHistory.update(history => {
+    const previous = history[media.id]
+    if (previous && previous.updatedAt >= updatedAt) return history
+    const defined = Object.fromEntries(Object.entries(media).filter(([, value]) => value != null))
+    const merged = { ...previous?.media, ...defined,
+      externalIds: { ...previous?.media.externalIds, ...Object.fromEntries(Object.entries(media.externalIds ?? {}).filter(([, value]) => value != null)) },
+    } as Media
+    return { ...history, [media.id]: {
+      media: mediaSnapshot(merged), episode,
+      progress: Math.max(previous?.progress ?? 0, completed ? episode : 0), updatedAt,
+      watchedAt: completed ? updatedAt : previous?.watchedAt ?? (previous?.progress ? previous.updatedAt : undefined),
+      catalogSelection: previous?.catalogSelection ?? historyCatalogSelection(media, get(catalogProvider)),
+      release: previous?.release,
+    } }
+  })
 }
 
 /** History entries as a most-recently-updated-first array (for Continue Watching / the settings list). */

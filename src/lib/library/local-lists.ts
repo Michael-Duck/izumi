@@ -37,6 +37,8 @@ export interface LocalMediaEntry {
     status?: LocalMediaStatus
     progress?: number
     score?: number
+    /** Rating clock is independent of automatic progress/list updates. */
+    scoreUpdatedAt?: number
     repeat?: number
     startedAt?: { year?: number; month?: number; day?: number } | null
     completedAt?: { year?: number; month?: number; day?: number } | null
@@ -141,7 +143,11 @@ export function localWatchingAllowed(state: LocalLibraryState, media: Media): bo
 
 const snapshotMedia = (media: Media): Media => JSON.parse(JSON.stringify(media)) as Media
 
-export function setMediaInLocalList(media: Media, listId: string, present: boolean): void {
+const retainedTracking = (entry?: LocalMediaEntry): LocalMediaEntry['tracking'] =>
+  entry?.tracking?.score && entry.tracking.scoreUpdatedAt == null
+    ? { ...entry.tracking, scoreUpdatedAt: entry.updatedAt } : entry?.tracking
+
+export function setMediaInLocalList(media: Media, listId: string, present: boolean, updatedAt = Date.now()): void {
   localLibrary.update((state) => {
     if (!availableLocalLists(state).some((list) => list.id === listId)) return state
     const key = mediaKey(media)
@@ -153,14 +159,14 @@ export function setMediaInLocalList(media: Media, listId: string, present: boole
     const deletedEntries = { ...(state.deletedEntries ?? {}) }
     if (!listIds.size && !previous?.tracking) { delete entries[key]; deletedEntries[key] = Date.now() }
     else {
-      const now = Date.now()
+      const now = Math.max(updatedAt, previous?.updatedAt ?? 0)
       delete deletedEntries[key]
       entries[key] = {
         media: snapshotMedia(media),
         listIds: [...listIds],
         addedAt: previous?.addedAt ?? now,
         updatedAt: now,
-        tracking: previous?.tracking,
+        tracking: retainedTracking(previous),
       }
     }
     return { ...state, lists: availableLocalLists(state), entries, deletedEntries }
@@ -187,7 +193,7 @@ export function toggleMediaInLocalList(media: Media, listId: string): void {
         listIds: [...listIds],
         addedAt: previous?.addedAt ?? now,
         updatedAt: now,
-        tracking: previous?.tracking,
+        tracking: retainedTracking(previous),
       }
     }
     return { ...state, lists: availableLocalLists(state), entries, deletedEntries }
@@ -215,11 +221,11 @@ export function createLocalList(name: string): string | null {
 }
 
 /** Persist list status/progress/score even when no tracker account is connected. */
-export function saveLocalTracking(media: Media, patch: NonNullable<LocalMediaEntry['tracking']>): void {
+export function saveLocalTracking(media: Media, patch: NonNullable<LocalMediaEntry['tracking']>, updatedAt = Date.now()): void {
   localLibrary.update((state) => {
     const key = mediaKey(media)
     const previous = state.entries?.[key]
-    const now = Math.max(Date.now(), (state.removedTracking?.[localTrackingKey(media)] ?? 0) + 1)
+    const now = Math.max(updatedAt, previous?.updatedAt ?? 0, (state.removedTracking?.[localTrackingKey(media)] ?? 0) + 1)
     const entries = { ...(state.entries ?? {}) }
     const deletedEntries = { ...(state.deletedEntries ?? {}) }
     delete deletedEntries[key]
@@ -228,7 +234,10 @@ export function saveLocalTracking(media: Media, patch: NonNullable<LocalMediaEnt
       listIds: [...(previous?.listIds ?? [])],
       addedAt: previous?.addedAt ?? now,
       updatedAt: now,
-      tracking: { ...(previous?.tracking ?? {}), ...patch },
+      tracking: { ...(previous?.tracking ?? {}), ...patch,
+        scoreUpdatedAt: patch.scoreUpdatedAt ?? (patch.score != null && patch.score !== previous?.tracking?.score
+          ? now : previous?.tracking?.scoreUpdatedAt ?? (previous?.tracking?.score ? previous.updatedAt : undefined)),
+      },
     }
     return { ...state, lists: availableLocalLists(state), entries, deletedEntries }
   })
@@ -283,7 +292,7 @@ export function syncWatchedHistoryToWatchlist(
         listIds: [...listIds],
         addedAt: previous?.addedAt ?? now,
         updatedAt: now,
-        tracking: { ...(previous?.tracking ?? {}), status, progress },
+        tracking: { ...retainedTracking(previous), status, progress },
       }
       changed = true
     }

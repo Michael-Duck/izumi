@@ -138,6 +138,15 @@ describe('watch history import merge', () => {
     expect(get(localHistory)[2].catalogSelection).toBe('tmdb')
   })
 
+  it('round-trips the viewing clock independently of a later title opening', () => {
+    localHistory.set({ 9: { media: { id: 9, title: { romaji: 'Clock fixture' } },
+      progress: 3, episode: 4, watchedAt: 10, updatedAt: 20 } })
+    const exported = exportJson()
+    localHistory.set({})
+    importJson(exported)
+    expect(get(localHistory)[9]).toMatchObject({ watchedAt: 10, updatedAt: 20, progress: 3, episode: 4 })
+  })
+
   it('syncs an exact episode source origin', () => {
     const incoming = JSON.stringify({
       app: 'izumi', kind: 'watch-history', version: 1, exportedAt: 20,
@@ -177,13 +186,12 @@ describe('watch history import merge', () => {
   it('round-trips local list tracking through the Izumi JSON export', () => {
     const media = { id: 8, title: { romaji: 'Offline List' }, episodes: 12 } as Media
     saveLocalTracking(media, { status: 'PAUSED', progress: 5, score: 90 })
+    const savedTracking = get(localLibrary).entries['anilist:anime:8'].tracking
     const exported = exportJson()
 
     localLibrary.set({ lists: [{ id: WATCHLIST_ID, name: 'Watchlist', createdAt: 0 }], entries: {}, queue: [] })
     importJson(exported)
 
-    expect(get(localLibrary).entries['anilist:anime:8']?.tracking).toEqual({
-      status: 'PAUSED', progress: 5, score: 90,
-    })
+    expect(get(localLibrary).entries['anilist:anime:8']?.tracking).toEqual(savedTracking)
   })
 })

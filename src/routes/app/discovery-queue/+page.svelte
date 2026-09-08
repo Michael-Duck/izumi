@@ -28,6 +28,7 @@
     historyTasteSeeds,
     libraryTasteSeeds,
     rankDiscoveryQueue,
+    discoveryTasteItem,
     recordDiscoveryDecision,
     type DiscoveryQueueAction,
   } from '$lib/recommendations/discovery-queue'
@@ -78,7 +79,8 @@
       ...feedbackTasteSeeds($discoveryQueueFeedback),
     ]
     return rankDiscoveryQueue(candidates, seeds, $discoveryQueueFeedback, {
-      excludedKeys: [...Object.keys($localLibrary.entries ?? {}), ...Object.values($durableHistory).map(entry => mediaKey(entry.media))],
+      excludedKeys: [...Object.values($localLibrary.entries ?? {}), ...Object.values($durableHistory)]
+        .flatMap(entry => { const item = discoveryTasteItem(entry.media); return [item.key, ...(item.aliases ?? [])] }),
       limit: 60,
     })
   })

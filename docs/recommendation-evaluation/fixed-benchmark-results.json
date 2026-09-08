@@ -1,0 +1,47 @@
+{
+  "measuredAt": "2026-09-08T10:04:45.366Z",
+  "runtime": "v22.16.0",
+  "platform": "win32",
+  "architecture": "x64",
+  "engineSha256": "684d2d4d336abe44b0843dcd3bf206e08d2bcb8d6978529cf0f2d8fc4937852d",
+  "interpretation": "Synthetic Node elapsed time after warm-up; not Worker CPU, cold-start latency, production SLO, or recommendation quality.",
+  "cases": [
+    {
+      "candidateCount": 100,
+      "seedCount": 25,
+      "resultLimit": 60,
+      "samples": 9,
+      "minMs": 10.73,
+      "medianMs": 11.87,
+      "maxMs": 12.39
+    },
+    {
+      "candidateCount": 300,
+      "seedCount": 100,
+      "resultLimit": 60,
+      "samples": 9,
+      "minMs": 46.1,
+      "medianMs": 51.17,
+      "maxMs": 98.78
+    },
+    {
+      "candidateCount": 1000,
+      "seedCount": 300,
+      "resultLimit": 60,
+      "samples": 9,
+      "minMs": 240.94,
+      "medianMs": 891.2,
+      "maxMs": 2121.14
+    },
+    {
+      "candidateCount": 1000,
+      "seedCount": 1000,
+      "signalLimit": 100,
+      "resultLimit": 60,
+      "samples": 9,
+      "minMs": 497.22,
+      "medianMs": 694.35,
+      "maxMs": 1070.88
+    }
+  ]
+}

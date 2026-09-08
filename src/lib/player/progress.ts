@@ -51,6 +51,15 @@ function prune(p: Record<string, Pos>): Record<string, Pos> {
 /** Storage key for a given media + episode. */
 export const progressKey = (mediaId: number, episode: number) => `${mediaId}:${episode}`
 
+/** Merge a remote resume point using the viewing clock, including completed tombstones. */
+export function importPosition(mediaId: number, episode: number, position: Pos & { updatedAt: number }): void {
+  durablePositions.update(current => {
+    const key = progressKey(mediaId, episode)
+    if ((current[key]?.updatedAt ?? 0) >= position.updatedAt) return current
+    return prune({ ...current, [key]: position })
+  })
+}
+
 /** True once at least 85% of a known-duration file has been played. */
 export const watched = (pos: number, duration: number) => duration > 0 && pos / duration >= 0.85
 

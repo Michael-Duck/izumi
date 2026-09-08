@@ -1,5 +1,12 @@
 # Discover recommendations
 
+For the watch-data audit, comparison with other clients, and a proposed path to independent
+Companion personalization, see [watch-habits research](recommendation-watch-habits-research.md).
+That document describes proposed improvements, not deployed behavior.
+The [follow-up evaluation](recommendation-evaluation/README.md) preserves the original
+counterexamples and passing controls. [Implementation notes](recommendation-evaluation/fixes.md)
+describe the subsequent corrections and validation.
+
 Discover lives under Library in the main client and beside My List in TV navigation.
 It is not a Home call-to-action.
 
@@ -26,6 +33,18 @@ same title. Signals decay over time; negative affinity is retained. Known extern
 cross-catalog duplicates, while identical titles alone do not merge remakes. Genre, tags, people,
 studio, language, country, era and format contribute when supplied by a catalog. Quality has a
 small role; genre/source variety prevents consecutive picks from becoming repetitive.
+
+Ratings and dismissals take precedence over saves; the latest direct opinion wins across verified
+aliases. Rating 0 is unrated, 60/100 is neutral, lower ratings are negative and higher ratings are
+positive. Completion does not change a rating's sign. Merely opening an episode creates no watch
+taste seed; confirmed watched-through progress supplies evidence, with completion credit only
+when a total is known. Separate viewing and rating clocks prevent incidental opens or automatic
+list updates from making older opinions look recent. These are explicit policies, not learned weights.
+
+History retains bounded contributor, tag, studio, language and date features. Verified duplicate
+candidates combine available features for scoring. TV ranking resolves conflicting signals before
+allocating its 100-seed budget across direct choices, library and history; exclusion identities are
+processed independently of that budget.
 
 Save adds to Watchlist. Not for me changes affinity and hides the title. Skip hides it for seven
 days without a negative taste signal. Undo writes a timestamped tombstone so an older synced

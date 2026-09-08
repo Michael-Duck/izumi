@@ -9,7 +9,7 @@ import { pushSimkl, getSimklProgress, invalidateSimklList } from './simkl'
 import { kitsuToAni, malToAni, simklToAni } from './status'
 import { getIndex, lookupAnilistByMal, lookupAnilistByKitsu } from '$lib/stremio/idmap'
 import { mapMalAnimeListMedia, type MalAnimeListNode } from './mal-list-media'
-import { recordProgress, localHistory } from '$lib/player/history'
+import { recordProgress, localHistory, durableHistory, importHistoryCheckpoint } from '$lib/player/history'
 import { incognito } from '$lib/stores/incognito'
 import { autoWatchlistEnabled, autoWatchlistEpisodes, saveLocalHistory } from '$lib/settings/ui'
 import {
@@ -79,8 +79,8 @@ export const malScore = (score0to100: number) => clamp(score0to100 / 10, 0, 10)
 // ── Fuzzy dates ────────────────────────────────────────────────────────────────
 const pad2 = (n: number) => String(n).padStart(2, '0')
 /** Today as an AniList FuzzyDate (app runtime may use new Date(); the ban is workflow-scripts-only). */
-function fuzzyToday(): FuzzyDate {
-  const d = new Date()
+function fuzzyToday(at = Date.now()): FuzzyDate {
+  const d = new Date(at)
   return { year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate() }
 }
 /** FuzzyDate → MAL "YYYY-MM-DD", or null when incomplete. */
@@ -232,7 +232,7 @@ export function updateProgress(
   progress: number,
   status: AniStatus = 'CURRENT',
   extras: ProgressExtras = {},
-  options: { persistLocal?: boolean } = {},
+  options: { persistLocal?: boolean; updatedAt?: number } = {},
 ): Promise<string[]> {
   if (!get(incognito) && options.persistLocal !== false) {
     saveLocalTracking(media, {
@@ -241,7 +241,7 @@ export function updateProgress(
       ...(extras.repeat != null ? { repeat: extras.repeat } : {}),
       ...(extras.startedAt ? { startedAt: extras.startedAt } : {}),
       ...(extras.completedAt ? { completedAt: extras.completedAt } : {}),
-    })
+    }, options.updatedAt)
   }
   return push(media, { kind: 'progress', progress, status, extras })
 }
@@ -256,29 +256,36 @@ export function updateProgress(
 //      of an already-complete show becomes a REPEATING pass (AniList status REPEATING + repeat++,
 //      MAL is_rewatching + num_times_rewatched).
 // Returns the pre-bump known count (the Android undo toast needs it).
-export function markWatched(media: Media, episode: number): number {
+export function markWatched(media: Media, episode: number, options: { importedAt?: number } = {}): number {
   const entry = media.mediaListEntry
   const localEntry = localTrackingForMedia(get(localLibrary), media)
   const known = Math.max(entry?.progress ?? 0, localEntry?.progress ?? 0, get(localHistory)[media.id]?.progress ?? 0)
-  recordProgress(media, episode) // local — always, independent of any linked tracker
-  void addTraktHistory(media, episode).catch(() => {})
+  const imported = options.importedAt != null
+  if (imported) {
+    const previous = get(durableHistory)[media.id]
+    if (previous && previous.updatedAt >= options.importedAt!) return known
+    importHistoryCheckpoint(media, episode, true, options.importedAt!)
+    // A recovery advances known progress but never infers a new rewatch from a completed title.
+    if (episode <= known) return known
+  } else recordProgress(media, episode)
+  void addTraktHistory(media, episode, options.importedAt).catch(() => {})
   const persistLocal = get(saveLocalHistory)
   const threshold = Math.max(1, Math.floor(get(autoWatchlistEpisodes) || 1))
   if (!get(incognito) && persistLocal && get(autoWatchlistEnabled) && episode >= threshold) {
-    setMediaInLocalList(media, WATCHLIST_ID, true)
+    setMediaInLocalList(media, WATCHLIST_ID, true, options.importedAt)
   }
   const finished = media.episodes != null && episode >= media.episodes
   // Already-complete = COMPLETED status OR the known count has reached the (known) total. The count
   // fallback is load-bearing for Continue-Watching plays whose media snapshot omits mediaListEntry.
   const previousStatus = localEntry?.status ?? entry?.status
   const alreadyComplete = previousStatus === 'COMPLETED' || (media.episodes != null && known >= media.episodes)
-  const rewatch = alreadyComplete || previousStatus === 'REPEATING'
+  const rewatch = !imported && (alreadyComplete || previousStatus === 'REPEATING')
   // #1: behind the known count and not a rewatch/finale → the local bump is enough.
   if (!rewatch && episode <= known && !finished) return known
 
   const status: AniStatus = finished ? 'COMPLETED' : (rewatch ? 'REPEATING' : 'CURRENT')
   const extras: ProgressExtras = {}
-  const today = fuzzyToday()
+  const today = fuzzyToday(options.importedAt)
   // First-ever watch → stamp a start date (unless the entry already carries one).
   const startedAt = localEntry?.startedAt ?? entry?.startedAt
   const completedAt = localEntry?.completedAt ?? entry?.completedAt
@@ -291,7 +298,7 @@ export function markWatched(media: Media, episode: number): number {
   }
   if (rewatch) extras.isRewatching = !finished // MAL: flag stays on until the pass completes
 
-  updateProgress(media, episode, status, extras, { persistLocal })
+  updateProgress(media, episode, status, extras, { persistLocal, updatedAt: options.importedAt })
     .then((t) => t.length && console.log('tracked on', t.join(', '))).catch(() => {})
   return known
 }
@@ -308,7 +315,7 @@ export function setStatus(media: Media, status: AniStatus): Promise<string[]> {
 
 // Set the viewer's rating (canonical 0-100) on every connected tracker. Best-effort. score 0 clears.
 export function setScore(media: Media, score0to100: number): Promise<string[]> {
-  if (!get(incognito)) saveLocalTracking(media, { score: clamp(score0to100, 0, 100) })
+  if (!get(incognito)) saveLocalTracking(media, { score: clamp(score0to100, 0, 100), scoreUpdatedAt: Date.now() })
   void setTraktRating(media, score0to100).catch(() => {})
   return push(media, { kind: 'score', score: score0to100 })
 }

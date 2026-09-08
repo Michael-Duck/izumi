@@ -4,7 +4,10 @@ import { get } from 'svelte/store'
 const mocks = vi.hoisted(() => ({
   aniMutation: vi.fn(),
   malFetch: vi.fn(),
+  traktHistory: vi.fn().mockResolvedValue(true),
 }))
+
+vi.mock('$lib/trakt/sync', () => ({ addTraktHistory: mocks.traktHistory, setTraktRating: vi.fn(), setTraktWatchlist: vi.fn() }))
 
 vi.mock('$lib/anilist/client', () => ({
   anilist: { mutation: mocks.aniMutation },
@@ -33,6 +36,7 @@ describe('watched episode tracker sync', () => {
   beforeEach(() => {
     mocks.aniMutation.mockReset()
     mocks.malFetch.mockReset()
+    mocks.traktHistory.mockClear()
     mocks.aniMutation.mockReturnValue({ toPromise: async () => ({ data: {} }) })
     mocks.malFetch.mockResolvedValue(new Response('', { status: 200 }))
     anilistToken.set('ani-token')
@@ -105,6 +109,29 @@ describe('watched episode tracker sync', () => {
     let session: Record<number, number> = {}
     sessionProgress.subscribe((value) => (session = value))()
     expect(session[101]).toBe(4)
+  })
+
+  it('forwards recovered completion with its viewing date and does not infer a rewatch on replay', async () => {
+    const at = Date.UTC(2026, 7, 2, 12)
+    markWatched(media(), 12, { importedAt: at })
+    await vi.waitFor(() => expect(mocks.aniMutation).toHaveBeenCalledTimes(1))
+    expect(mocks.aniMutation.mock.calls[0][1]).toMatchObject({ progress: 12, status: 'COMPLETED',
+      completedAt: { year: 2026, month: 8, day: 2 } })
+    expect(get(localHistory)[101]).toMatchObject({ updatedAt: at, watchedAt: at })
+    expect(get(localLibrary).entries['anilist:anime:101'].updatedAt).toBe(at)
+    expect(mocks.traktHistory).toHaveBeenCalledWith(expect.objectContaining({ id: 101 }), 12, at)
+    markWatched(media(), 12, { importedAt: at + 1 })
+    expect(mocks.aniMutation).toHaveBeenCalledTimes(1)
+    expect(get(localLibrary).entries['anilist:anime:101'].tracking?.repeat).toBeUndefined()
+  })
+
+  it('does not send stale recovered completion over newer local playback', () => {
+    const at = Date.UTC(2026, 7, 2, 12)
+    localHistory.set({ 101: { media: media(), episode: 4, progress: 4, updatedAt: at + 1 } })
+    markWatched(media(), 12, { importedAt: at })
+    expect(get(localHistory)[101].progress).toBe(4)
+    expect(mocks.aniMutation).not.toHaveBeenCalled()
+    expect(mocks.traktHistory).not.toHaveBeenCalled()
   })
 
   it('adds the show to the local Watchlist only when the episode threshold is reached', () => {

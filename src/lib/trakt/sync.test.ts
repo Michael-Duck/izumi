@@ -76,6 +76,15 @@ describe('Trakt media sync', () => {
     })
   })
 
+  it.each(['movie', 'series'])('retains the original watched_at when recovering a %s', async type => {
+    const at = Date.UTC(2026, 7, 2, 12)
+    const item = type === 'movie' ? media({ catalog: { provider: 'tmdb', type: 'movie', id: '77' } }) : media()
+    await addTraktHistory(item, 12, at)
+    const body = JSON.parse(mocks.traktFetch.mock.calls[0][1].body)
+    const event = type === 'movie' ? body.movies[0] : body.shows[0].seasons[0].episodes[0]
+    expect(event.watched_at).toBe(new Date(at).toISOString())
+  })
+
   it('queues an offline write and flushes it when Trakt returns', async () => {
     mocks.traktFetch.mockRejectedValueOnce(new Error('offline'))
     await setTraktWatchlist(media(), true)

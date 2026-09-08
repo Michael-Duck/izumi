@@ -100,12 +100,23 @@ async function queueMediaAction(
   return !get(traktSyncQueue).some((action) => action.id === actionId)
 }
 
-export async function addTraktHistory(media: Media, episode: number): Promise<boolean> {
+export async function addTraktHistory(media: Media, episode: number, watchedAt?: number): Promise<boolean> {
   const key = `${mediaKey(media)}:${episode}`
   const now = Date.now()
   const recent = get(traktHistoryDedupe)[key] ?? 0
   if (now - recent < HISTORY_DEDUPE_MS) return true
-  const sent = await queueMediaAction(media, '/sync/history', `history:${key}`, (body) => body, episode)
+  const sent = await queueMediaAction(media, '/sync/history', `history:${key}`, (body) => {
+    if (watchedAt == null) return body
+    const watched_at = new Date(watchedAt).toISOString()
+    return {
+      ...body,
+      ...(body.movies ? { movies: body.movies.map(item => ({ ...item, watched_at })) } : {}),
+      ...(body.episodes ? { episodes: body.episodes.map(item => ({ ...item, watched_at })) } : {}),
+      ...(body.shows ? { shows: body.shows.map(show => ({ ...show,
+        seasons: show.seasons?.map(season => ({ ...season, episodes: season.episodes.map(item => ({ ...item, watched_at })) })),
+      })) } : {}),
+    }
+  }, episode)
   if (sent) {
     traktHistoryDedupe.update((state) => {
       const fresh = Object.fromEntries(Object.entries(state).filter(([, timestamp]) => now - timestamp < HISTORY_DEDUPE_MS))

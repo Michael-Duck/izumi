@@ -174,6 +174,9 @@ export function importJson(text: string, options: WatchJsonOptions = {}): {
         episode: Math.max(0, Math.trunc(num((raw as HistoryEntry).episode))),
         progress: Math.max(0, Math.trunc(num((raw as HistoryEntry).progress))),
         updatedAt: num((raw as HistoryEntry).updatedAt),
+        ...((raw as HistoryEntry).watchedAt != null ? {
+          watchedAt: Math.min(num((raw as HistoryEntry).watchedAt), num((raw as HistoryEntry).updatedAt)),
+        } : {}),
         catalogSelection: validCatalogSelection((raw as HistoryEntry).catalogSelection),
         release: validRelease((raw as HistoryEntry).release),
       }

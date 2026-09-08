@@ -7,16 +7,17 @@
   import { nearViewport } from '$lib/util/near-viewport'
   import { gameMode } from '$lib/player/session'
   import { durableHistory } from '$lib/player/history'
+  import { localLibrary } from '$lib/library/local-lists'
   import { anilistIdOf } from '$lib/catalog/identity'
   import { showAdult } from '$lib/settings/ui'
   import {
     accountSeed,
+    mergeForYouSeeds,
     dismissForYou,
     dismissedForYouIds,
     historySeeds,
     rankForYou,
     type ForYouEdge,
-    type ForYouSeed,
   } from '$lib/recommendations/for-you'
   import X from '@lucide/svelte/icons/x'
   import * as h from '$lib/haptics'
@@ -58,19 +59,19 @@
 
   const recommendations = $derived.by(() => {
     const accountEntries = $accountStore.data?.account?.mediaList ?? []
-    const sources = new Map<number, ForYouSeed>()
-    for (const seed of localSeeds) sources.set(seed.media.id, seed)
-    for (const entry of accountEntries) {
-      if (!$showAdult && entry.media.isAdult) continue
-      const seed = accountSeed(entry.media, entry.score, entry.status, entry.progress)
-      const previous = sources.get(seed.media.id)
-      if (!previous || seed.affinity > previous.affinity) sources.set(seed.media.id, seed)
-    }
+    const sources = mergeForYouSeeds(localSeeds, accountEntries
+      .filter(entry => $showAdult || !entry.media.isAdult)
+      .map(entry => accountSeed(entry.media, entry.score, entry.status, entry.progress)))
+    const localOpinions = Object.values($localLibrary.entries ?? {}).flatMap(entry => {
+      const id = anilistIdOf(entry.media)
+      if (!id || (!(entry.tracking?.score) && entry.tracking?.status !== 'DROPPED')) return []
+      return [accountSeed({ ...entry.media, id }, entry.tracking?.score, entry.tracking?.status, entry.tracking?.progress)]
+    })
 
     const sourceMedia = new Map<number, SourceMedia>()
     for (const media of $historyStore.data?.history?.media ?? []) sourceMedia.set(media.id, media)
     for (const entry of accountEntries) sourceMedia.set(entry.media.id, entry.media)
-    const hydratedSeeds = [...sources.values()].map((seed) => {
+    const hydratedSeeds = mergeForYouSeeds(sources, localOpinions).map((seed) => {
       const hydrated = sourceMedia.get(seed.media.id)
       return hydrated ? { ...seed, media: { ...seed.media, ...hydrated } } : seed
     })

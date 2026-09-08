@@ -2,6 +2,7 @@ import type { Media } from '$lib/anilist/types'
 import { rankRecommendations, type TasteItem } from '$lib/shared/recommendation-engine'
 import { normalizeLang } from '$lib/stremio/sublang'
 import { mediaKey, externalIdsOf } from '$lib/catalog/identity'
+import { tasteMetadata } from '$lib/catalog/taste-metadata'
 import type { LocalLibraryState } from '$lib/library/local-lists'
 import type { HistoryEntry } from '$lib/player/history'
 import { profiledPersisted } from '$lib/profiles/store'
@@ -23,6 +24,7 @@ export interface DiscoveryTasteMedia {
   idMal?: number
   countryOfOrigin?: string
   startDate?: Media['startDate']
+  seasonYear?: number
   tags?: Media['tags']
   studios?: Media['studios']
   creators?: Media['creators']
@@ -69,15 +71,8 @@ function tasteSnapshot(media: Media): DiscoveryTasteMedia {
     type: media.type,
     format: media.format,
     title: media.title,
-    genres: media.genres?.slice(0, 12),
-    originalLanguage: media.originalLanguage,
+    ...tasteMetadata(media),
     externalIds: externalIdsOf(media),
-    countryOfOrigin: media.countryOfOrigin,
-    startDate: media.startDate,
-    tags: media.tags?.filter(tag => !tag.isGeneralSpoiler && !tag.isMediaSpoiler).slice(0, 8),
-    studios: media.studios,
-    creators: media.creators?.slice(0, 6),
-    staff: media.staff ? { edges: media.staff.edges.slice(0, 8) } : undefined,
   }
 }
 
@@ -129,25 +124,33 @@ export function libraryTasteSeeds(state: LocalLibraryState): DiscoveryTasteSeed[
     else if (status === 'COMPLETED') weight += 0.55
     else if (status === 'REPEATING') weight += 0.8
     else if (status === 'DROPPED') weight -= 1.15
-    if (score != null && score > 0) weight += (score - 60) / 45
-    return Math.abs(weight) < 0.05 ? [] : [{ media: tasteSnapshot(entry.media), weight, at: entry.updatedAt, priority: 2, source: 'library' }]
+    const rated = score != null && Number.isFinite(score) && score > 0
+    // A rating is an opinion in its own right. Completing or saving a disliked title cannot
+    // turn that opinion positive; a neutral rating also supersedes incidental watch evidence.
+    if (rated) weight = (Math.min(100, score) - 60) / 25
+    return [{ media: tasteSnapshot(entry.media), weight,
+      at: rated ? entry.tracking?.scoreUpdatedAt ?? entry.updatedAt : entry.updatedAt,
+      priority: rated || status === 'DROPPED' ? 4 : 2, source: 'library' }]
   })
 }
 
-export function historyTasteSeeds(history: Record<number, HistoryEntry>, now = Date.now()): DiscoveryTasteSeed[] {
-  return Object.values(history).map((entry) => {
-    const ageDays = Math.max(0, now - entry.updatedAt) / DAY
-    const recency = Math.exp(-ageDays / 180)
-    const total = Math.max(1, entry.media.episodes ?? entry.progress ?? 1)
-    const completion = Math.min(1, Math.max(entry.progress, entry.episode * 0.35) / total)
-    return { media: tasteSnapshot(entry.media), weight: 0.35 + recency * 0.3 + completion * 0.35, at: entry.updatedAt, priority: 1, source: 'watch history' }
+export function historyTasteSeeds(history: Record<number, HistoryEntry>, _now = Date.now()): DiscoveryTasteSeed[] {
+  return Object.values(history).flatMap((entry) => {
+    // `episode` is only the last opened episode. `progress` is a watched-through marker,
+    // not a count of distinct episodes or minutes, and unknown totals imply no completion.
+    if (!(entry.progress > 0)) return []
+    const total = entry.media.episodes
+    const completion = total && total > 0 ? Math.min(1, entry.progress / total) : 0
+    return [{ media: tasteSnapshot(entry.media), weight: 0.65 + completion * 0.35,
+      at: entry.watchedAt ?? entry.updatedAt, priority: 1, source: 'watch history' }]
   })
 }
 
 export function feedbackTasteSeeds(state: DiscoveryQueueFeedbackState): DiscoveryTasteSeed[] {
   return Object.values(state?.records ?? {}).flatMap((record) => {
     if (record.action === 'skip') return []
-    return [{ media: record.media, weight: record.action === 'save' ? 1.1 : -1.4, at: record.at, priority: 3, source: 'discovery choices' }]
+    return [{ media: record.media, weight: record.action === 'save' ? 1.1 : -1.4, at: record.at,
+      priority: record.action === 'save' ? 3 : 4, source: 'discovery choices' }]
   })
 }
 
@@ -155,6 +158,7 @@ interface RankOptions {
   excludedKeys?: Iterable<string>
   now?: number
   limit?: number
+  signalLimit?: number
 }
 
 /** Provider-neutral features for the shared engine and TV snapshot protocol. */
@@ -172,7 +176,7 @@ export function discoveryTasteItem(media: DiscoveryTasteMedia & Partial<Pick<Med
     genres: media.genres,
     language: normalizeLang(media.originalLanguage),
     country: media.countryOfOrigin,
-    year: media.startDate?.year,
+    year: media.startDate?.year ?? media.seasonYear,
     tags: media.tags?.filter(tag => !tag.isGeneralSpoiler && !tag.isMediaSpoiler && (tag.rank ?? 100) >= 60).map(tag => tag.name),
     people: [
       ...(media.creators ?? []).map(name => 'creator:' + name),
@@ -200,7 +204,7 @@ export function rankDiscoveryQueue(
   const byKey = new Map(candidates.map(media => [mediaKey(media), media]))
   return rankRecommendations(candidates.map(discoveryTasteItem), seeds.map(seed => ({
     item: discoveryTasteItem(seed.media), weight: seed.weight, at: seed.at, priority: seed.priority, source: seed.source,
-  })), { now, excluded, limit: options.limit })
+  })), { now, excluded, limit: options.limit, signalLimit: options.signalLimit })
     .map(item => ({ ...item, media: byKey.get(item.key)! }))
 }
 

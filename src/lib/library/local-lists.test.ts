@@ -41,7 +41,7 @@ describe('device-local media lists', () => {
 
   it('keeps AniList-style status, progress, and score locally without list membership', () => {
     saveLocalTracking(media, { status: 'DROPPED', progress: 4, score: 70 })
-    expect(localTrackingForMedia(get(localLibrary), media)).toEqual({ status: 'DROPPED', progress: 4, score: 70 })
+    expect(localTrackingForMedia(get(localLibrary), media)).toEqual({ status: 'DROPPED', progress: 4, score: 70, scoreUpdatedAt: expect.any(Number) })
     expect(localEntriesForList(get(localLibrary), 'status:DROPPED')).toHaveLength(1)
 
     setMediaInLocalList(media, WATCHLIST_ID, true)
