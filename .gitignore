@@ -51,6 +51,7 @@ flatpak/izumi-key.gpg
 
 # Local build output (packaged bundles, not committed)
 /output/
+/artifacts/worker/
 /.codex-tmp
 /.superpowers/
 /tmp/

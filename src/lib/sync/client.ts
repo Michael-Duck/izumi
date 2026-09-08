@@ -36,6 +36,7 @@ import {
 } from "./members";
 import {
   checkCloudflareWorkerUpdate,
+  triggerCloudflareWorkerUpdate,
   cloudflareSetupSecret,
   cloudflareSyncConfig,
   cloudflareWorkerUpdateAvailable,
@@ -70,6 +71,7 @@ export const watchSyncError = writable('')
 
 export {
   checkCloudflareWorkerUpdate,
+  triggerCloudflareWorkerUpdate,
   cloudflareSetupSecret,
   cloudflareSyncConfig,
   cloudflareWorkerUpdateAvailable,

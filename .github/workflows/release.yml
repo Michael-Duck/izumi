@@ -679,9 +679,30 @@ jobs:
           cp "$VER" "izumi-android-${{ matrix.flavor }}.apk"
           gh release upload "$T" "izumi-android-${{ matrix.flavor }}.apk" --repo "${{ github.repository }}" --clobber
 
+  worker-package:
+    needs: create-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Package the stable Worker
+        if: needs.create-release.outputs.prerelease == 'false'
+        run: |
+          npm ci --prefix cloudflare-sync-worker
+          node scripts/build-cloudflare-direct-upload.mjs --check
+          node scripts/package-cloudflare-release.mjs "$GITHUB_REF_NAME"
+      - name: Attach the stable Worker package
+        if: needs.create-release.outputs.prerelease == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" artifacts/worker/worker-update.json artifacts/worker/worker-package.json --repo "$GITHUB_REPOSITORY" --clobber
+
   publish-release:
     # Keep the release draft if any shipped platform fails its build or validation gates.
-    needs: [create-release, build, flatpak, android, cleanup-release-signatures]
+    needs: [create-release, build, flatpak, android, cleanup-release-signatures, worker-package]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

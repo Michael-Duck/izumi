@@ -41,21 +41,56 @@ uploads leave the last complete snapshot readable. Unreferenced chunks expire af
 when another upload runs; the active snapshot is retained. The Worker bounds staged ciphertext
 to 96 MiB per device/category. Chunk contents and manifests remain end-to-end encrypted.
 
-Izumi checks the Worker's public version 20 seconds after startup and every six hours while the app
-is open, comparing it with the Worker version bundled in the installed app. Install a newer Izumi
-release to receive a newer bundled Worker. Checks do not install updates automatically.
-Settings → Device sync → Sync & devices also shows an **Update Worker** button whenever a Worker
-is linked, including while sync is off. It checks immediately and shows the installation steps when
-an update is available, or confirms the installed Worker is current for this app version.
+Worker 1.12 supports **Update now** on the TV and **Update Worker** in Izumi. After the one-time
+setup below, these actions request a Cloudflare build using the device's existing authentication.
+The Worker also checks stable releases every six hours, even when every device is closed or off.
+There is no API token to enter for each update. The deployment hook stays in a Worker secret;
+neither the TV nor Izumi receives it. A queued build is reported as pending until the installed
+Worker actually reports the new version. Repeated requests cannot continuously start new builds.
 
-Claiming a temporary deployment does not give Izumi permanent access to the Cloudflare account.
-To update a Worker created directly by Izumi,
-the owner creates and pastes a new pre-scoped setup token; Izumi updates the Worker in place while
-preserving its D1 database and device links. A manual or Git-based deployment must be updated through
-its original deployment method.
+### Enable automatic updates once
 
-Izumi never stores a Cloudflare API token and cannot silently mutate the account. Every direct
-deployment or update requires the user to approve and paste a token again.
+1. Open your **existing Worker** in the Cloudflare dashboard. Connect a GitHub/GitLab repository
+   containing this directory to **Settings → Builds**. A private fork is fine; it must initially
+   contain `scripts/deploy-stable.mjs`. Keep the existing Worker name and D1 binding.
+2. Set the build root to `cloudflare-sync-worker` for a full repository, or the repository root
+   for an isolated copy. Use `npm ci` as the build command and
+   `node scripts/deploy-stable.mjs` as the deploy command. Disable non-production branch builds.
+   Set build variables `IZUMI_WORKER_NAME` to the existing Worker name and `IZUMI_DATABASE_ID`
+   to the UUID of its existing `DB` binding. Do not create a replacement database.
+3. Let Cloudflare create/manage the Builds deployment token. In **My Profile → API Tokens**,
+   edit that generated token to include **Account → D1 → Edit** for this account, in addition
+   to its deployment permissions. This is a one-time permission change; no token needs copying
+   into Izumi or the TV. The default Builds token does not include D1 migration access.
+4. In **Settings → Builds → Deploy Hooks**, create a hook for the production branch. Save its
+   URL as an **encrypted runtime secret** named `WORKER_DEPLOY_HOOK` under the Worker's
+   **Variables and Secrets**. Keep this URL private; possession allows build requests.
+5. Run the production build once in Cloudflare. It installs the latest stable Worker package
+   and the six-hour cron trigger (`17 */6 * * *`). This initial deployment also upgrades older
+   Workers that cannot yet handle update requests. Verify the build succeeded and the trigger
+   appears under **Settings → Trigger Events**, then select **Check again** on the TV.
+
+The build helper downloads a versioned official stable release package and verifies its SHA-256
+checksum before applying pending migrations and deploying it. It does not rely on a fork being
+automatically synchronized. The existing D1 database, pairing credentials, and dashboard secrets
+are retained. Stable release publication includes both `worker-update.json` and
+`worker-package.json`; until the first release containing these assets is published, setup builds
+will report that the package is unavailable and leave the running Worker untouched.
+
+Set the runtime variable `WORKER_AUTO_UPDATE` to `false` to pause scheduled installation while
+retaining the TV button. Delete `WORKER_DEPLOY_HOOK` to disable both. Uncertain or delayed builds
+are retried no more than once every six hours; inspect Cloudflare Builds if an update stays pending.
+The build history is the authority for detailed deployment errors.
+
+Cloudflare still needs permission to deploy into your account once. Claiming an existing temporary
+deployment alone does not provide that permission. Automatic updates use
+[Cloudflare Deploy Hooks](https://developers.cloudflare.com/workers/ci-cd/builds/deploy-hooks/) and
+[Cloudflare-managed build authorization](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/#api-token).
+These use Workers Builds within its plan limits; no paid runtime is introduced.
+
+Without automatic-update setup, Izumi retains its bundled-version check and the direct update
+fallback using a temporary setup token. Older Workers can also be upgraded through their original
+deployment method. The app never persists that temporary token.
 
 Database migrations are applied by the deploy command before the Worker update. Version 1.1 adds the companion pairing, short-lived request, browser enrollment, and Web Push subscription tables. Version 1.2 adds the optional direct-source resolver profile to the same private D1 database. Version 1.3 adds the explicit Cloudflare-only versus Cloudflare-plus-device playback policy. Version 1.4 adds authenticated TV episode metadata. Version 1.5 adds native torrent resolution through Izumi's existing multi-provider debrid abstraction. Version 1.6 adds per-TV encrypted catalogue snapshots and playback checkpoints plus live Worker catalogue/search/detail adapters. It requires migration `0004_companion_independent.sql`.
 

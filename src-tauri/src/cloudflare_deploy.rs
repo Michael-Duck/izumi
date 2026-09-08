@@ -524,6 +524,7 @@ async fn upload_worker(
     let metadata = json!({
         "main_module": "worker.mjs",
         "bindings": bindings,
+        "keep_bindings": ["secret_text", "plain_text"],
         "compatibility_date": "2026-08-28",
         "compatibility_flags": ["nodejs_compat"],
         "annotations": {
@@ -1180,6 +1181,7 @@ mod tests {
         let metadata = requests[0].2.split("\r\n\r\n").nth(1).unwrap().split("\r\n").next().unwrap();
         let metadata: Value = serde_json::from_str(metadata).unwrap();
         assert_eq!(metadata["bindings"], json!([{"type": "d1", "name": "DB", "id": target.database_id}]));
+        assert_eq!(metadata["keep_bindings"], json!(["secret_text", "plain_text"]));
     }
 
     #[tokio::test]

@@ -39,7 +39,7 @@
     joinNearbyDevice, listNearbyDevices, openNearbyPairing, respondToPairRequest,
     listManualDevices, listSyncMembers, publishPresence, pullWatchProgress,
     receiveManualSnapshot, sendManualSnapshot, syncDeviceName,
-    checkCloudflareWorkerUpdate, claimCloudflareWorker, cloudflareSetupSecret,
+    checkCloudflareWorkerUpdate, triggerCloudflareWorkerUpdate, claimCloudflareWorker, cloudflareSetupSecret,
     cloudflareSyncConfig, cloudflareWorkerUpdateAvailable, createCloudflareInvite,
     createCloudflareCompanionEnrollment, generateCloudflareSetupSecret, joinCloudflareInvite,
     setSyncProvider, syncProvider, watchSyncError,
@@ -443,6 +443,14 @@
 
   function openCloudflareWorkerUpdate() {
     void action('worker-check', async () => {
+      const update = await triggerCloudflareWorkerUpdate()
+      if (update?.configured) {
+        if (update.error) throw new Error(update.error)
+        showMessage(update.phase === 'current' ? `Worker ${update.version} is up to date.`
+          : update.phase === 'delayed' ? 'The update is taking longer than expected. Check Cloudflare Builds.'
+          : 'Worker update requested. Check again shortly to verify the installed version.')
+        return
+      }
       const available = await checkCloudflareWorkerUpdate({ throwOnError: true })
       if (!available) {
         showMessage('Your Worker is up to date with this version of Izumi.')
@@ -842,7 +850,7 @@
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div class="min-w-0">
           <h3 id="worker-updates-title" class="font-black">Worker updates</h3>
-          <p class="mt-1 text-xs text-muted-foreground">Check for the Worker included with this version of Izumi.</p>
+          <p class="mt-1 text-xs text-muted-foreground">Update here or from your TV. Once configured, your Worker also installs stable updates automatically.</p>
           {#if $cloudflareSyncConfig.workerVersion}
             <p class="mt-1 text-xs text-muted-foreground">Installed version {$cloudflareSyncConfig.workerVersion}</p>
           {/if}
@@ -852,6 +860,7 @@
           {busy === 'worker-check' ? 'Checking…' : 'Update Worker'}
         </button>
       </div>
+      <button type="button" data-focusable onclick={() => openUrl(CLOUDFLARE_UPDATE_GUIDE)} class="mt-3 min-h-10 rounded-lg bg-secondary px-3 py-2 text-sm font-bold">Set up automatic updates</button>
       {#if $cloudflareWorkerUpdateAvailable}
         <section bind:this={cloudflareUpdatePanel} tabindex="-1" aria-labelledby="worker-update-available-title" class="mt-4 border-t border-border/70 pt-4">
           <h4 id="worker-update-available-title" class="font-black text-amber-300">Worker update {$cloudflareWorkerUpdateAvailable} is available</h4>

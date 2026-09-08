@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { get } from 'svelte/store'
 import {
   checkCloudflareWorkerUpdate,
+  triggerCloudflareWorkerUpdate,
   CLOUDFLARE_WORKER_VERSION,
   cloudflareSyncConfig,
   cloudflareWorkerUpdateAvailable,
@@ -33,6 +34,19 @@ afterEach(() => {
 })
 
 describe('Worker update checks', () => {
+  it('uses authenticated update requests on capable Workers and falls back for older installations', async () => {
+    const update = { version: '1.12.0', configured: true, automatic: true, phase: 'queued', latestVersion: '1.13.0', error: '' }
+    const network = vi.fn().mockResolvedValueOnce(status('1.11.0'))
+      .mockResolvedValueOnce(Response.json({ app: 'izumi-sync', protocol: 1, version: '1.12.0', workerUpdate: 1 }))
+      .mockResolvedValueOnce(Response.json(update))
+    vi.stubGlobal('fetch', network)
+    expect(await triggerCloudflareWorkerUpdate()).toBeNull()
+    expect(network).toHaveBeenCalledTimes(1)
+    expect(await triggerCloudflareWorkerUpdate()).toEqual(update)
+    expect(network.mock.calls[2][0]).toBe(`${connection.endpoint}/v1/worker-update`)
+    expect(network.mock.calls[2][1].method).toBe('POST')
+    expect(network.mock.calls[2][1].headers.get('Authorization')).toBe(`Bearer ${connection.deviceToken}`)
+  })
   it.each([
     ['1.0.0', CLOUDFLARE_WORKER_VERSION],
     [CLOUDFLARE_WORKER_VERSION, ''],

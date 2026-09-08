@@ -4,7 +4,7 @@ import type { CompanionHomeSnapshot, CompanionMedia, CompanionPlaybackMode } fro
 import type { SyncRecord, SyncStatus } from './types'
 import { chunkHash, MAX_SYNC_BYTES, parseChunkManifest, splitSyncPayload, type ChunkManifest } from './record-chunks'
 
-export const CLOUDFLARE_WORKER_VERSION = '1.11.1'
+export const CLOUDFLARE_WORKER_VERSION = '1.12.0'
 export const CLOUDFLARE_WORKER_PROTOCOL = 1
 export const CLOUDFLARE_GIT_DEPLOY_URL =
   'https://deploy.workers.cloudflare.com/?url=https://github.com/nickEatsBread/izumi/tree/main/cloudflare-sync-worker'
@@ -63,6 +63,27 @@ interface WorkerStatus {
   claimed: boolean
   features?: string[]
   recordChunks?: number
+  workerUpdate?: number
+}
+
+export interface CloudflareAutomaticUpdate {
+  version: string
+  configured: boolean
+  automatic: boolean
+  phase: 'setup-required' | 'unchecked' | 'checking' | 'queued' | 'delayed' | 'error' | 'available' | 'current'
+  latestVersion: string
+  error: string
+}
+
+/** The private Worker owns the deployment hook; clients send only their existing device credential. */
+export async function triggerCloudflareWorkerUpdate(): Promise<CloudflareAutomaticUpdate | null> {
+  const config = get(cloudflareSyncConfig)
+  if (!deviceConfigReady(config)) throw new Error('Connect this device to your private Worker first.')
+  const status = await getCloudflareWorkerStatus(config.endpoint)
+  if (status.workerUpdate !== 1) return null
+  const current = get(cloudflareSyncConfig)
+  if (current.endpoint !== config.endpoint || current.deviceToken !== config.deviceToken) throw new Error('The Worker connection changed.')
+  return workerRequest<CloudflareAutomaticUpdate>(config.endpoint, '/v1/worker-update', { method: 'POST' }, config.deviceToken, 25_000)
 }
 
 export interface CloudflareCompanionTransport {
@@ -212,9 +233,10 @@ async function workerRequest<T>(
   path: string,
   init: RequestInit = {},
   token = '',
+  timeoutMs = REQUEST_TIMEOUT_MS,
 ): Promise<T> {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
     const headers = new Headers(init.headers)
     if (init.body) headers.set('Content-Type', 'application/json')

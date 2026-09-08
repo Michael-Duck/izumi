@@ -6,6 +6,7 @@ import { collectionOptions, collectionSnapshot, normalizeCollections } from './c
 import { commitChunkedRecord, putRecordChunk } from './record-chunks.js'
 import { validSnapshotSelector, viewerForRequest, viewerAllows, scopeSnapshot } from './profiles.js'
 import { consumeTvSourceLookup } from './tv-source-lookup.js'
+import { runWorkerUpdate, workerUpdateStatus } from './worker-update.js'
 import { createClientLinkApi, companionOwnerDevice, companionMemberPairing } from './client-links.js'
 import {
   defaultResolverProfile,
@@ -18,7 +19,7 @@ import {
   searchCatalog,
 } from './resolver.js'
 
-const VERSION = '1.11.1'
+const VERSION = '1.12.0'
 const PROTOCOL = 1
 const CATEGORIES = new Set(['watch', 'manual', 'presence', 'companion', 'profiles'])
 const MAX_BODY_BYTES = 512 * 1024
@@ -1035,6 +1036,9 @@ const clientLinkApi = createClientLinkApi({ authenticateTv, ownerPairing, body, 
   validToken, cleanName, normalizeResolverProfile, version: VERSION, maxDevices: MAX_DEVICES })
 
 export default {
+  async scheduled(_event, env) {
+    await runWorkerUpdate(env, VERSION, { automatic: true })
+  },
   async fetch(request, env) {
     try {
       if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders })
@@ -1045,10 +1049,19 @@ export default {
           version: VERSION,
           recordChunks: 1,
           tvSourceLookup: 1,
+          workerUpdate: 1,
           protocol: PROTOCOL,
           claimed: await claimed(env),
           features: ['companion-client-link-v1', 'companion-accounts-v1', 'companion-collections-v1', 'companion-profiles-v1', 'profile-sync-v1', 'companion-wake-v1', 'web-push-v1', 'cloud-resolver-v1', 'cloud-resolver-v2', 'cloud-resolver-debrid-v1', 'companion-details-v2', 'companion-snapshot-v1', 'companion-progress-v1', 'companion-catalog-v1', 'companion-trailer-v1', 'companion-discovery-v2'],
         })
+      }
+      const updatePairing = url.pathname.match(/^\/v1\/companion\/pairings\/([A-Za-z0-9_-]{16,80})\/worker-update$/)
+      if ((updatePairing || url.pathname === '/v1/worker-update') && ['GET', 'POST'].includes(request.method)) {
+        const authorized = updatePairing
+          ? await authenticateTv(request, env, updatePairing[1]) || await ownerPairing(request, env, updatePairing[1])
+          : await authenticate(request, env)
+        if (!authorized) return json({ error: 'Authentication failed.' }, 401)
+        return json(request.method === 'POST' ? await runWorkerUpdate(env, VERSION) : await workerUpdateStatus(env, VERSION))
       }
       if (request.method === 'GET' && url.pathname === '/v1/companion/enrol') return companionEnrolmentPage(request)
       if (request.method === 'GET' && url.pathname === '/v1/companion/enrol.js') return scriptResponse(ENROLMENT_SCRIPT)
