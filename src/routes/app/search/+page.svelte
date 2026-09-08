@@ -5,7 +5,7 @@
   import { heroMedia } from '$lib/stores/hero'
   import { showAdult } from '$lib/settings/ui'
   import { offlineMode } from '$lib/stores/offline'
-  import { anilistDegraded } from '$lib/anilist/degraded'
+  import { anilistDegradedBannerVisible } from '$lib/anilist/degraded'
   import OfflineUnavailable from '$lib/components/offline/OfflineUnavailable.svelte'
   import { page } from '$app/state'
   import { replaceState } from '$app/navigation'
@@ -199,7 +199,7 @@
 {:else}
   <!-- Normal padding clears the mobile edge/titlebar. While the fixed degraded strip exists, add
        its 1.75rem height as well so it cannot cover the browse controls. -->
-  <div class="p-4 sm:p-8 {$anilistDegraded ? 'pt-[2.75rem] sm:pt-[3.75rem]' : ''}">
+  <div class="p-4 sm:p-8 {$anilistDegradedBannerVisible ? 'pt-[2.75rem] sm:pt-[3.75rem]' : ''}">
     {#if filters.studioId || filters.staffId || filters.genres?.[0]}
       <h1 class="mb-4 text-2xl font-black">
         {filters.staffId ? (filters.exploreName || 'Voice actor') : filters.studioId ? (filters.exploreName || 'Studio') : filters.genres?.[0]}

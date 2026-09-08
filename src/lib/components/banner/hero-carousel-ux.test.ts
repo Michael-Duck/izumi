@@ -20,6 +20,17 @@ describe('featured carousel UX', () => {
     expect(hero).toContain('{totalEpisodes(current)} episodes')
   })
 
+  it('anchors the featured rank to the bottom right of the banner', () => {
+    expect(hero.match(/\{featuredRankLabel\}/g)?.length).toBe(2)
+    // Desktop: pinned to the artwork's bottom-right corner, clearing the carousel dots when the
+    // carousel has more than one title. Mobile has no room for an overlay, so its copy is
+    // right-aligned under the actions — the same corner of the content it belongs to.
+    expect(hero).toContain('pointer-events-none absolute right-8')
+    expect(hero).toContain('class:bottom-16={medias.length > 1}')
+    expect(hero).toContain('class:bottom-8={medias.length <= 1}')
+    expect(hero).toContain('flex justify-end')
+  })
+
   it('uses provider title artwork with a readable text fallback', () => {
     expect(hero).toContain('const currentLogo = $derived(current?.logoImage')
     expect(hero.match(/src=\{currentLogo\}/g)?.length).toBe(2)
