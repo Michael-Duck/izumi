@@ -14,7 +14,8 @@ describe('app-level trailer dialog', () => {
 
   it('supports backdrop, close-button, and Escape dismissal', () => {
     const dialog = read('./TrailerDialog.svelte')
-    expect(dialog).toContain("e.key === 'Escape'")
+    // Escape dismisses a native modal through its cancel event.
+    expect(dialog).toContain('oncancel={(e) => { e.preventDefault(); closeTrailerPopup() }}')
     expect(dialog).toContain('if (e.target === e.currentTarget) closeTrailerPopup()')
     expect(dialog).toContain('onclick={closeTrailerPopup}')
   })
