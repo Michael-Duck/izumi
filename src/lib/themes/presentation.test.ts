@@ -42,6 +42,14 @@ describe('theme presentation contract', () => {
     expect(() => parseNode({ type: 'text', text: 'New', when: { field: 'year', atMost: 2020 } })).toThrow('numeric')
     expect(() => parseNode({ type: 'text', text: 'New', when: { field: 'year' } })).not.toThrow()
   })
+  it('applies anchor positioning regardless of style key order', () => {
+    const first = parseNode({ type: 'stack', style: { position: 'relative', anchor: 'fill' } })
+    const second = parseNode({ type: 'stack', style: { anchor: 'fill', position: 'relative' } })
+    expect(nodeStyle(first)).toBe(nodeStyle(second))
+    expect(nodeStyle(first)).toContain('position:absolute')
+    expect(nodeStyle(first)).toContain('inset:0')
+    expect(nodeStyle(parseNode({ type: 'stack', style: { anchor: 'bottom-end' } }))).toContain('inset-inline-end:0')
+  })
   it('resolves global, semantic row, and exact row preferences in order', () => {
     const layout = parsePresentation({ rows: { defaults: { width: 128, layout: 'grid' }, byId: { continue: { width: 264, layout: 'carousel' }, 'merged:continue': { gap: 24 } } } })
     expect(resolveRow(layout, 'merged:continue')).toEqual({ width: 264, layout: 'carousel', gap: 24 })

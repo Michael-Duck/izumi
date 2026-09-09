@@ -160,15 +160,20 @@ export function nodeStyle(node: ThemeNode): string {
     styles.position = 'relative'
   }
   if (node.type === 'artwork') { styles.width = '100%'; styles['object-fit'] = 'cover' }
+  // `anchor` is applied after every other style entry so its absolute positioning cannot be
+  // reordered away by JSON key order (an explicit `position` entry must never win over it).
+  let anchor: string | undefined
   for (const [key, value] of Object.entries(node.style ?? {})) {
     const property = ({ radius: 'border-radius', fontSize: 'font-size', fontWeight: 'font-weight', minHeight: 'min-height', maxWidth: 'max-width', textAlign: 'text-align', align: 'align-items', justify: 'justify-content', fit: 'object-fit', aspect: 'aspect-ratio', grow: 'flex-grow' } as Record<string, string>)[key] ?? key
     if (key === 'columns') styles['grid-template-columns'] = `repeat(${Math.round(Number(value))},minmax(0,1fr))`
-    else if (key === 'anchor') {
-      styles.position = 'absolute'
-      if (value === 'fill') styles.inset = '0'
-      else { styles[String(value).startsWith('bottom') ? 'bottom' : 'top'] = '0'; styles[`inset-inline-${String(value).endsWith('end') ? 'end' : 'start'}`] = '0' }
-    } else if (key === 'color' || key === 'background') styles[property] = String(value).startsWith('#') || value === 'transparent' ? String(value) : `hsl(var(--${value}))`
+    else if (key === 'anchor') anchor = String(value)
+    else if (key === 'color' || key === 'background') styles[property] = String(value).startsWith('#') || value === 'transparent' ? String(value) : `hsl(var(--${value}))`
     else styles[property] = `${value}${numericStyles[key]?.[2] ?? ''}`
+  }
+  if (anchor !== undefined) {
+    styles.position = 'absolute'
+    if (anchor === 'fill') styles.inset = '0'
+    else { styles[anchor.startsWith('bottom') ? 'bottom' : 'top'] = '0'; styles[`inset-inline-${anchor.endsWith('end') ? 'end' : 'start'}`] = '0' }
   }
   return Object.entries(styles).map(([key, value]) => `${key}:${value}`).join(';')
 }

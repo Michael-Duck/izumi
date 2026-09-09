@@ -72,17 +72,23 @@ function saveThemeState(library: StudioTheme[], installed: InstalledTheme[]): vo
 }
 export function applyInstalledTheme(item: InstalledTheme): void {
   if (!get(studioThemes).some(theme => theme.id === item.designId)) throw new Error('This saved theme was removed. Reinstall the theme.')
+  // A still-open installation preview keeps precedence over the active theme, so it must not
+  // survive an explicit apply — the document would keep rendering the previewed design.
+  cancelThemePreview()
   activeStudioThemeId.set(item.designId); themePreset.set('custom')
 }
 export function removeInstalledTheme(id: string): void {
   const item = get(installedThemes).find(theme => theme.id === id)
   if (!item) return
   saveThemeState(get(studioThemes).filter(theme => theme.id !== item.designId), get(installedThemes).filter(theme => theme.id !== id))
-  if (get(activeStudioThemeId) === item.designId) themePreset.set('izumi')
+  // Only hand back to the shipped appearance when the removed install WAS the active appearance;
+  // a stale designId pointer under a shipped preset must not override the user's preset choice.
+  if (get(activeStudioThemeId) === item.designId && get(themePreset) === 'custom') themePreset.set('izumi')
 }
 export function rollbackTheme(id: string): void {
   const item = get(installedThemes).find(theme => theme.id === id)
   if (!item?.previous) return
+  cancelThemePreview()
   const prior = item.previous
   saveThemeState(get(studioThemes).map(theme => theme.id === item.designId ? { ...prior.design, id: item.designId } : theme), get(installedThemes).map(theme => theme.id === id ? { ...item, package: prior.package, previous: undefined } : theme))
 }

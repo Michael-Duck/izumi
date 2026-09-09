@@ -16,6 +16,10 @@ describe('installable theme packages', () => {
     expect(() => parseThemePackage({ ...samplePackage, design: { accountToken: 'hidden' } })).toThrow('unsupported')
     expect(() => parseThemePackage({ ...samplePackage, design: { tokens: { theme: 'url(https://example.test)' } } })).toThrow('color')
   })
+  it('reserves the shared namespace for client-minted export identities', () => {
+    expect(() => parseThemePackage({ ...samplePackage, id: 'shared.cinema' })).toThrow('identity')
+    expect(parseThemePackage({ ...samplePackage, id: 'test.shared' }).id).toBe('test.shared')
+  })
   it('requires exact listing integrity metadata and unique catalog identities', () => {
     const entry = { ...samplePackage, download: 'https://example.test/theme.json', sha256: 'a'.repeat(64), bytes: 500, tags: ['Dark'] }
     expect(parseRelease(entry).bytes).toBe(500)

@@ -27,8 +27,11 @@
   let abort: AbortController | undefined
   const filtered = $derived(entries.filter(entry => `${entry.name} ${entry.author} ${entry.description} ${entry.tags.join(' ')}`.toLowerCase().includes(query.toLowerCase())))
   const failure = (cause: unknown) => cause instanceof Error ? cause.message : 'The theme could not be loaded.'
-  const currentInstall = $derived(prepared ? $installedThemes.find(item => item.id === prepared?.package.id) : undefined)
-  const canInstall = $derived(!currentInstall || !!prepared && (newerVersion(prepared.package.version, currentInstall.package.version) || prepared.package.version === currentInstall.package.version && !$studioThemes.some(theme => theme.id === currentInstall.designId)))
+  // Install state matches on id AND origin: a same-ID package from another location can never
+  // replace this install, so it must not drive the version comparison or the Update button.
+  const currentInstall = $derived(prepared ? $installedThemes.find(item => item.id === prepared?.package.id && item.origin === prepared.origin) : undefined)
+  const originConflict = $derived(!!prepared && $installedThemes.some(item => item.id === prepared?.package.id && item.origin !== prepared.origin))
+  const canInstall = $derived(!originConflict && (!currentInstall || !!prepared && (newerVersion(prepared.package.version, currentInstall.package.version) || prepared.package.version === currentInstall.package.version && !$studioThemes.some(theme => theme.id === currentInstall.designId))))
 
   async function refresh() {
     abort?.abort(); const request = new AbortController(); abort = request; loading = true; error = ''
@@ -104,7 +107,7 @@
     <section class="theme-detail" aria-busy={busy}>
       <button class="back" data-focusable disabled={busy} onclick={() => { selected = null; prepared = null; error = '' }}><ArrowLeft size={16} /> Back to themes</button>
       <div class="detail-grid"><div class="preview-image">{#if selected?.preview}<img src={selected.preview} alt={`${selected.name} layout preview`} referrerpolicy="no-referrer" />{:else}<Palette size={72} strokeWidth={1} />{/if}</div><div><p class="eyebrow">{prepared?.package.author ?? selected?.author}</p><h3>{prepared?.package.name ?? selected?.name}</h3><p class="description">{prepared?.package.description ?? selected?.description}</p><p class="version">Version {prepared?.package.version ?? selected?.version} · Desktop & mobile</p>
-        {#if prepared}<div class="theme-actions"><button class="control" data-focusable disabled={$themeStudioOpen || !canInstall} onclick={preview}>Preview in client</button><button class="control primary" data-focusable disabled={$themeStudioOpen || !canInstall} onclick={install}>{currentInstall ? canInstall ? 'Update & apply' : 'Installed' : 'Install & apply'}</button></div><p class="detail-hint">You can edit this theme in Theme Studio after installing it.</p>{:else if busy}<p role="status">Checking theme package…</p>{/if}
+        {#if prepared}<div class="theme-actions"><button class="control" data-focusable disabled={$themeStudioOpen || !canInstall} onclick={preview}>Preview in client</button><button class="control primary" data-focusable disabled={$themeStudioOpen || !canInstall} onclick={install}>{currentInstall ? canInstall ? 'Update & apply' : 'Installed' : 'Install & apply'}</button></div>{#if originConflict}<p class="detail-hint">A theme with this ID is already installed from a different source. Remove it there before installing this one.</p>{:else}<p class="detail-hint">You can edit this theme in Theme Studio after installing it.</p>{/if}{:else if busy}<p role="status">Checking theme package…</p>{/if}
       </div></div>
     </section>
   {:else if tab === 'browse'}

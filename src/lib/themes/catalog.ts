@@ -3,10 +3,18 @@ import { MAX_THEME_BYTES, THEME_API, THEME_CATALOG_URL, parseCatalog, parseRelea
 
 const CACHE_KEY = 'theme-catalog-cache-v1'
 const encoder = new TextEncoder()
+// WebKit only shipped AbortSignal.any in 17.4 (early 2024); webkit2gtk and unpatched webviews can
+// lack it, and an unconditional call would fail every theme download before any request is made.
+function withTimeout(signal: AbortSignal, timeout: AbortSignal): AbortSignal {
+  if (typeof AbortSignal.any === 'function') return AbortSignal.any([signal, timeout])
+  const combined = new AbortController()
+  for (const source of [signal, timeout]) source.addEventListener('abort', () => { if (!combined.signal.aborted) combined.abort(source.reason) }, { once: true })
+  return combined.signal
+}
 export async function fetchThemeText(url: string, limit = MAX_THEME_BYTES, signal?: AbortSignal): Promise<string> {
   const target = themeUrl(url)
   const timeout = AbortSignal.timeout(20_000)
-  const combined = signal ? AbortSignal.any([signal, timeout]) : timeout
+  const combined = signal ? withTimeout(signal, timeout) : timeout
   if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
     const response = await phttp(target, { maxBytes: limit, timeoutMs: 20_000, signal: combined, background: true })
     if (!response.ok) throw new Error(`Theme download failed (HTTP ${response.status}).`)
