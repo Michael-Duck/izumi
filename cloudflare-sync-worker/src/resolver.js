@@ -233,7 +233,7 @@ export function normalizeResolveRequest(value) {
   const excludeCandidateIds = Array.isArray(input.excludeCandidateIds) ? [...new Set(input.excludeCandidateIds
     .filter(id => typeof id === 'string' && /^[A-Za-z0-9_-]{1,160}$/.test(id)))].slice(0, 60) : []
   const videoCapabilities = input.videoCapabilities && typeof input.videoCapabilities === 'object'
-    ? Object.fromEntries(['hdr', 'uhd', 'av1'].flatMap(key => typeof input.videoCapabilities[key] === 'boolean' ? [[key, input.videoCapabilities[key]]] : [])) : undefined
+    ? Object.fromEntries(['hdr', 'uhd', 'av1', 'opus', 'flac'].flatMap(key => typeof input.videoCapabilities[key] === 'boolean' ? [[key, input.videoCapabilities[key]]] : [])) : undefined
   return { ref: { provider, type, id }, episode, season, streamType, nativeType, streamIds,
     ...(title ? { title } : {}), ...(excludeCandidateIds.length ? { excludeCandidateIds } : {}), ...(videoCapabilities ? { videoCapabilities } : {}) }
 }
@@ -580,7 +580,6 @@ function aniZipRefineHints(metadata, episode) {
 async function refineContextFor(request, plan, profile, fetcher) {
   const titles = []
   let year
-  let releasedAt
   let expectedSeconds = plan.refine?.expectedSeconds
   let totalEpisodes = plan.refine?.totalEpisodes
   let absoluteNumbered = plan.refine?.absoluteNumbered
@@ -632,8 +631,6 @@ async function refineContextFor(request, plan, profile, fetcher) {
         titles.push(...[meta.name, meta.originalName].flatMap((entry) => typeof entry === 'string' && entry.trim() ? [entry.trim()] : []))
         const debut = Number(String(meta.year ?? '').slice(0, 4))
         if (debut >= 1950 && debut <= 2035) year = debut
-        const premiered = Date.parse(String(meta.released ?? ''))
-        if (Number.isFinite(premiered)) releasedAt = premiered
         const minutes = Number(String(meta.runtime ?? '').match(/\d+/)?.[0])
         if (!expectedSeconds && Number.isFinite(minutes) && minutes > 0) expectedSeconds = Math.round(minutes * 60)
       }
@@ -648,8 +645,6 @@ async function refineContextFor(request, plan, profile, fetcher) {
         .flatMap((value) => typeof value === 'string' && value.trim() ? [value.trim()] : []))
       const debut = Number(String(detail.release_date ?? detail.first_air_date ?? '').slice(0, 4))
       if (debut >= 1950 && debut <= 2035) year = debut
-      const premiered = Date.parse(String(detail.release_date ?? ''))
-      if (Number.isFinite(premiered)) releasedAt = premiered
       const minutes = Number(kind === 'movie' ? detail.runtime : detail.episode_run_time?.[0])
       if (!expectedSeconds && Number.isFinite(minutes) && minutes > 0) expectedSeconds = Math.round(minutes * 60)
       const count = Number(detail.number_of_episodes)
@@ -660,7 +655,6 @@ async function refineContextFor(request, plan, profile, fetcher) {
     titles: [...new Set(titles)].slice(0, 12),
     streamType: request.streamType,
     ...(year ? { year } : {}),
-    ...(releasedAt ? { releasedAt } : {}),
     ...(expectedSeconds ? { expectedSeconds } : {}),
     ...(totalEpisodes ? { totalEpisodes } : {}),
     ...(absoluteNumbered ? { absoluteNumbered: true } : {}),
@@ -880,7 +874,7 @@ async function mapLimit(values, limit, operation) {
   return output
 }
 
-async function resolveAddon(base, ids, type, fetcher, allowPrivate = false, addonIndex = 0, deadline = Infinity, subtitlesOnly = false, onStreams) {
+async function resolveAddon(base, ids, type, fetcher, allowPrivate = false, addonIndex = 0, deadline = Infinity, subtitlesOnly = false, onStreams, onSubtitles) {
   const failures = []
   const failed = (message) => failures.push(`A configured source ${message}`)
   const manifest = await fetchJson(fetcher, addonEndpoint(base, '/manifest.json'), Math.min(MANIFEST_TIMEOUT_MS, deadline - Date.now()), failed)
@@ -899,6 +893,10 @@ async function resolveAddon(base, ids, type, fetcher, allowPrivate = false, addo
       const url = cleanUrl(track?.url)
       return url ? [{ url, title: cleanText(track.title ?? track.name, 160), lang: cleanText(track.lang, 24) }] : []
     })
+  }).then(lists => {
+    const tracks = lists.flat()
+    if (tracks.length) onSubtitles?.(tracks)
+    return tracks
   })
   const ask = subtitlesOnly ? [] : ids.filter((id) => acceptsStreamId(manifest, type, id))
   const responses = await mapLimit(ask, 2, async (id) => {
@@ -920,7 +918,7 @@ async function resolveAddon(base, ids, type, fetcher, allowPrivate = false, addo
   }))
   const batch = { streams, failures, tvRequests: failures.length ? tvSourceRequests(base, ask, type, addonIndex) : [] }
   onStreams?.(batch)
-  return { ...batch, subtitles: (await subtitlesPromise).flat() }
+  return { ...batch, subtitles: await subtitlesPromise }
 }
 
 async function embeddedStremioStreams(request, bases, plan, fetcher, allowPrivate = false) {
@@ -972,11 +970,13 @@ function sourcePool(batches, request, profile, refineContext, complete = true) {
 }
 
 function orderedSources(pool, profile, plan) {
+  // The desktop ranks with the same subtitle-language preference; 'none' means no preference.
+  const subtitleLang = profile.subtitleLang && profile.subtitleLang !== 'none' ? profile.subtitleLang : undefined
   const preferred = pickCandidates(pool, profile.quality, plan.want, undefined, {
-    audioLang: profile.audioLang || undefined, cacheCheck: 'none', allowUncached: !!profile.debrid, sourcePriority: profile.sourcePriority,
+    audioLang: profile.audioLang || undefined, subtitleLang, cacheCheck: 'none', allowUncached: !!profile.debrid, sourcePriority: profile.sourcePriority,
   })
   return [...new Set([...preferred, ...pickCandidates(pool, profile.quality, plan.want, undefined, {
-    cacheCheck: 'none', allowUncached: !!profile.debrid, sourcePriority: profile.sourcePriority,
+    subtitleLang, cacheCheck: 'none', allowUncached: !!profile.debrid, sourcePriority: profile.sourcePriority,
   })])]
 }
 
@@ -1037,11 +1037,29 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
     const value = direct ? { ...direct, delivery: 'direct' } : debridResults.get(stream.infoHash)
     return value && !request.excludeCandidateIds?.includes(value.id) ? [value] : []
   }).slice(0, MAX_RESPONSE_CANDIDATES)
+  const addonSubtitleBatches = []
+  let serviceSubtitles = []
+  // Sidecars remain first; independently installed subtitle add-ons fill the remaining slots.
+  // Copies keep shared debrid results unmutated, and the byte bound keeps a full response and
+  // its progress events inside the resolve channel's message limit.
+  const withSubtitles = list => list.map(candidate => {
+    const seen = new Set()
+    const merged = [...(candidate.subtitles ?? []), ...addonSubtitleBatches.flat(), ...(plan.subtitleTracks ?? []), ...serviceSubtitles]
+      .filter(track => {
+        const key = track.url ?? JSON.stringify(track.download)
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      .filter((track, index, tracks) => index < 40 && encoder.encode(JSON.stringify(tracks.slice(0, index + 1))).length < 8_000)
+    return { ...candidate, subtitles: merged }
+  })
   const publishCandidates = async candidates => {
-    const key = JSON.stringify(candidates)
-    if (!candidates.length || key === lastProgressKey) return
+    const merged = withSubtitles(candidates)
+    const key = JSON.stringify(merged)
+    if (!merged.length || key === lastProgressKey) return
     lastProgressKey = key
-    await options.onProgress({ candidates: structuredClone(candidates), selectedId: candidates[0].id, ...sourcePreferences(profile) })
+    await options.onProgress({ candidates: structuredClone(merged), selectedId: merged[0].id, ...sourcePreferences(profile) })
   }
   const prepareOnce = stream => {
     if (!debridAttempts.has(stream.infoHash)) {
@@ -1078,6 +1096,7 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
       await publishCandidates(availableCandidates(orderedSources(pool, profile, plan)))
     }).catch(error => { progressError = error })
   }
+  void serviceSubtitlesPromise.then(tracks => { serviceSubtitles = tracks; showProgress() })
   const showBatch = batch => {
     observed.push(batch)
     showProgress()
@@ -1124,7 +1143,7 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
           }).catch(error => { if (signal?.aborted) progressError = error })
           delegated.push(work)
         }
-      })),
+      }, tracks => { addonSubtitleBatches.push(tracks); showProgress() })),
     ]
   await Promise.all(delegated)
   batches.push(...delegatedBatches)
@@ -1168,17 +1187,8 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
     if (candidates.length >= MAX_RESPONSE_CANDIDATES) break
   }
   candidates.splice(MAX_RESPONSE_CANDIDATES)
-  // Sidecars remain first; independently installed subtitle add-ons fill the remaining slots.
   const addonSubtitles = batches.flatMap(batch => batch.subtitles ?? []).concat(plan.subtitleTracks ?? [], await serviceSubtitlesPromise)
-  for (const candidate of candidates) {
-    const seen = new Set()
-    candidate.subtitles = [...candidate.subtitles, ...addonSubtitles].filter(track => {
-      const key = track.url ?? JSON.stringify(track.download)
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    }).slice(0, 40)
-  }
+  const finalCandidates = withSubtitles(candidates)
   signal?.throwIfAborted()
   const tvSourceLookup = !options.fetchSource && candidates.length < MAX_RESPONSE_CANDIDATES && requestValue.tvSourceLookup === 1 && !options.tvContinuation && options.tvLookupContext
     ? await createTvSourceLookup(profile, request, { ...plan, subtitleTracks: addonSubtitles.filter((track, index, tracks) =>
@@ -1192,8 +1202,8 @@ export async function resolveDirectSources(profileValue, requestValue, fetcher =
         : `${profile.debrid ? providerName(profile.debrid.provider) + ' is configured, but the' : 'The'} returned sources could not be played on the TV.`)
   }
   return {
-    candidates,
-    selectedId: candidates[0]?.id ?? null,
+    candidates: finalCandidates,
+    selectedId: finalCandidates[0]?.id ?? null,
     queriedIds: plan.ids,
     rejected,
     failures: [...new Set([...failures, ...debridFailures])].slice(0, 3),
